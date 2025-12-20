@@ -1,101 +1,55 @@
 # backlog-mcp
 
-Minimal, boring, correct core for persistent backlog state.
+Minimal task backlog as an MCP server. Records state, doesn't enforce workflow.
 
-> *Backlog MCP is intentionally opinionated about state validity and completion claims, while remaining agnostic about how work is planned or performed.*
+## Task Schema
 
-## What This Is
-
-- A strict task schema
-- An explicit state machine with allowed transitions
-- Disk-backed persistence (coming soon)
-- Crash-safe updates
-- Deterministic behavior
-
-## What This Is Not
-
-- An autonomous agent
-- A productivity app
-- A workflow engine
-- A task source of truth
-
-This is an **execution ledger**, not a task manager. Remote systems own intent; this owns execution truth per workspace.
-
-## Status Semantics
-
-| Status | Meaning |
-|--------|---------|
-| `open` | Work is defined but not started |
-| `in_progress` | Someone is actively working to produce artifacts |
-| `blocked` | Progress is impossible without external change |
-| `verifying` | Work claims submitted, awaiting audit |
-| `done` | Claims verified; required evidence exists (terminal) |
-| `cancelled` | Work intentionally abandoned (terminal) |
-
-## State Machine
-
-```
-open ──────► in_progress ──────► verifying ──────► done
-  │               │                  │
-  │               │                  ├─► in_progress (rejected)
-  │               │                  │
-  │               │                  └─► cancelled
-  │               │
-  │               ├────────────────► blocked
-  │               │                     │
-  │               │                     ├─► in_progress
-  │               │                     │
-  │               │                     └─► cancelled
-  │               │
-  │               └────────────────► cancelled
-  │
-  └────────────────────────────────► cancelled
+```typescript
+{
+  id: string;           // TASK-0001
+  title: string;
+  description?: string;
+  status: 'open' | 'in_progress' | 'blocked' | 'done' | 'cancelled';
+  created_at: string;   // ISO8601
+  updated_at: string;   // ISO8601
+  blocked_reason?: string;
+  evidence?: string[];
+}
 ```
 
-## Core Invariants
+## MCP Tools
 
-1. **DONE must be earned, not asserted.** Requires passing through `verifying` with valid DoD and evidence.
+| Tool | Description |
+|------|-------------|
+| `backlog_list` | List tasks. Filter by status. Use `summary=true` for counts. |
+| `backlog_get` | Get task by ID |
+| `backlog_create` | Create task |
+| `backlog_update` | Update any field (title, description, status, blocked_reason, evidence) |
 
-2. **No state teleportation.** Transitions follow explicit rules.
-
-3. **Evidence is structured, not prose.** Artifacts array, not free text.
-
-4. **Verification is a phase.** Work claims get scrutiny time before completion.
-
-5. **Server enforces invariants.** Clients are untrusted.
-
-## Verification Philosophy
-
-Verification is **structural only**:
-- `dod.checklist` must be non-empty
-- `evidence.artifacts` must have at least 1 item
-- All strings must be non-empty
-
-The server does NOT run commands, check file existence, or validate URLs. Artifacts are opaque strings.
-
-## Mutation Authority
-
-| Field | Mutable in states |
-|-------|-------------------|
-| `title`, `description` | open, in_progress, blocked |
-| `dod` | open, in_progress |
-| `evidence` | Set only via transition to verifying |
-| `blocked` | Set only via transition to blocked |
-
-Nothing is mutable in terminal states (`done`, `cancelled`).
-
-## Failure Semantics
-
-If verification is rejected (`verifying` → `in_progress`):
-- Evidence is cleared
-- DoD is kept for retry
-
-## Installation
+## Usage
 
 ```bash
 npm install
 npm run build
+npm start
 ```
+
+Or add to Claude Desktop config:
+
+```json
+{
+  "mcpServers": {
+    "backlog": {
+      "command": "node",
+      "args": ["/path/to/backlog-mcp/dist/server.js"]
+    }
+  }
+}
+```
+
+## Storage
+
+Single file: `data/backlog.json` (atomic writes via temp + rename)
 
 ## License
 

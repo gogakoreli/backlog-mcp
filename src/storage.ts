@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Task } from './schema.js';
 
@@ -170,7 +170,6 @@ export function getTaskCounts(options: StorageOptions = {}): Record<Task['status
     open: 0,
     in_progress: 0,
     blocked: 0,
-    verifying: 0,
     done: 0,
     cancelled: 0,
   };

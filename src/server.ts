@@ -32,7 +32,6 @@ const server = new McpServer({
   version: '0.1.0',
 });
 
-// Storage options (can be configured via environment)
 const storageOptions: StorageOptions = {
   dataDir: process.env.BACKLOG_DATA_DIR ?? 'data',
 };
@@ -41,30 +40,54 @@ const storageOptions: StorageOptions = {
 // Tools
 // ============================================================================
 
-// --- List Tasks ---
+// --- List / Summary ---
 server.tool(
   'backlog_list',
-  'List all tasks, optionally filtered by status',
+  'List tasks or get summary. Use summary=true for counts and health overview.',
   {
     status: z.array(z.enum(STATUSES)).optional().describe('Filter by status(es)'),
+    summary: z.boolean().optional().describe('Return summary with counts instead of task list'),
   },
-  async ({ status }) => {
+  async ({ status, summary }) => {
     const tasks = listTasks(status ? { status } : undefined, storageOptions);
-    const summary = tasks.map((t) => ({
+
+    if (summary) {
+      const counts = getTaskCounts(storageOptions);
+      const blocked = tasks.filter((t) => t.status === 'blocked');
+      const verifying = tasks.filter((t) => t.status === 'verifying');
+
+      let text = `## Backlog Summary\n\n`;
+      text += `| Status | Count |\n|--------|-------|\n`;
+      for (const s of STATUSES) {
+        text += `| ${s} | ${counts[s]} |\n`;
+      }
+      text += `\n**Total:** ${tasks.length}\n`;
+
+      if (blocked.length > 0) {
+        text += `\n### Blocked\n`;
+        for (const t of blocked) {
+          text += `- ${t.id}: ${t.title} (${t.blocked?.reason})\n`;
+        }
+      }
+
+      if (verifying.length > 0) {
+        text += `\n### Awaiting Verification\n`;
+        for (const t of verifying) {
+          text += `- ${t.id}: ${t.title}\n`;
+        }
+      }
+
+      return { content: [{ type: 'text' as const, text }] };
+    }
+
+    const list = tasks.map((t) => ({
       id: t.id,
       title: t.title,
       status: t.status,
       updated_at: t.updated_at,
     }));
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(summary, null, 2),
-        },
-      ],
-    };
+    return { content: [{ type: 'text' as const, text: JSON.stringify(list, null, 2) }] };
   }
 );
 
@@ -85,9 +108,7 @@ server.tool(
       };
     }
 
-    return {
-      content: [{ type: 'text' as const, text: JSON.stringify(task, null, 2) }],
-    };
+    return { content: [{ type: 'text' as const, text: JSON.stringify(task, null, 2) }] };
   }
 );
 
@@ -99,11 +120,9 @@ server.tool(
     title: z.string().describe('Task title'),
     description: z.string().optional().describe('Task description'),
     dod: z
-      .object({
-        checklist: z.array(z.string()).describe('Definition of Done checklist items'),
-      })
+      .object({ checklist: z.array(z.string()) })
       .optional()
-      .describe('Definition of Done'),
+      .describe('Definition of Done checklist'),
   },
   async ({ title, description, dod }) => {
     const input = { title, description, dod };
@@ -111,221 +130,54 @@ server.tool(
     const validation = validateCreateTaskInput(input);
     if (!validation.valid) {
       return {
-        content: [
-          {
-            type: 'text' as const,
-            text: `Validation failed:\n${validation.errors.map((e) => `- ${e.field}: ${e.message}`).join('\n')}`,
-          },
-        ],
+        content: [{ type: 'text' as const, text: `Validation failed:\n${validation.errors.map((e) => `- ${e.field}: ${e.message}`).join('\n')}` }],
         isError: true,
       };
     }
 
     const backlog = loadBacklog(storageOptions);
     const task = createTask(input, backlog.tasks);
-
     addTask(task, storageOptions);
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: `Created task ${task.id}: ${task.title}`,
-        },
-      ],
-    };
+    return { content: [{ type: 'text' as const, text: `Created ${task.id}: ${task.title}` }] };
   }
 );
 
-// --- Update Task ---
+// --- Update Task (fields or transition) ---
+const ACTIONS = ['start', 'block', 'unblock', 'submit', 'verify', 'reject', 'cancel'] as const;
+
 server.tool(
   'backlog_update',
-  'Update task fields (title, description, dod). Respects mutation authority based on status.',
+  `Update a task. Either update fields (title, description, dod) or transition state via action.
+
+Actions (state transitions):
+- start: open → in_progress
+- block: in_progress → blocked (requires reason)
+- unblock: blocked → in_progress
+- submit: in_progress → verifying (requires dod + evidence)
+- verify: verifying → done
+- reject: verifying → in_progress (clears evidence)
+- cancel: any → cancelled`,
   {
     id: z.string().describe('Task ID'),
+    // Field updates
     title: z.string().optional().describe('New title'),
     description: z.string().optional().describe('New description'),
-    dod: z
-      .object({
-        checklist: z.array(z.string()),
-      })
-      .optional()
-      .describe('New Definition of Done'),
-  },
-  async ({ id, title, description, dod }) => {
-    const task = getTask(id, storageOptions);
-
-    if (!task) {
-      return {
-        content: [{ type: 'text' as const, text: `Task '${id}' not found` }],
-        isError: true,
-      };
-    }
-
-    const result = updateTask(task, { title, description, dod });
-
-    if (!result.ok) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: `Update failed:\n${result.errors.map((e) => `- ${e.field}: ${e.message}`).join('\n')}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    saveTask(result.task, storageOptions);
-
-    return {
-      content: [{ type: 'text' as const, text: `Updated task ${id}` }],
-    };
-  }
-);
-
-// --- Start Work ---
-server.tool(
-  'backlog_start',
-  'Start work on a task (open → in_progress)',
-  {
-    id: z.string().describe('Task ID'),
-  },
-  async ({ id }) => {
-    const task = getTask(id, storageOptions);
-
-    if (!task) {
-      return {
-        content: [{ type: 'text' as const, text: `Task '${id}' not found` }],
-        isError: true,
-      };
-    }
-
-    const result = transition(task, { to: 'in_progress' });
-
-    if (!result.ok) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: `Cannot start:\n${result.errors.map((e) => `- ${e.field}: ${e.message}`).join('\n')}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    saveTask(result.task, storageOptions);
-
-    return {
-      content: [{ type: 'text' as const, text: `Started work on ${id}` }],
-    };
-  }
-);
-
-// --- Block Task ---
-server.tool(
-  'backlog_block',
-  'Mark a task as blocked (in_progress → blocked)',
-  {
-    id: z.string().describe('Task ID'),
-    reason: z.string().describe('Why the task is blocked'),
-    dependency: z.string().optional().describe('What the task depends on'),
-  },
-  async ({ id, reason, dependency }) => {
-    const task = getTask(id, storageOptions);
-
-    if (!task) {
-      return {
-        content: [{ type: 'text' as const, text: `Task '${id}' not found` }],
-        isError: true,
-      };
-    }
-
-    const result = transition(task, {
-      to: 'blocked',
-      blocked: { reason, dependency },
-    });
-
-    if (!result.ok) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: `Cannot block:\n${result.errors.map((e) => `- ${e.field}: ${e.message}`).join('\n')}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    saveTask(result.task, storageOptions);
-
-    return {
-      content: [{ type: 'text' as const, text: `Blocked ${id}: ${reason}` }],
-    };
-  }
-);
-
-// --- Unblock Task ---
-server.tool(
-  'backlog_unblock',
-  'Unblock a task (blocked → in_progress)',
-  {
-    id: z.string().describe('Task ID'),
-  },
-  async ({ id }) => {
-    const task = getTask(id, storageOptions);
-
-    if (!task) {
-      return {
-        content: [{ type: 'text' as const, text: `Task '${id}' not found` }],
-        isError: true,
-      };
-    }
-
-    const result = transition(task, { to: 'in_progress' });
-
-    if (!result.ok) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: `Cannot unblock:\n${result.errors.map((e) => `- ${e.field}: ${e.message}`).join('\n')}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    saveTask(result.task, storageOptions);
-
-    return {
-      content: [{ type: 'text' as const, text: `Unblocked ${id}` }],
-    };
-  }
-);
-
-// --- Submit for Verification ---
-server.tool(
-  'backlog_submit',
-  'Submit work for verification (in_progress → verifying). Requires DoD and evidence.',
-  {
-    id: z.string().describe('Task ID'),
-    dod: z
-      .object({
-        checklist: z.array(z.string()).describe('Completed DoD items'),
-      })
-      .describe('Definition of Done'),
+    dod: z.object({ checklist: z.array(z.string()) }).optional().describe('Definition of Done'),
+    // State transition
+    action: z.enum(ACTIONS).optional().describe('State transition action'),
+    reason: z.string().optional().describe('Block reason (for block action)'),
+    dependency: z.string().optional().describe('Dependency (for block action)'),
     evidence: z
       .object({
-        artifacts: z.array(z.string()).describe('Proof of completion (paths, URLs, SHAs)'),
-        commands: z.array(z.string()).optional().describe('Commands that were run'),
-        notes: z.string().optional().describe('Additional notes'),
+        artifacts: z.array(z.string()).describe('Proof of completion'),
+        commands: z.array(z.string()).optional(),
+        notes: z.string().optional(),
       })
-      .describe('Evidence of completion'),
+      .optional()
+      .describe('Evidence (for submit action)'),
   },
-  async ({ id, dod, evidence }) => {
+  async ({ id, title, description, dod, action, reason, dependency, evidence }) => {
     const task = getTask(id, storageOptions);
 
     if (!task) {
@@ -335,193 +187,73 @@ server.tool(
       };
     }
 
-    const result = transition(task, { to: 'verifying', dod, evidence });
-
-    if (!result.ok) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: `Cannot submit:\n${result.errors.map((e) => `- ${e.field}: ${e.message}`).join('\n')}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    saveTask(result.task, storageOptions);
-
-    return {
-      content: [{ type: 'text' as const, text: `Submitted ${id} for verification` }],
-    };
-  }
-);
-
-// --- Verify (Complete) ---
-server.tool(
-  'backlog_verify',
-  'Verify and complete a task (verifying → done)',
-  {
-    id: z.string().describe('Task ID'),
-  },
-  async ({ id }) => {
-    const task = getTask(id, storageOptions);
-
-    if (!task) {
-      return {
-        content: [{ type: 'text' as const, text: `Task '${id}' not found` }],
-        isError: true,
-      };
-    }
-
-    const result = transition(task, { to: 'done' });
-
-    if (!result.ok) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: `Cannot verify:\n${result.errors.map((e) => `- ${e.field}: ${e.message}`).join('\n')}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    saveTask(result.task, storageOptions);
-
-    return {
-      content: [{ type: 'text' as const, text: `Verified and completed ${id}` }],
-    };
-  }
-);
-
-// --- Reject (Back to In Progress) ---
-server.tool(
-  'backlog_reject',
-  'Reject verification and return to in_progress (verifying → in_progress). Clears evidence.',
-  {
-    id: z.string().describe('Task ID'),
-  },
-  async ({ id }) => {
-    const task = getTask(id, storageOptions);
-
-    if (!task) {
-      return {
-        content: [{ type: 'text' as const, text: `Task '${id}' not found` }],
-        isError: true,
-      };
-    }
-
-    if (task.status !== 'verifying') {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: `Task '${id}' is not in verifying status (current: ${task.status})`,
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    const result = transition(task, { to: 'in_progress' });
-
-    if (!result.ok) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: `Cannot reject:\n${result.errors.map((e) => `- ${e.field}: ${e.message}`).join('\n')}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    saveTask(result.task, storageOptions);
-
-    return {
-      content: [{ type: 'text' as const, text: `Rejected ${id}, returned to in_progress` }],
-    };
-  }
-);
-
-// --- Cancel Task ---
-server.tool(
-  'backlog_cancel',
-  'Cancel a task (any non-terminal → cancelled)',
-  {
-    id: z.string().describe('Task ID'),
-  },
-  async ({ id }) => {
-    const task = getTask(id, storageOptions);
-
-    if (!task) {
-      return {
-        content: [{ type: 'text' as const, text: `Task '${id}' not found` }],
-        isError: true,
-      };
-    }
-
-    const result = transition(task, { to: 'cancelled' });
-
-    if (!result.ok) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: `Cannot cancel:\n${result.errors.map((e) => `- ${e.field}: ${e.message}`).join('\n')}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    saveTask(result.task, storageOptions);
-
-    return {
-      content: [{ type: 'text' as const, text: `Cancelled ${id}` }],
-    };
-  }
-);
-
-// --- Summary ---
-server.tool(
-  'backlog_summary',
-  'Get a summary of the backlog (counts by status)',
-  {},
-  async () => {
-    const counts = getTaskCounts(storageOptions);
-    const tasks = listTasks(undefined, storageOptions);
-
-    const blocked = tasks.filter((t) => t.status === 'blocked');
-    const verifying = tasks.filter((t) => t.status === 'verifying');
-
-    let text = `## Backlog Summary\n\n`;
-    text += `| Status | Count |\n|--------|-------|\n`;
-    for (const status of STATUSES) {
-      text += `| ${status} | ${counts[status]} |\n`;
-    }
-    text += `\n**Total:** ${tasks.length}\n`;
-
-    if (blocked.length > 0) {
-      text += `\n### Blocked Tasks\n`;
-      for (const t of blocked) {
-        text += `- ${t.id}: ${t.title} (${t.blocked?.reason})\n`;
+    // If action provided, do state transition
+    if (action) {
+      let transitionInput;
+      switch (action) {
+        case 'start':
+        case 'unblock':
+          transitionInput = { to: 'in_progress' as const };
+          break;
+        case 'block':
+          if (!reason) {
+            return { content: [{ type: 'text' as const, text: 'block requires reason' }], isError: true };
+          }
+          transitionInput = { to: 'blocked' as const, blocked: { reason, dependency } };
+          break;
+        case 'submit':
+          if (!dod || !evidence) {
+            return { content: [{ type: 'text' as const, text: 'submit requires dod and evidence' }], isError: true };
+          }
+          transitionInput = { to: 'verifying' as const, dod, evidence };
+          break;
+        case 'verify':
+          transitionInput = { to: 'done' as const };
+          break;
+        case 'reject':
+          if (task.status !== 'verifying') {
+            return { content: [{ type: 'text' as const, text: `reject requires verifying status (current: ${task.status})` }], isError: true };
+          }
+          transitionInput = { to: 'in_progress' as const };
+          break;
+        case 'cancel':
+          transitionInput = { to: 'cancelled' as const };
+          break;
       }
-    }
 
-    if (verifying.length > 0) {
-      text += `\n### Awaiting Verification\n`;
-      for (const t of verifying) {
-        text += `- ${t.id}: ${t.title}\n`;
+      const result = transition(task, transitionInput);
+      if (!result.ok) {
+        return {
+          content: [{ type: 'text' as const, text: `Transition failed:\n${result.errors.map((e) => `- ${e.field}: ${e.message}`).join('\n')}` }],
+          isError: true,
+        };
       }
+
+      saveTask(result.task, storageOptions);
+
+      const messages: Record<typeof action, string> = {
+        start: `Started ${id}`,
+        block: `Blocked ${id}: ${reason}`,
+        unblock: `Unblocked ${id}`,
+        submit: `Submitted ${id} for verification`,
+        verify: `Completed ${id}`,
+        reject: `Rejected ${id}`,
+        cancel: `Cancelled ${id}`,
+      };
+      return { content: [{ type: 'text' as const, text: messages[action] }] };
     }
 
-    return {
-      content: [{ type: 'text' as const, text }],
-    };
+    // Otherwise, field update
+    const result = updateTask(task, { title, description, dod });
+    if (!result.ok) {
+      return {
+        content: [{ type: 'text' as const, text: `Update failed:\n${result.errors.map((e) => `- ${e.field}: ${e.message}`).join('\n')}` }],
+        isError: true,
+      };
+    }
+
+    saveTask(result.task, storageOptions);
+    return { content: [{ type: 'text' as const, text: `Updated ${id}` }] };
   }
 );
 

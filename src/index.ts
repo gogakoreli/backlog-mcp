@@ -46,3 +46,18 @@ export {
   isTerminal,
   transition,
 } from './transitions.js';
+
+// Storage
+export {
+  type Backlog,
+  type StorageOptions,
+  loadBacklog,
+  saveBacklog,
+  getTask,
+  listTasks,
+  addTask,
+  saveTask,
+  deleteTask,
+  taskExists,
+  getTaskCounts,
+} from './storage.js';

@@ -5,6 +5,9 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "backlog-mcp": "./dist/server.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -19,8 +22,9 @@
   "scripts": {
     "build": "tsc",
     "clean": "rm -rf dist",
+    "start": "node dist/server.js",
     "test": "tsx --test src/**/*.test.ts",
-    "dev": "tsx watch src/index.ts"
+    "dev": "tsx watch src/server.ts"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -30,5 +34,8 @@
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.1"
   }
 }

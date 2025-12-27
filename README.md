@@ -26,15 +26,31 @@ Minimal task backlog as an MCP server. Records state, doesn't enforce workflow.
 | `backlog_create` | Create task |
 | `backlog_update` | Update any field (title, description, status, blocked_reason, evidence) |
 
-## Usage
+## Installation
+
+Add to your MCP config (`.mcp.json` or Claude Desktop config):
+
+```json
+{
+  "mcpServers": {
+    "backlog": {
+      "command": "npx",
+      "args": ["-y", "backlog-mcp"]
+    }
+  }
+}
+```
+
+Or build from source:
 
 ```bash
-npm install
-npm run build
+git clone https://github.com/gkoreli/backlog-mcp.git
+cd backlog-mcp
+npm install && npm run build
 npm start
 ```
 
-Or add to Claude Desktop config:
+Claude Desktop config:
 
 ```json
 {

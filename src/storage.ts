@@ -22,6 +22,9 @@ export interface StorageOptions {
 
 const DEFAULT_DATA_DIR = 'data';
 const BACKLOG_FILE = 'backlog.json';
+const ARCHIVE_FILE = 'archive.json';
+
+const TERMINAL_STATUSES = ['done', 'cancelled'] as const;
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) {
@@ -31,6 +34,10 @@ function ensureDir(dir: string): void {
 
 function getBacklogPath(dataDir: string): string {
   return join(dataDir, BACKLOG_FILE);
+}
+
+function getArchivePath(dataDir: string): string {
+  return join(dataDir, ARCHIVE_FILE);
 }
 
 function emptyBacklog(): Backlog {
@@ -81,6 +88,68 @@ export function saveBacklog(backlog: Backlog, options: StorageOptions = {}): voi
   renameSync(tempPath, path);
 }
 
+/**
+ * Load archive from disk. Returns empty backlog if file doesn't exist.
+ */
+export function loadArchive(options: StorageOptions = {}): Backlog {
+  const dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
+  const path = getArchivePath(dataDir);
+
+  if (!existsSync(path)) {
+    return emptyBacklog();
+  }
+
+  const content = readFileSync(path, 'utf-8');
+  const data = JSON.parse(content) as Backlog;
+
+  if (data.version !== '1') {
+    throw new Error(`Unsupported archive version: ${data.version}`);
+  }
+
+  return data;
+}
+
+/**
+ * Save archive to disk atomically.
+ */
+function saveArchive(archive: Backlog, options: StorageOptions = {}): void {
+  const dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
+  ensureDir(dataDir);
+
+  const path = getArchivePath(dataDir);
+  const tempPath = join(dataDir, `.archive.${randomUUID()}.tmp`);
+
+  const content = JSON.stringify(archive, null, 2);
+
+  writeFileSync(tempPath, content, 'utf-8');
+  renameSync(tempPath, path);
+}
+
+/**
+ * Move a task from backlog to archive.
+ */
+function archiveTask(task: Task, options: StorageOptions = {}): void {
+  const backlog = loadBacklog(options);
+  const archive = loadArchive(options);
+
+  // Remove from backlog
+  const index = backlog.tasks.findIndex((t) => t.id === task.id);
+  if (index !== -1) {
+    backlog.tasks.splice(index, 1);
+  }
+
+  // Add to archive (replace if exists)
+  const archiveIndex = archive.tasks.findIndex((t) => t.id === task.id);
+  if (archiveIndex !== -1) {
+    archive.tasks[archiveIndex] = task;
+  } else {
+    archive.tasks.push(task);
+  }
+
+  saveBacklog(backlog, options);
+  saveArchive(archive, options);
+}
+
 // ============================================================================
 // Task Operations
 // ============================================================================
@@ -125,6 +194,7 @@ export function addTask(task: Task, options: StorageOptions = {}): void {
 
 /**
  * Update an existing task. Throws if task doesn't exist.
+ * Automatically archives tasks with terminal status (done, cancelled).
  */
 export function saveTask(task: Task, options: StorageOptions = {}): void {
   const backlog = loadBacklog(options);
@@ -132,6 +202,12 @@ export function saveTask(task: Task, options: StorageOptions = {}): void {
 
   if (index === -1) {
     throw new Error(`Task with ID '${task.id}' not found`);
+  }
+
+  // Archive if terminal status
+  if (TERMINAL_STATUSES.includes(task.status as typeof TERMINAL_STATUSES[number])) {
+    archiveTask(task, options);
+    return;
   }
 
   backlog.tasks[index] = task;

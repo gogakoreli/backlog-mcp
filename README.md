@@ -19,14 +19,18 @@ Minimal task backlog MCP server for Claude and AI agents.
 }
 ```
 
-## MCP Tools
+## MCP Tool
 
-| Tool | Description |
-|------|-------------|
-| `backlog_list` | List tasks. Filter by status. Use `summary=true` for counts. |
-| `backlog_get` | Get task by ID |
-| `backlog_create` | Create task |
-| `backlog_update` | Update any field (title, description, status, blocked_reason, evidence) |
+Single unified tool with action parameter:
+
+```
+backlog action="list"                         # List all tasks
+backlog action="list" summary=true            # Get counts by status
+backlog action="list" status=["open"]         # Filter by status
+backlog action="get" id="TASK-0001"           # Get task details
+backlog action="create" title="Fix bug"       # Create task
+backlog action="update" id="TASK-0001" set_status="done"  # Update task
+```
 
 ## Installation
 
@@ -54,8 +58,9 @@ npm start
 
 ## Storage
 
-- Active tasks: `data/backlog.json`
-- Completed/cancelled tasks: `data/archive.json` (auto-archived)
+- Default: `data/backlog.json` (local to project)
+- Global: Set `BACKLOG_DATA_DIR=~/.backlog` for cross-project persistence
+- Completed/cancelled tasks auto-archive to `archive.json`
 - Atomic writes via temp + rename
 
 ## License

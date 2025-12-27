@@ -4,13 +4,14 @@ MCP server for task tracking. Use it to manage your backlog during this session.
 
 ## Quick Start
 
-The backlog MCP tools are already available if configured. Use them directly:
+The backlog tool is already available if configured. Use it directly:
 
 ```
-backlog_list          # List tasks (use summary=true for counts)
-backlog_create        # Create task with title and optional description
-backlog_get           # Get task by ID (TASK-0001)
-backlog_update        # Update status, title, description, evidence
+backlog action="list"                              # List tasks
+backlog action="list" summary=true                 # Get counts
+backlog action="get" id="TASK-0001"                # Get task
+backlog action="create" title="..."                # Create task
+backlog action="update" id="..." set_status="done" # Update task
 ```
 
 ## Task Statuses

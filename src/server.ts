@@ -5,6 +5,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 
 import { createTask, STATUSES, type Task } from './schema.js';
+import { countTasks } from './summary.js';
 import { loadBacklog, getTask, listTasks, addTask, saveTask, getTaskCounts, type StorageOptions } from './storage.js';
 
 // ============================================================================
@@ -51,7 +52,7 @@ server.registerTool(
       case 'list': {
         const tasks = listTasks(status ? { status } : undefined, storageOptions);
         if (summary) {
-          const counts = getTaskCounts(storageOptions);
+          const counts = status ? countTasks(tasks) : getTaskCounts(storageOptions);
           return { content: [{ type: 'text' as const, text: JSON.stringify(counts, null, 2) }] };
         }
         const list = tasks.map((t) => ({ id: t.id, title: t.title, status: t.status }));

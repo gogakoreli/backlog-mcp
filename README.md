@@ -6,7 +6,7 @@ Minimal task backlog MCP server for Claude and AI agents.
 
 ## Web Viewer
 
-Start the server and open `http://localhost:3030/viewer/` for a visual task browser.
+Start the server and open `http://localhost:3030` for a visual task browser.
 
 ```bash
 npm run dev  # Starts MCP server + web viewer with hot reload

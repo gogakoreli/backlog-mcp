@@ -34,9 +34,8 @@ export async function startViewer(dataDir: string, port: number = 3030): Promise
       return;
     }
     
-    // GET / or /viewer/ or /viewer?...
     const pathname = req.url?.split('?')[0];
-    if (pathname === '/' || pathname === '/viewer/' || pathname === '/viewer') {
+    if (pathname === '/') {
       const htmlPath = join(__dirname, '..', 'viewer', 'index.html');
       try {
         const html = readFileSync(htmlPath, 'utf-8');

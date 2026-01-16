@@ -52,10 +52,11 @@ export async function startViewer(dataDir: string, port: number = 3030): Promise
     // Serve static files
     if (req.url?.match(/\.(css|js|svg)$/)) {
       const urlPath = req.url.startsWith('/') ? req.url.slice(1) : req.url;
-      // Try dist/viewer (compiled JS), then viewer/ (source assets like css, svg, md-block.js)
-      let filePath = join(__dirname, 'viewer', urlPath);
+      const projectRoot = __dirname.endsWith('src') ? join(__dirname, '..') : join(__dirname, '..');
+      // Try dist/viewer (compiled JS), then viewer/ (source assets)
+      let filePath = join(projectRoot, 'dist', 'viewer', urlPath);
       if (!existsSync(filePath)) {
-        filePath = join(__dirname, '..', 'viewer', urlPath);
+        filePath = join(projectRoot, 'viewer', urlPath);
       }
       
       try {

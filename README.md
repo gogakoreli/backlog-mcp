@@ -6,18 +6,31 @@ Minimal task backlog MCP server for Claude and AI agents.
 
 ## Task Schema
 
-```typescript
-{
-  id: string;           // TASK-0001
-  title: string;
-  description?: string;
-  status: 'open' | 'in_progress' | 'blocked' | 'done' | 'cancelled';
-  created_at: string;   // ISO8601
-  updated_at: string;   // ISO8601
-  blocked_reason?: string;
-  evidence?: string[];
-}
+Tasks are stored as individual markdown files with YAML frontmatter:
+
+```markdown
+---
+id: TASK-0001
+title: Fix bug in authentication
+status: open
+created_at: '2024-01-10T10:00:00Z'
+updated_at: '2024-01-10T10:00:00Z'
+blocked_reason: Waiting for API access
+evidence:
+  - Fixed in CR-12345
+  - Validated in beta
+---
+
+## Description
+
+The authentication flow has an issue where...
+
+## Context
+
+This came from Slack thread: https://...
 ```
+
+**Status values:** `open`, `in_progress`, `blocked`, `done`, `cancelled`
 
 ## MCP Tool
 

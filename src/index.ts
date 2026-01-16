@@ -24,4 +24,5 @@ export {
   deleteTask,
   taskExists,
   getTaskCounts,
+  getTaskMarkdown,
 } from './storage.js';

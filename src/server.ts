@@ -6,7 +6,7 @@ import { z } from 'zod';
 
 import { createTask, STATUSES, type Task } from './schema.js';
 import { countTasks } from './summary.js';
-import { loadBacklog, getTask, listTasks, addTask, saveTask, getTaskCounts, type StorageOptions } from './storage.js';
+import { loadBacklog, getTask, getTaskMarkdown, listTasks, addTask, saveTask, getTaskCounts, type StorageOptions } from './storage.js';
 
 // ============================================================================
 // Server
@@ -65,11 +65,11 @@ server.registerTool(
         if (!id) {
           return { content: [{ type: 'text' as const, text: 'Missing required: id' }], isError: true };
         }
-        const task = getTask(id, storageOptions);
-        if (!task) {
+        const markdown = getTaskMarkdown(id, storageOptions);
+        if (!markdown) {
           return { content: [{ type: 'text' as const, text: `Not found: ${id}` }], isError: true };
         }
-        return { content: [{ type: 'text' as const, text: JSON.stringify(task, null, 2) }] };
+        return { content: [{ type: 'text' as const, text: markdown }] };
       }
 
       case 'create': {

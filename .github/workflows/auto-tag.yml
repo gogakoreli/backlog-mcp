@@ -36,6 +36,8 @@ jobs:
 
       - name: Create and push tag
         if: steps.version.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="v${{ steps.version.outputs.current }}"
           git config user.name "github-actions[bot]"
@@ -43,3 +45,6 @@ jobs:
           git tag -a "$VERSION" -m "Release $VERSION"
           git push origin "$VERSION"
           echo "Created and pushed tag: $VERSION"
+          
+          # Trigger publish workflow manually
+          gh workflow run publish.yml

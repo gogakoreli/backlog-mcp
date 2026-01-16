@@ -1,7 +1,8 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import type { Task } from './schema.js';
+import matter from 'gray-matter';
+import type { Task, Status } from './schema.js';
+import { STATUSES } from './schema.js';
 
 // ============================================================================
 // Types
@@ -21,8 +22,8 @@ export interface StorageOptions {
 // ============================================================================
 
 const DEFAULT_DATA_DIR = 'data';
-const BACKLOG_FILE = 'backlog.json';
-const ARCHIVE_FILE = 'archive.json';
+const TASKS_DIR = 'tasks';
+const ARCHIVE_DIR = 'archive';
 
 const TERMINAL_STATUSES = ['done', 'cancelled'] as const;
 
@@ -32,122 +33,166 @@ function ensureDir(dir: string): void {
   }
 }
 
-function getBacklogPath(dataDir: string): string {
-  return join(dataDir, BACKLOG_FILE);
+function getTasksPath(dataDir: string): string {
+  return join(dataDir, TASKS_DIR);
 }
 
 function getArchivePath(dataDir: string): string {
-  return join(dataDir, ARCHIVE_FILE);
+  return join(dataDir, ARCHIVE_DIR);
 }
 
-function emptyBacklog(): Backlog {
+function getTaskFilePath(dataDir: string, taskId: string, archived: boolean = false): string {
+  const dir = archived ? getArchivePath(dataDir) : getTasksPath(dataDir);
+  return join(dir, `${taskId}.md`);
+}
+
+function taskToMarkdown(task: Task): string {
+  const { description, ...frontmatter } = task;
+  return matter.stringify(description || '', frontmatter);
+}
+
+function markdownToTask(content: string): Task {
+  const { data, content: description } = matter(content);
+  
+  // Validate required fields
+  if (!data.id || typeof data.id !== 'string') {
+    throw new Error('Invalid task: missing or invalid id');
+  }
+  if (!data.title || typeof data.title !== 'string') {
+    throw new Error('Invalid task: missing or invalid title');
+  }
+  if (!data.status || typeof data.status !== 'string') {
+    throw new Error('Invalid task: missing or invalid status');
+  }
+  if (!STATUSES.includes(data.status as Status)) {
+    throw new Error(`Invalid task: status must be one of ${STATUSES.join(', ')}`);
+  }
+  if (!data.created_at || typeof data.created_at !== 'string') {
+    throw new Error('Invalid task: missing or invalid created_at');
+  }
+  if (!data.updated_at || typeof data.updated_at !== 'string') {
+    throw new Error('Invalid task: missing or invalid updated_at');
+  }
+  
+  // Validate optional fields
+  if (data.blocked_reason !== undefined && typeof data.blocked_reason !== 'string') {
+    throw new Error('Invalid task: blocked_reason must be a string');
+  }
+  if (data.evidence !== undefined && !Array.isArray(data.evidence)) {
+    throw new Error('Invalid task: evidence must be an array');
+  }
+  
+  return {
+    ...data,
+    description: description.trim() || undefined,
+  } as Task;
+}
+
+function readTaskFile(filePath: string): Task | null {
+  if (!existsSync(filePath)) {
+    return null;
+  }
+  try {
+    const content = readFileSync(filePath, 'utf-8');
+    return markdownToTask(content);
+  } catch (error) {
+    console.error(`Failed to read task file ${filePath}:`, error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
+function writeTaskFile(filePath: string, task: Task): void {
+  const content = taskToMarkdown(task);
+  writeFileSync(filePath, content, 'utf-8');
+}
+
+function listTaskFiles(dir: string): string[] {
+  if (!existsSync(dir)) {
+    return [];
+  }
+  return readdirSync(dir)
+    .filter(f => f.endsWith('.md'))
+    .map(f => join(dir, f));
+}
+
+/**
+ * Read raw markdown content from task file.
+ */
+function readTaskMarkdown(dataDir: string, taskId: string): string | null {
+  const activePath = getTaskFilePath(dataDir, taskId, false);
+  if (existsSync(activePath)) {
+    return readFileSync(activePath, 'utf-8');
+  }
+  
+  const archivePath = getTaskFilePath(dataDir, taskId, true);
+  if (existsSync(archivePath)) {
+    return readFileSync(archivePath, 'utf-8');
+  }
+  
+  return null;
+}
+
+/**
+ * Load backlog from disk. Returns empty backlog if directory doesn't exist.
+ */
+export function loadBacklog(options: StorageOptions = {}): Backlog {
+  const dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
+  const tasksDir = getTasksPath(dataDir);
+  
+  const taskFiles = listTaskFiles(tasksDir);
+  const tasks = taskFiles
+    .map(f => readTaskFile(f))
+    .filter((t): t is Task => t !== null);
+
   return {
     version: '1',
-    tasks: [],
+    tasks,
   };
 }
 
 /**
- * Load backlog from disk. Returns empty backlog if file doesn't exist.
- */
-export function loadBacklog(options: StorageOptions = {}): Backlog {
-  const dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
-  const path = getBacklogPath(dataDir);
-
-  if (!existsSync(path)) {
-    return emptyBacklog();
-  }
-
-  const content = readFileSync(path, 'utf-8');
-  const data = JSON.parse(content) as Backlog;
-
-  // Basic version check
-  if (data.version !== '1') {
-    throw new Error(`Unsupported backlog version: ${data.version}`);
-  }
-
-  return data;
-}
-
-/**
- * Save backlog to disk atomically (write to temp, then rename).
+ * Save backlog to disk (no-op for file-based storage, kept for compatibility).
  */
 export function saveBacklog(backlog: Backlog, options: StorageOptions = {}): void {
-  const dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
-  ensureDir(dataDir);
-
-  const path = getBacklogPath(dataDir);
-  const tempPath = join(dataDir, `.backlog.${randomUUID()}.tmp`);
-
-  const content = JSON.stringify(backlog, null, 2);
-
-  // Write to temp file first
-  writeFileSync(tempPath, content, 'utf-8');
-
-  // Atomic rename
-  renameSync(tempPath, path);
+  // No-op: tasks are saved individually
 }
 
 /**
- * Load archive from disk. Returns empty backlog if file doesn't exist.
+ * Load archive from disk. Returns empty backlog if directory doesn't exist.
  */
 export function loadArchive(options: StorageOptions = {}): Backlog {
   const dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
-  const path = getArchivePath(dataDir);
+  const archiveDir = getArchivePath(dataDir);
+  
+  const taskFiles = listTaskFiles(archiveDir);
+  const tasks = taskFiles
+    .map(f => readTaskFile(f))
+    .filter((t): t is Task => t !== null);
 
-  if (!existsSync(path)) {
-    return emptyBacklog();
-  }
-
-  const content = readFileSync(path, 'utf-8');
-  const data = JSON.parse(content) as Backlog;
-
-  if (data.version !== '1') {
-    throw new Error(`Unsupported archive version: ${data.version}`);
-  }
-
-  return data;
-}
-
-/**
- * Save archive to disk atomically.
- */
-function saveArchive(archive: Backlog, options: StorageOptions = {}): void {
-  const dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
-  ensureDir(dataDir);
-
-  const path = getArchivePath(dataDir);
-  const tempPath = join(dataDir, `.archive.${randomUUID()}.tmp`);
-
-  const content = JSON.stringify(archive, null, 2);
-
-  writeFileSync(tempPath, content, 'utf-8');
-  renameSync(tempPath, path);
+  return {
+    version: '1',
+    tasks,
+  };
 }
 
 /**
  * Move a task from backlog to archive.
  */
 function archiveTask(task: Task, options: StorageOptions = {}): void {
-  const backlog = loadBacklog(options);
-  const archive = loadArchive(options);
+  const dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
+  ensureDir(getTasksPath(dataDir));
+  ensureDir(getArchivePath(dataDir));
 
-  // Remove from backlog
-  const index = backlog.tasks.findIndex((t) => t.id === task.id);
-  if (index !== -1) {
-    backlog.tasks.splice(index, 1);
+  const activePath = getTaskFilePath(dataDir, task.id, false);
+  const archivePath = getTaskFilePath(dataDir, task.id, true);
+
+  // Remove from active if exists
+  if (existsSync(activePath)) {
+    unlinkSync(activePath);
   }
 
-  // Add to archive (replace if exists)
-  const archiveIndex = archive.tasks.findIndex((t) => t.id === task.id);
-  if (archiveIndex !== -1) {
-    archive.tasks[archiveIndex] = task;
-  } else {
-    archive.tasks.push(task);
-  }
-
-  saveBacklog(backlog, options);
-  saveArchive(archive, options);
+  // Write to archive
+  writeTaskFile(archivePath, task);
 }
 
 // ============================================================================
@@ -156,10 +201,19 @@ function archiveTask(task: Task, options: StorageOptions = {}): void {
 
 /**
  * Get a task by ID. Returns undefined if not found.
+ * Searches both active and archived tasks.
  */
 export function getTask(id: string, options: StorageOptions = {}): Task | undefined {
-  const backlog = loadBacklog(options);
-  return backlog.tasks.find((t) => t.id === id);
+  const dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
+  
+  // Try active first
+  const activePath = getTaskFilePath(dataDir, id, false);
+  const activeTask = readTaskFile(activePath);
+  if (activeTask) return activeTask;
+  
+  // Try archive
+  const archivePath = getTaskFilePath(dataDir, id, true);
+  return readTaskFile(archivePath) ?? undefined;
 }
 
 /**
@@ -199,17 +253,20 @@ export function listTasks(
 }
 
 /**
- * Add a new task. Throws if task with same ID already exists.
+ * Add a new task. Throws if task with same ID already exists in active or archive.
  */
 export function addTask(task: Task, options: StorageOptions = {}): void {
-  const backlog = loadBacklog(options);
+  const dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
+  ensureDir(getTasksPath(dataDir));
 
-  if (backlog.tasks.some((t) => t.id === task.id)) {
+  const activePath = getTaskFilePath(dataDir, task.id, false);
+  const archivePath = getTaskFilePath(dataDir, task.id, true);
+
+  if (existsSync(activePath) || existsSync(archivePath)) {
     throw new Error(`Task with ID '${task.id}' already exists`);
   }
 
-  backlog.tasks.push(task);
-  saveBacklog(backlog, options);
+  writeTaskFile(activePath, task);
 }
 
 /**
@@ -217,10 +274,11 @@ export function addTask(task: Task, options: StorageOptions = {}): void {
  * Automatically archives tasks with terminal status (done, cancelled).
  */
 export function saveTask(task: Task, options: StorageOptions = {}): void {
-  const backlog = loadBacklog(options);
-  const index = backlog.tasks.findIndex((t) => t.id === task.id);
+  const dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
+  const activePath = getTaskFilePath(dataDir, task.id, false);
+  const archivePath = getTaskFilePath(dataDir, task.id, true);
 
-  if (index === -1) {
+  if (!existsSync(activePath) && !existsSync(archivePath)) {
     throw new Error(`Task with ID '${task.id}' not found`);
   }
 
@@ -230,31 +288,35 @@ export function saveTask(task: Task, options: StorageOptions = {}): void {
     return;
   }
 
-  backlog.tasks[index] = task;
-  saveBacklog(backlog, options);
+  ensureDir(getTasksPath(dataDir));
+  writeTaskFile(activePath, task);
 }
 
 /**
  * Delete a task by ID. Throws if task doesn't exist.
  */
 export function deleteTask(id: string, options: StorageOptions = {}): void {
-  const backlog = loadBacklog(options);
-  const index = backlog.tasks.findIndex((t) => t.id === id);
+  const dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
+  const activePath = getTaskFilePath(dataDir, id, false);
+  const archivePath = getTaskFilePath(dataDir, id, true);
 
-  if (index === -1) {
+  if (existsSync(activePath)) {
+    unlinkSync(activePath);
+  } else if (existsSync(archivePath)) {
+    unlinkSync(archivePath);
+  } else {
     throw new Error(`Task with ID '${id}' not found`);
   }
-
-  backlog.tasks.splice(index, 1);
-  saveBacklog(backlog, options);
 }
 
 /**
  * Check if a task exists.
  */
 export function taskExists(id: string, options: StorageOptions = {}): boolean {
-  const backlog = loadBacklog(options);
-  return backlog.tasks.some((t) => t.id === id);
+  const dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
+  const activePath = getTaskFilePath(dataDir, id, false);
+  const archivePath = getTaskFilePath(dataDir, id, true);
+  return existsSync(activePath) || existsSync(archivePath);
 }
 
 /**
@@ -275,4 +337,12 @@ export function getTaskCounts(options: StorageOptions = {}): Record<Task['status
   }
 
   return counts;
+}
+
+/**
+ * Get raw markdown content for a task by ID.
+ */
+export function getTaskMarkdown(id: string, options: StorageOptions = {}): string | null {
+  const dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
+  return readTaskMarkdown(dataDir, id);
 }

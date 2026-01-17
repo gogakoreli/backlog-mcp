@@ -1,9 +1,5 @@
 # backlog-mcp
 
-<a href="https://glama.ai/mcp/servers/@gkoreli/backlog-mcp">
-  <img width="380" height="200" src="https://glama.ai/mcp/servers/@gkoreli/backlog-mcp/badge" alt="backlog-mcp MCP server" />
-</a>
-
 Minimal task backlog MCP server for Claude and AI agents.
 
 > **Quick start**: Tell your LLM: `Add backlog-mcp to .mcp.json and use it to track tasks`
@@ -99,3 +95,7 @@ npm start
 ## License
 
 MIT
+
+<a href="https://glama.ai/mcp/servers/@gkoreli/backlog-mcp">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@gkoreli/backlog-mcp/badge" alt="backlog-mcp MCP server" />
+</a>

@@ -1,6 +1,6 @@
 # backlog-mcp
 
-Minimal task backlog MCP server for AI agents.
+Minimal task backlog MCP server. Works with any LLM agent or CLI editor that supports MCP integration (Claude, Kiro, Cursor, etc).
 
 > **Quick start**: Tell your LLM: `Add backlog-mcp to .mcp.json and use it to track tasks`
 

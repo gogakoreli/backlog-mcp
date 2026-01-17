@@ -1,6 +1,6 @@
 const FILTERS = [
   { key: 'active', label: 'Active' },
-  { key: 'done', label: 'Done' },
+  { key: 'completed', label: 'Completed' },
   { key: 'all', label: 'All' },
 ];
 

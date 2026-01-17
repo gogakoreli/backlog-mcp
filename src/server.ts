@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
 import 'dotenv/config';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -9,13 +12,17 @@ import { createTask, STATUSES, type Task } from './schema.js';
 import { storage } from './backlog.js';
 import { startViewer } from './viewer.js';
 
+// Read version from package.json
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'));
+
 // Init storage
 const dataDir = process.env.BACKLOG_DATA_DIR ?? 'data';
 storage.init(dataDir);
 
 const server = new McpServer({
   name: 'backlog-mcp',
-  version: '0.1.0',
+  version: pkg.version,
 });
 
 // ============================================================================

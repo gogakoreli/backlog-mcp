@@ -12,20 +12,7 @@ export {
 } from './schema.js';
 
 // Storage
-export {
-  type Backlog,
-  type StorageOptions,
-  loadBacklog,
-  saveBacklog,
-  getTask,
-  listTasks,
-  addTask,
-  saveTask,
-  deleteTask,
-  taskExists,
-  getTaskCounts,
-  getTaskMarkdown,
-} from './storage.js';
+export { storage } from './backlog.js';
 
 // Viewer
 export { startViewer } from './viewer.js';

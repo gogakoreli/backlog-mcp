@@ -87,9 +87,28 @@ export class MarkdownElement extends HTMLElement {
 			gfm: true,
 			smartypants: true,
 			langPrefix: "language-",
+			breaks: true,
 		});
 
 		marked.use({renderer: this.renderer});
+
+		// Auto-linkify plain URLs
+		marked.use({
+			extensions: [{
+				name: 'autolink',
+				level: 'inline',
+				start(src) { return src.match(/https?:\/\//)?.index; },
+				tokenizer(src) {
+					const match = src.match(/^https?:\/\/[^\s<>"']+/);
+					if (match) {
+						return { type: 'autolink', raw: match[0], href: match[0] };
+					}
+				},
+				renderer(token) {
+					return `<a href="${token.href}">${token.href}</a>`;
+				}
+			}]
+		});
 
 		let html = this._parse();
 
@@ -131,6 +150,12 @@ export class MarkdownElement extends HTMLElement {
 		// Fire event
 		let event = new CustomEvent("md-render", {bubbles: true, composed: true});
 		this.dispatchEvent(event);
+
+		// Make external links open in new tab
+		this.querySelectorAll('a[href^="http"]').forEach(a => {
+			a.setAttribute('target', '_blank');
+			a.setAttribute('rel', 'noopener');
+		});
 	}
 
 	static async sanitize(html) {

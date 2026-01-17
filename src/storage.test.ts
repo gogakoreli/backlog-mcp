@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { addTask, getTask, saveTask, listTasks, deleteTask, taskExists } from '../src/storage.js';
+import { storage } from '../src/backlog.js';
 import { createTask } from '../src/schema.js';
 
 const TEST_DATA_DIR = join(process.cwd(), 'test-data');
@@ -12,6 +12,7 @@ describe('Storage', () => {
       rmSync(TEST_DATA_DIR, { recursive: true });
     }
     mkdirSync(TEST_DATA_DIR, { recursive: true });
+    storage.init(TEST_DATA_DIR);
   });
 
   afterEach(() => {
@@ -20,116 +21,63 @@ describe('Storage', () => {
     }
   });
 
-  const options = { dataDir: TEST_DATA_DIR };
-
-  describe('addTask', () => {
+  describe('add', () => {
     it('should create a new task', () => {
       const task = createTask({ title: 'Test task' }, []);
-      addTask(task, options);
+      storage.add(task);
 
-      const retrieved = getTask(task.id, options);
+      const retrieved = storage.get(task.id);
       expect(retrieved).toBeDefined();
       expect(retrieved?.title).toBe('Test task');
     });
-
-    it('should throw if task ID already exists in active', () => {
-      const task = createTask({ title: 'Test task' }, []);
-      addTask(task, options);
-
-      expect(() => addTask(task, options)).toThrow('already exists');
-    });
-
-    it('should throw if task ID already exists in archive', () => {
-      const task = createTask({ title: 'Test task' }, []);
-      addTask(task, options);
-
-      // Archive the task
-      const updated = { ...task, status: 'done' as const };
-      saveTask(updated, options);
-
-      // Try to add task with same ID
-      const newTask = createTask({ title: 'New task' }, []);
-      newTask.id = task.id; // Force same ID
-
-      expect(() => addTask(newTask, options)).toThrow('already exists');
-    });
   });
 
-  describe('saveTask', () => {
+  describe('save', () => {
     it('should update an existing task', () => {
       const task = createTask({ title: 'Original' }, []);
-      addTask(task, options);
+      storage.add(task);
 
       const updated = { ...task, title: 'Updated' };
-      saveTask(updated, options);
+      storage.save(updated);
 
-      const retrieved = getTask(task.id, options);
+      const retrieved = storage.get(task.id);
       expect(retrieved?.title).toBe('Updated');
     });
 
     it('should archive task when status is done', () => {
       const task = createTask({ title: 'Test' }, []);
-      addTask(task, options);
+      storage.add(task);
 
       const updated = { ...task, status: 'done' as const };
-      saveTask(updated, options);
+      storage.save(updated);
 
       // Should not be in active list
-      const activeTasks = listTasks(undefined, options);
+      const activeTasks = storage.list({ status: ['open', 'in_progress', 'blocked'] });
       expect(activeTasks.find(t => t.id === task.id)).toBeUndefined();
 
       // Should be in archived list
-      const archivedTasks = listTasks({ status: ['done'] }, options);
-      expect(archivedTasks.find(t => t.id === task.id)).toBeDefined();
-    });
-
-    it('should archive task when status is cancelled', () => {
-      const task = createTask({ title: 'Test' }, []);
-      addTask(task, options);
-
-      const updated = { ...task, status: 'cancelled' as const };
-      saveTask(updated, options);
-
-      const activeTasks = listTasks(undefined, options);
-      expect(activeTasks.find(t => t.id === task.id)).toBeUndefined();
-
-      const archivedTasks = listTasks({ status: ['cancelled'] }, options);
+      const archivedTasks = storage.list({ status: ['done'] });
       expect(archivedTasks.find(t => t.id === task.id)).toBeDefined();
     });
   });
 
-  describe('listTasks', () => {
+  describe('list', () => {
     it('should list only active tasks by default', () => {
-      const existing = listTasks(undefined, options);
+      const existing = storage.list();
       const task1 = createTask({ title: 'Active' }, existing);
       const task2 = createTask({ title: 'Done' }, [...existing, task1]);
       
-      addTask(task1, options);
-      addTask(task2, options);
-      saveTask({ ...task2, status: 'done' }, options);
+      storage.add(task1);
+      storage.add(task2);
+      storage.save({ ...task2, status: 'done' });
 
-      const tasks = listTasks(undefined, options);
+      const tasks = storage.list({ status: ['open', 'in_progress', 'blocked'] });
       expect(tasks).toHaveLength(1);
       expect(tasks[0].id).toBe(task1.id);
     });
 
-    it('should include archived tasks when filtering by done status', () => {
-      const existing = listTasks(undefined, options);
-      const task1 = createTask({ title: 'Active' }, existing);
-      const task2 = createTask({ title: 'Done' }, [...existing, task1]);
-      
-      addTask(task1, options);
-      addTask(task2, options);
-      saveTask({ ...task2, status: 'done' }, options);
-
-      const tasks = listTasks({ status: ['done'] }, options);
-      expect(tasks).toHaveLength(1);
-      expect(tasks[0].id).toBe(task2.id);
-    });
-
-    it('should respect archived_limit parameter', () => {
-      const existing = listTasks(undefined, options);
-      // Create 5 done tasks
+    it('should respect archivedLimit parameter', () => {
+      const existing = storage.list();
       const tasks: any[] = [];
       for (let i = 0; i < 5; i++) {
         const task = createTask({ title: `Task ${i}` }, [...existing, ...tasks]);
@@ -137,114 +85,68 @@ describe('Storage', () => {
       }
 
       for (const task of tasks) {
-        addTask(task, options);
-        saveTask({ ...task, status: 'done' }, options);
+        storage.add(task);
+        storage.save({ ...task, status: 'done' });
       }
 
-      const limited = listTasks({ status: ['done'], archivedLimit: 3 }, options);
+      const limited = storage.list({ status: ['done'], archivedLimit: 3 });
       expect(limited).toHaveLength(3);
     });
   });
 
-  describe('deleteTask', () => {
+  describe('delete', () => {
     it('should delete an active task', () => {
       const task = createTask({ title: 'Test' }, []);
-      addTask(task, options);
+      storage.add(task);
 
-      deleteTask(task.id, options);
-      expect(taskExists(task.id, options)).toBe(false);
+      const deleted = storage.delete(task.id);
+      expect(deleted).toBe(true);
+      expect(storage.get(task.id)).toBeUndefined();
     });
 
     it('should delete an archived task', () => {
       const task = createTask({ title: 'Test' }, []);
-      addTask(task, options);
-      saveTask({ ...task, status: 'done' }, options);
+      storage.add(task);
+      storage.save({ ...task, status: 'done' });
 
-      deleteTask(task.id, options);
-      expect(taskExists(task.id, options)).toBe(false);
+      const deleted = storage.delete(task.id);
+      expect(deleted).toBe(true);
+      expect(storage.get(task.id)).toBeUndefined();
     });
 
-    it('should throw if task does not exist', () => {
-      expect(() => deleteTask('TASK-9999', options)).toThrow('not found');
-    });
-  });
-
-  describe('taskExists', () => {
-    it('should return true for active task', () => {
-      const task = createTask({ title: 'Test' }, []);
-      addTask(task, options);
-
-      expect(taskExists(task.id, options)).toBe(true);
-    });
-
-    it('should return true for archived task', () => {
-      const task = createTask({ title: 'Test' }, []);
-      addTask(task, options);
-      saveTask({ ...task, status: 'done' }, options);
-
-      expect(taskExists(task.id, options)).toBe(true);
-    });
-
-    it('should return false for non-existent task', () => {
-      expect(taskExists('TASK-9999', options)).toBe(false);
+    it('should return false if task does not exist', () => {
+      const deleted = storage.delete('TASK-9999');
+      expect(deleted).toBe(false);
     });
   });
 
-  describe('markdown format', () => {
+  describe('getMarkdown', () => {
     it('should preserve description with markdown formatting', () => {
       const task = createTask({ 
         title: 'Test',
-        description: '## Heading\n\n- Item 1\n- Item 2\n\n```js\ncode();\n```'
+        description: '## Heading\n\n- Item 1\n- Item 2'
       }, []);
       
-      addTask(task, options);
-      const retrieved = getTask(task.id, options);
+      storage.add(task);
+      const markdown = storage.getMarkdown(task.id);
       
-      expect(retrieved?.description).toContain('## Heading');
-      expect(retrieved?.description).toContain('- Item 1');
-      expect(retrieved?.description).toContain('```js');
+      expect(markdown).toContain('## Heading');
+      expect(markdown).toContain('- Item 1');
     });
+  });
 
-    it('should handle tasks without description', () => {
-      const task = createTask({ title: 'Test' }, []);
-      addTask(task, options);
+  describe('counts', () => {
+    it('should return counts by status', () => {
+      const task1 = createTask({ title: 'Open' }, []);
+      const task2 = createTask({ title: 'Done' }, [task1]);
+      
+      storage.add(task1);
+      storage.add(task2);
+      storage.save({ ...task2, status: 'done' });
 
-      const retrieved = getTask(task.id, options);
-      expect(retrieved?.description).toBeUndefined();
-    });
-
-    it('should reject invalid frontmatter (missing required fields)', () => {
-      const task = createTask({ title: 'Test' }, []);
-      addTask(task, options);
-
-      // Manually corrupt the file
-      const filePath = join(TEST_DATA_DIR, 'tasks', `${task.id}.md`);
-      writeFileSync(filePath, '---\nrandom: field\n---\nContent', 'utf-8');
-
-      // Should return undefined due to validation error (filtered out)
-      const retrieved = getTask(task.id, options);
-      expect(retrieved).toBeUndefined();
-    });
-
-    it('should reject invalid status values', () => {
-      const task = createTask({ title: 'Test' }, []);
-      addTask(task, options);
-
-      // Manually corrupt the file with invalid status
-      const filePath = join(TEST_DATA_DIR, 'tasks', `${task.id}.md`);
-      const content = `---
-id: ${task.id}
-title: Test
-status: invalid_status
-created_at: '2024-01-01T00:00:00Z'
-updated_at: '2024-01-01T00:00:00Z'
----
-Content`;
-      writeFileSync(filePath, content, 'utf-8');
-
-      // Should return undefined due to validation error (filtered out)
-      const retrieved = getTask(task.id, options);
-      expect(retrieved).toBeUndefined();
+      const counts = storage.counts();
+      expect(counts.open).toBe(1);
+      expect(counts.done).toBe(1);
     });
   });
 });

@@ -10,7 +10,7 @@ export class TaskFilterBar extends HTMLElement {
     this.innerHTML = `
       <div class="filter-bar">
         <button class="filter-btn ${this.currentFilter === 'active' ? 'active' : ''}" data-filter="active">Active</button>
-        <button class="filter-btn ${this.currentFilter === 'done' ? 'active' : ''}" data-filter="done">Completed</button>
+        <button class="filter-btn ${this.currentFilter === 'completed' ? 'active' : ''}" data-filter="completed">Completed</button>
         <button class="filter-btn ${this.currentFilter === 'all' ? 'active' : ''}" data-filter="all">All</button>
       </div>
     `;

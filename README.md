@@ -47,19 +47,25 @@ This came from Slack thread: https://...
 
 **Status values:** `open`, `in_progress`, `blocked`, `done`, `cancelled`
 
-## MCP Tool
-
-Single unified tool with action parameter:
+## MCP Tools
 
 ```
-backlog action="list"                         # List all active tasks
-backlog action="list" summary=true            # Get counts by status
-backlog action="list" status=["open"]         # Filter by status
-backlog action="list" status=["done"]         # Show completed tasks (last 10)
-backlog action="list" status=["done"] archived_limit=20  # Show last 20 completed
-backlog action="get" id="TASK-0001"           # Get task details
-backlog action="create" title="Fix bug"       # Create task
-backlog action="update" id="TASK-0001" set_status="done"  # Update task
+backlog_list                              # List active tasks (open, in_progress, blocked)
+backlog_list status=["done"]              # Show completed tasks
+backlog_list counts=true                  # Get counts by status
+backlog_list limit=10                     # Limit results
+
+backlog_get id="TASK-0001"                # Get single task
+backlog_get id=["TASK-0001","TASK-0002"]  # Batch get multiple tasks
+
+backlog_create title="Fix bug"            # Create task
+backlog_create title="Fix bug" description="Details..."
+
+backlog_update id="TASK-0001" status="done"                    # Mark done
+backlog_update id="TASK-0001" status="blocked" blocked_reason="Waiting on API"
+backlog_update id="TASK-0001" evidence=["Fixed in CR-12345"]   # Add completion proof
+
+backlog_delete id="TASK-0001"             # Permanently delete
 ```
 
 ## Installation

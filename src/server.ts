@@ -25,9 +25,9 @@ const server = new McpServer({
 server.registerTool(
   'backlog_list',
   {
-    description: 'List tasks from backlog. Returns active tasks by default.',
+    description: 'List tasks from backlog. Shows open/in_progress/blocked by default. Use status=["done"] to see completed tasks.',
     inputSchema: {
-      status: z.array(z.enum(STATUSES)).optional().describe('Filter by status. Default: active tasks (open, in_progress, blocked)'),
+      status: z.array(z.enum(STATUSES)).optional().describe('Filter: open, in_progress, blocked, done, cancelled. Default: open, in_progress, blocked'),
       counts: z.boolean().optional().describe('Return counts per status instead of task list'),
       limit: z.number().optional().describe('Max tasks to return. Default: 20'),
     },
@@ -45,16 +45,15 @@ server.registerTool(
 server.registerTool(
   'backlog_get',
   {
-    description: 'Get full task details by ID. Returns raw markdown with frontmatter.',
+    description: 'Get full task details by ID. Works for any task regardless of status.',
     inputSchema: {
-      id: z.string().optional().describe('Task ID (e.g. TASK-0001)'),
-      ids: z.array(z.string()).optional().describe('Multiple task IDs for batch fetch'),
+      id: z.union([z.string(), z.array(z.string())]).describe('Task ID like TASK-0001, or array for batch fetch'),
     },
   },
-  async ({ id, ids }) => {
-    const taskIds = ids || (id ? [id] : []);
+  async ({ id }) => {
+    const taskIds = Array.isArray(id) ? id : [id];
     if (taskIds.length === 0) {
-      return { content: [{ type: 'text' as const, text: 'Required: id or ids' }], isError: true };
+      return { content: [{ type: 'text' as const, text: 'Required: id' }], isError: true };
     }
     const results = taskIds.map((tid) => storage.getMarkdown(tid) || `Not found: ${tid}`);
     return { content: [{ type: 'text' as const, text: results.join('\n\n---\n\n') }] };
@@ -87,7 +86,7 @@ server.registerTool(
       description: z.string().optional().describe('New description'),
       status: z.enum(STATUSES).optional().describe('New status'),
       blocked_reason: z.string().optional().describe('Reason if status is blocked'),
-      evidence: z.array(z.string()).optional().describe('Evidence of completion - links, notes'),
+      evidence: z.array(z.string()).optional().describe('Proof of completion when marking done - links to PRs, docs, or notes'),
     },
   },
   async ({ id, title, description, status, blocked_reason, evidence }) => {

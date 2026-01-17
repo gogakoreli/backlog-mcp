@@ -69,9 +69,16 @@ export async function startViewer(port: number = 3030): Promise<void> {
       const limit = parseInt(url.searchParams.get('limit') || '100');
       
       type Status = 'open' | 'in_progress' | 'blocked' | 'done' | 'cancelled';
-      const statusFilter = filter === 'all' ? { archivedLimit: limit } : 
-                          filter === 'completed' ? { status: ['done', 'cancelled'] as Status[], archivedLimit: limit } :
-                          { status: ['open', 'in_progress', 'blocked'] as Status[] };
+      const statusMap: Record<string, Status[]> = {
+        active: ['open', 'in_progress', 'blocked'],
+        completed: ['done', 'cancelled'],
+        open: ['open'],
+        in_progress: ['in_progress'],
+        blocked: ['blocked'],
+        done: ['done'],
+        cancelled: ['cancelled'],
+      };
+      const statusFilter = filter === 'all' ? { limit } : { status: statusMap[filter], limit };
       const tasks = storage.list(statusFilter);
       
       res.writeHead(200, { 'Content-Type': 'application/json' });

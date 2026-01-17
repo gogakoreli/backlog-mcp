@@ -89,7 +89,7 @@ describe('Storage', () => {
         storage.save({ ...task, status: 'done' });
       }
 
-      const limited = storage.list({ status: ['done'], archivedLimit: 3 });
+      const limited = storage.list({ status: ['done'], limit: 3 });
       expect(limited).toHaveLength(3);
     });
   });

@@ -82,15 +82,14 @@ class BacklogStorage {
     return null;
   }
 
-  list(filter?: { status?: Status[]; archivedLimit?: number }): Task[] {
+  list(filter?: { status?: Status[]; limit?: number }): Task[] {
     const tasks: Task[] = [];
     const statusFilter = filter?.status;
-    const archivedLimit = filter?.archivedLimit ?? 10;
+    const limit = filter?.limit ?? 20;
 
     // Load active tasks
     if (existsSync(this.tasksPath)) {
-      const files = readdirSync(this.tasksPath).filter(f => f.endsWith('.md'));
-      for (const file of files) {
+      for (const file of readdirSync(this.tasksPath).filter(f => f.endsWith('.md'))) {
         const task = this.markdownToTask(readFileSync(join(this.tasksPath, file), 'utf-8'));
         if (!statusFilter || statusFilter.includes(task.status)) {
           tasks.push(task);
@@ -101,16 +100,24 @@ class BacklogStorage {
     // Load archived tasks if needed
     const needsArchived = !statusFilter || statusFilter.some(s => TERMINAL_STATUSES.includes(s));
     if (needsArchived && existsSync(this.archivePath)) {
-      const files = readdirSync(this.archivePath).filter(f => f.endsWith('.md'));
-      const archived = files
-        .map(file => this.markdownToTask(readFileSync(join(this.archivePath, file), 'utf-8')))
-        .filter(t => !statusFilter || statusFilter.includes(t.status))
-        .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
-        .slice(0, archivedLimit);
-      tasks.push(...archived);
+      for (const file of readdirSync(this.archivePath).filter(f => f.endsWith('.md'))) {
+        const task = this.markdownToTask(readFileSync(join(this.archivePath, file), 'utf-8'));
+        if (!statusFilter || statusFilter.includes(task.status)) {
+          tasks.push(task);
+        }
+      }
     }
 
-    return tasks;
+    // Sort: active first, then by date desc
+    const isTerminal = (s: Status) => TERMINAL_STATUSES.includes(s);
+    return tasks
+      .sort((a, b) => {
+        const aTerminal = isTerminal(a.status) ? 1 : 0;
+        const bTerminal = isTerminal(b.status) ? 1 : 0;
+        if (aTerminal !== bTerminal) return aTerminal - bTerminal;
+        return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+      })
+      .slice(0, limit);
   }
 
   add(task: Task): void {

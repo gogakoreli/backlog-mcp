@@ -43,6 +43,14 @@ jobs:
           git push origin "$VERSION"
           echo "Created and pushed tag: $VERSION"
 
+      - name: Create GitHub Release
+        if: steps.version.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="v${{ steps.version.outputs.current }}"
+          gh release create "$VERSION" --title "$VERSION" --generate-notes
+
       - uses: actions/setup-node@v4
         if: steps.version.outputs.changed == 'true'
         with:

@@ -4,11 +4,22 @@ function escapeAttr(text: string): string {
   return text.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+function getCollapsedEpics(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem('collapsed-epics') || '[]'));
+  } catch { return new Set(); }
+}
+
+function setCollapsedEpics(ids: Set<string>) {
+  localStorage.setItem('collapsed-epics', JSON.stringify([...ids]));
+}
+
 export class TaskList extends HTMLElement {
   private currentFilter: string = 'active';
   private currentType: string = 'all';
   private pinnedEpicId: string | null = null;
   private selectedTaskId: string | null = null;
+  private collapsedEpics: Set<string> = getCollapsedEpics();
   
   connectedCallback() {
     const params = new URLSearchParams(window.location.search);
@@ -30,6 +41,17 @@ export class TaskList extends HTMLElement {
     
     document.addEventListener('epic-pin', ((e: CustomEvent) => {
       this.pinnedEpicId = e.detail.epicId;
+      this.loadTasks();
+    }) as EventListener);
+    
+    document.addEventListener('epic-toggle', ((e: CustomEvent) => {
+      const { epicId } = e.detail;
+      if (this.collapsedEpics.has(epicId)) {
+        this.collapsedEpics.delete(epicId);
+      } else {
+        this.collapsedEpics.add(epicId);
+      }
+      setCollapsedEpics(this.collapsedEpics);
       this.loadTasks();
     }) as EventListener);
   }
@@ -80,11 +102,15 @@ export class TaskList extends HTMLElement {
     const childTasks = tasks.filter(t => t.epic_id && epics.some(e => e.id === t.epic_id));
     const orphanTasks = tasks.filter(t => (t.type ?? 'task') === 'task' && !childTasks.includes(t));
     
-    const grouped: Array<Task & { isChild?: boolean }> = [];
+    const grouped: Array<Task & { isChild?: boolean; childCount?: number }> = [];
     for (const epic of epics) {
-      grouped.push(epic);
-      for (const child of childTasks.filter(t => t.epic_id === epic.id)) {
-        grouped.push({ ...child, isChild: true });
+      const children = childTasks.filter(t => t.epic_id === epic.id);
+      const isCollapsed = this.collapsedEpics.has(epic.id);
+      grouped.push({ ...epic, childCount: children.length });
+      if (!isCollapsed) {
+        for (const child of children) {
+          grouped.push({ ...child, isChild: true });
+        }
       }
     }
     grouped.push(...orphanTasks);
@@ -98,6 +124,8 @@ export class TaskList extends HTMLElement {
             data-status="${task.status}"
             data-type="${task.type ?? 'task'}"
             ${task.isChild ? 'data-child="true"' : ''}
+            ${task.childCount !== undefined ? `data-child-count="${task.childCount}"` : ''}
+            ${this.collapsedEpics.has(task.id) ? 'data-collapsed="true"' : ''}
             ${this.selectedTaskId === task.id ? 'selected' : ''}
             ${this.pinnedEpicId === task.id ? 'pinned' : ''}
           ></task-item>

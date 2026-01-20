@@ -1,6 +1,6 @@
 {
   "name": "backlog-mcp",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "description": "Minimal task backlog MCP server for Claude and AI agents",
   "keywords": [
     "mcp",
@@ -44,7 +44,7 @@
     "start": "node dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev": "tsc -p viewer/tsconfig.json && concurrently \"tsx watch src/server.ts\" \"tsc -p viewer/tsconfig.json --watch --preserveWatchOutput\""
+    "dev": "lsof -ti:3030 | xargs kill -9 2>/dev/null; tsc -p viewer/tsconfig.json && concurrently \"tsx watch src/server.ts\" \"tsc -p viewer/tsconfig.json --watch --preserveWatchOutput\""
   },
   "engines": {
     "node": ">=18.0.0"

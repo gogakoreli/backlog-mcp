@@ -3,30 +3,34 @@
 // ============================================================================
 
 const TASK_ID_PATTERN = /^TASK-(\d{4,})$/;
+const EPIC_ID_PATTERN = /^EPIC-(\d{4,})$/;
 
 export function isValidTaskId(id: unknown): id is string {
-  return typeof id === 'string' && TASK_ID_PATTERN.test(id);
+  return typeof id === 'string' && (TASK_ID_PATTERN.test(id) || EPIC_ID_PATTERN.test(id));
 }
 
 export function parseTaskId(id: string): number | null {
-  const match = TASK_ID_PATTERN.exec(id);
+  const match = TASK_ID_PATTERN.exec(id) || EPIC_ID_PATTERN.exec(id);
   if (!match?.[1]) return null;
   return parseInt(match[1], 10);
 }
 
-export function formatTaskId(num: number): string {
-  return `TASK-${num.toString().padStart(4, '0')}`;
+export function formatTaskId(num: number, type?: 'task' | 'epic'): string {
+  const prefix = type === 'epic' ? 'EPIC' : 'TASK';
+  return `${prefix}-${num.toString().padStart(4, '0')}`;
 }
 
-export function nextTaskId(existingTasks: ReadonlyArray<{ id: string }>): string {
+export function nextTaskId(existingTasks: ReadonlyArray<{ id: string }>, type?: 'task' | 'epic'): string {
+  const pattern = type === 'epic' ? EPIC_ID_PATTERN : TASK_ID_PATTERN;
   let maxNum = 0;
   for (const task of existingTasks) {
-    const num = parseTaskId(task.id);
-    if (num !== null && num > maxNum) {
-      maxNum = num;
+    const match = pattern.exec(task.id);
+    if (match?.[1]) {
+      const num = parseInt(match[1], 10);
+      if (num > maxNum) maxNum = num;
     }
   }
-  return formatTaskId(maxNum + 1);
+  return formatTaskId(maxNum + 1, type);
 }
 
 // ============================================================================
@@ -36,15 +40,26 @@ export function nextTaskId(existingTasks: ReadonlyArray<{ id: string }>): string
 export const STATUSES = ['open', 'in_progress', 'blocked', 'done', 'cancelled'] as const;
 export type Status = (typeof STATUSES)[number];
 
+export const TASK_TYPES = ['task', 'epic'] as const;
+export type TaskType = (typeof TASK_TYPES)[number];
+
 // ============================================================================
 // Task
 // ============================================================================
+
+export interface Reference {
+  url: string;
+  title?: string;
+}
 
 export interface Task {
   id: string;
   title: string;
   description?: string;
   status: Status;
+  type?: TaskType;
+  epic_id?: string;
+  references?: Reference[];
   created_at: string;
   updated_at: string;
   blocked_reason?: string;
@@ -59,6 +74,9 @@ export interface CreateTaskInput {
   id?: string;
   title: string;
   description?: string;
+  type?: TaskType;
+  epic_id?: string;
+  references?: Reference[];
 }
 
 export function createTask(
@@ -66,12 +84,16 @@ export function createTask(
   existingTasks: ReadonlyArray<{ id: string }> = []
 ): Task {
   const now = new Date().toISOString();
-  return {
-    id: input.id ?? nextTaskId(existingTasks),
+  const task: Task = {
+    id: input.id ?? nextTaskId(existingTasks, input.type),
     title: input.title,
-    description: input.description,
     status: 'open',
     created_at: now,
     updated_at: now,
   };
+  if (input.description) task.description = input.description;
+  if (input.type) task.type = input.type;
+  if (input.epic_id) task.epic_id = input.epic_id;
+  if (input.references?.length) task.references = input.references;
+  return task;
 }

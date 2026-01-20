@@ -100,9 +100,11 @@ export async function startViewer(port: number = 3030): Promise<void> {
       
       const filePath = storage.getFilePath(taskId);
       const raw = storage.getMarkdown(taskId);
+      const epic = task.epic_id ? storage.get(task.epic_id) : null;
+      const epicTitle = epic?.title;
       
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ...task, filePath, raw }));
+      res.end(JSON.stringify({ ...task, filePath, raw, epicTitle }));
       return;
     }
     

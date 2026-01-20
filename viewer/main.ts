@@ -2,33 +2,35 @@ import './components/task-filter-bar.js';
 import './components/task-list.js';
 import './components/task-item.js';
 import './components/task-detail.js';
+import './components/task-badge.js';
+import { urlState } from './utils/url-state.js';
 
-// URL state management
-const params = new URLSearchParams(window.location.search);
-const initialFilter = params.get('filter') || 'active';
-const initialTask = params.get('task');
-
-// Set initial filter
-document.addEventListener('DOMContentLoaded', () => {
+// Subscribe components to URL state changes - single source of truth
+urlState.subscribe((state) => {
   const filterBar = document.querySelector('task-filter-bar') as any;
-  if (filterBar?.setFilter) filterBar.setFilter(initialFilter);
+  filterBar?.setState?.(state.filter, state.type);
   
-  if (initialTask) {
+  const taskList = document.querySelector('task-list') as any;
+  taskList?.setState?.(state.filter, state.type, state.epic, state.task);
+  
+  if (state.task) {
     const detail = document.querySelector('task-detail') as any;
-    if (detail?.loadTask) detail.loadTask(initialTask);
+    detail?.loadTask?.(state.task);
   }
 });
 
-// Update URL on filter change
+// Initialize on load
+document.addEventListener('DOMContentLoaded', () => urlState.init());
+
+// Component events -> URL updates
 document.addEventListener('filter-change', ((e: CustomEvent) => {
-  const url = new URL(window.location.href);
-  url.searchParams.set('filter', e.detail.filter);
-  history.replaceState(null, '', url);
+  urlState.set({ filter: e.detail.filter, type: e.detail.type });
 }) as EventListener);
 
-// Update URL on task selection
 document.addEventListener('task-selected', ((e: CustomEvent) => {
-  const url = new URL(window.location.href);
-  url.searchParams.set('task', e.detail.taskId);
-  history.replaceState(null, '', url);
+  urlState.set({ task: e.detail.taskId });
+}) as EventListener);
+
+document.addEventListener('epic-pin', ((e: CustomEvent) => {
+  urlState.set({ epic: e.detail.epicId });
 }) as EventListener);

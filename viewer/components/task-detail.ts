@@ -26,7 +26,8 @@ export class TaskDetail extends HTMLElement {
       
       const headerHtml = `
         <div class="task-header-left">
-          <button class="btn-outline task-id-btn" onclick="navigator.clipboard.writeText('${task.id}')" title="Copy ID">${task.id} ${copyIcon}</button>
+          ${task.epic_id ? `<button class="btn-outline epic-id-btn" onclick="navigator.clipboard.writeText('${task.epic_id}')" title="Copy Epic ID"><task-badge task-id="${task.epic_id}" type="epic"></task-badge> ${copyIcon}</button>` : ''}
+          <button class="btn-outline task-id-btn" onclick="navigator.clipboard.writeText('${task.id}')" title="Copy ID"><task-badge task-id="${task.id}" type="${task.type || 'task'}"></task-badge> ${copyIcon}</button>
           <span class="status-badge status-${task.status || 'open'}">${(task.status || 'open').replace('_', ' ')}</span>
           ${task.filePath ? `
             <div class="task-meta-path">
@@ -45,10 +46,21 @@ export class TaskDetail extends HTMLElement {
       const metaHtml = `
         <div class="task-meta-card">
           <h1 class="task-meta-title">${task.title || ''}</h1>
-          <div class="task-meta-dates">
+          <div class="task-meta-row">
             <span>Created: ${task.created_at ? new Date(task.created_at).toLocaleDateString() : ''}</span>
             <span>Updated: ${task.updated_at ? new Date(task.updated_at).toLocaleDateString() : ''}</span>
+            ${task.epic_id ? `<span class="task-meta-epic"><span class="task-meta-epic-label">Epic:</span><a href="#" class="epic-link" data-epic-id="${task.epic_id}"><task-badge task-id="${task.epic_id}" type="epic"></task-badge></a>${task.epicTitle ? `<span class="epic-title">${task.epicTitle}</span>` : ''}</span>` : ''}
           </div>
+          ${task.references?.length ? `
+            <div class="task-meta-evidence">
+              <div class="task-meta-evidence-label">References:</div>
+              <ul>${task.references.map((r: any) => {
+                const url = typeof r === 'string' ? r : r.url;
+                const title = typeof r === 'string' ? r : (r.title || r.url);
+                return `<li><a href="${url}" target="_blank" rel="noopener">${title}</a></li>`;
+              }).join('')}</ul>
+            </div>
+          ` : ''}
           ${task.evidence?.length ? `
             <div class="task-meta-evidence">
               <div class="task-meta-evidence-label">Evidence:</div>
@@ -68,6 +80,19 @@ export class TaskDetail extends HTMLElement {
       
       this.innerHTML = '';
       this.appendChild(article);
+      
+      // Bind epic link click to navigate
+      const epicLink = this.querySelector('.epic-link');
+      if (epicLink) {
+        epicLink.addEventListener('click', (e) => {
+          e.preventDefault();
+          const epicId = (epicLink as HTMLElement).dataset.epicId;
+          if (epicId) {
+            this.loadTask(epicId);
+            document.dispatchEvent(new CustomEvent('task-selected', { detail: { taskId: epicId } }));
+          }
+        });
+      }
       
       // Bind copy raw button (in pane header)
       const copyRawBtn = paneHeader?.querySelector('.copy-raw');

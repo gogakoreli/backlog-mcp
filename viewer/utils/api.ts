@@ -4,6 +4,8 @@ export interface Task {
   id: string;
   title: string;
   status: string;
+  type?: 'task' | 'epic';
+  epic_id?: string;
   created_at: string;
   updated_at: string;
 }

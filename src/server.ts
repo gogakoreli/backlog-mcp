@@ -9,7 +9,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
-import { createTask, STATUSES, type Task } from './schema.js';
+import { createTask, STATUSES, TASK_TYPES, type Task } from './schema.js';
 import { storage } from './backlog.js';
 import { startViewer } from './viewer.js';
 
@@ -36,16 +36,20 @@ server.registerTool(
     description: 'List tasks from backlog. Shows open/in_progress/blocked by default. Use status=["done"] to see completed tasks.',
     inputSchema: {
       status: z.array(z.enum(STATUSES)).optional().describe('Filter: open, in_progress, blocked, done, cancelled. Default: open, in_progress, blocked'),
+      type: z.enum(TASK_TYPES).optional().describe('Filter by type: task, epic, or omit for all'),
+      epic_id: z.string().optional().describe('Filter tasks belonging to a specific epic'),
       counts: z.boolean().optional().describe('Return counts per status instead of task list'),
       limit: z.number().optional().describe('Max tasks to return. Default: 20'),
     },
   },
-  async ({ status, counts, limit }) => {
-    const tasks = storage.list({ status, limit });
+  async ({ status, type, epic_id, counts, limit }) => {
+    let tasks = storage.list({ status, limit });
+    if (type) tasks = tasks.filter(t => (t.type ?? 'task') === type);
+    if (epic_id) tasks = tasks.filter(t => t.epic_id === epic_id);
     if (counts) {
       return { content: [{ type: 'text' as const, text: JSON.stringify(storage.counts(), null, 2) }] };
     }
-    const list = tasks.map((t) => ({ id: t.id, title: t.title, status: t.status }));
+    const list = tasks.map((t) => ({ id: t.id, title: t.title, status: t.status, type: t.type ?? 'task', epic_id: t.epic_id }));
     return { content: [{ type: 'text' as const, text: JSON.stringify(list, null, 2) }] };
   }
 );
@@ -75,10 +79,13 @@ server.registerTool(
     inputSchema: {
       title: z.string().describe('Task title'),
       description: z.string().optional().describe('Task description in markdown'),
+      type: z.enum(TASK_TYPES).optional().describe('Type: task (default) or epic'),
+      epic_id: z.string().optional().describe('Parent epic ID to link this task to'),
+      references: z.array(z.object({ url: z.string(), title: z.string().optional() })).optional().describe('Reference links with optional titles'),
     },
   },
-  async ({ title, description }) => {
-    const task = createTask({ title, description }, storage.list());
+  async ({ title, description, type, epic_id, references }) => {
+    const task = createTask({ title, description, type, epic_id, references }, storage.list());
     storage.add(task);
     return { content: [{ type: 'text' as const, text: `Created ${task.id}` }] };
   }
@@ -93,21 +100,26 @@ server.registerTool(
       title: z.string().optional().describe('New title'),
       description: z.string().optional().describe('New description'),
       status: z.enum(STATUSES).optional().describe('New status'),
+      epic_id: z.string().nullable().optional().describe('Parent epic ID (null to unlink)'),
+      references: z.array(z.object({ url: z.string(), title: z.string().optional() })).optional().describe('Reference links with optional titles'),
       blocked_reason: z.string().optional().describe('Reason if status is blocked'),
       evidence: z.array(z.string()).optional().describe('Proof of completion when marking done - links to PRs, docs, or notes'),
     },
   },
-  async ({ id, title, description, status, blocked_reason, evidence }) => {
+  async ({ id, title, description, status, epic_id, references, blocked_reason, evidence }) => {
     const task = storage.get(id);
     if (!task) {
       return { content: [{ type: 'text' as const, text: `Not found: ${id}` }], isError: true };
     }
-    const updates = { title, description, status, blocked_reason, evidence };
-    const updated: Task = {
-      ...task,
-      ...Object.fromEntries(Object.entries(updates).filter(([_, v]) => v !== undefined)),
-      updated_at: new Date().toISOString(),
-    };
+    const updates: Partial<Task> = {};
+    if (title !== undefined) updates.title = title;
+    if (description !== undefined) updates.description = description;
+    if (status !== undefined) updates.status = status;
+    if (epic_id !== undefined) updates.epic_id = epic_id ?? undefined;
+    if (references !== undefined) updates.references = references;
+    if (blocked_reason !== undefined) updates.blocked_reason = blocked_reason;
+    if (evidence !== undefined) updates.evidence = evidence;
+    const updated: Task = { ...task, ...updates, updated_at: new Date().toISOString() };
     storage.save(updated);
     return { content: [{ type: 'text' as const, text: `Updated ${id}` }] };
   }

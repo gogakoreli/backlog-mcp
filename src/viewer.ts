@@ -128,6 +128,25 @@ export async function startViewer(port: number = 3030): Promise<void> {
       return;
     }
     
+    // GET /open-file?path=... - open any local file
+    if (req.url?.startsWith('/open-file?')) {
+      const url = new URL(req.url, `http://localhost:${port}`);
+      const filePath = url.searchParams.get('path');
+      
+      if (!filePath) {
+        res.writeHead(400);
+        res.end('Missing path parameter');
+        return;
+      }
+      
+      const { exec } = await import('node:child_process');
+      exec(`open "${filePath}"`);
+      
+      res.writeHead(200);
+      res.end('Opening...');
+      return;
+    }
+    
     res.writeHead(404);
     res.end('Not found');
   });

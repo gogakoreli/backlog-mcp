@@ -97,9 +97,9 @@ export class MarkdownElement extends HTMLElement {
 			extensions: [{
 				name: 'autolink',
 				level: 'inline',
-				start(src) { return src.match(/https?:\/\//)?.index; },
+				start(src) { return src.match(/(https?|file):\/\//)?.index; },
 				tokenizer(src) {
-					const match = src.match(/^https?:\/\/[^\s<>"']+/);
+					const match = src.match(/^(https?|file):\/\/[^\s<>"']+/);
 					if (match) {
 						return { type: 'autolink', raw: match[0], href: match[0] };
 					}
@@ -155,6 +155,14 @@ export class MarkdownElement extends HTMLElement {
 		this.querySelectorAll('a[href^="http"]').forEach(a => {
 			a.setAttribute('target', '_blank');
 			a.setAttribute('rel', 'noopener');
+		});
+
+		// Convert file:// links to use server endpoint
+		this.querySelectorAll('a[href^="file://"]').forEach(a => {
+			const path = a.getAttribute('href').replace('file://', '');
+			a.removeAttribute('href');
+			a.style.cursor = 'pointer';
+			a.onclick = (e) => { e.preventDefault(); fetch(`/open-file?path=${encodeURIComponent(path)}`); };
 		});
 	}
 

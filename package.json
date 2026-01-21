@@ -44,7 +44,8 @@
     "start": "node dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev": "lsof -ti:3030 | xargs kill -9 2>/dev/null; pnpm build && concurrently \"tsx watch src/server.ts\" \"esbuild viewer/main.ts --bundle --format=esm --outdir=dist/viewer --watch\""
+    "dev": "lsof -ti:3030 | xargs kill -9 2>/dev/null; pnpm build && concurrently \"tsx watch src/server.ts\" \"esbuild viewer/main.ts --bundle --format=esm --outdir=dist/viewer --watch\"",
+    "test:integration": "pnpm build && kiro-cli chat --agent mcp-resource-validator --trust-all-tools --no-interactive 'Execute the complete validation test plan'"
   },
   "engines": {
     "node": ">=18.0.0"

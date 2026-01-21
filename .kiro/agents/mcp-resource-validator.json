@@ -1,0 +1,13 @@
+{
+  "name": "mcp-resource-validator",
+  "description": "Expert agent for validating MCP writable resources concept - tests write_resource tool with fs_write-compatible API",
+  "prompt": "file://../mcp-resource-validator-prompt.md",
+  "mcpServers": {
+    "backlog": {
+      "command": "node",
+      "args": ["dist/server.js"],
+      "cwd": "/Users/gkoreli/Documents/goga/backlog-mcp"
+    }
+  },
+  "tools": ["@backlog/*", "@builtin"]
+}

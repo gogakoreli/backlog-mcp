@@ -512,22 +512,29 @@
 .task-meta-path .copy-btn:hover {
   color: #58a6ff;
 }
-.task-meta-evidence {
+.task-meta-section {
   margin-top: 12px;
   font-size: 13px;
 }
-.task-meta-evidence-label {
+.task-meta-section-label {
   font-weight: 600;
   color: #8b949e;
   margin-bottom: 4px;
 }
-.task-meta-evidence ul {
+.task-meta-section ul {
   margin: 0;
   padding-left: 20px;
 }
-.task-meta-evidence li {
+.task-meta-section li {
   margin: 6px 0;
   line-height: 1.4;
+}
+.blocked-reason-section {
+  border-left: 3px solid #f85149;
+  padding-left: 12px;
+  background: rgba(248, 81, 73, 0.1);
+  border-radius: 0 6px 6px 0;
+  padding: 8px 12px;
 }
 
 /* md-block with GitHub styling - load after github-markdown.css */

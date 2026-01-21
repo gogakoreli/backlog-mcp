@@ -62,7 +62,7 @@ export interface Task {
   references?: Reference[];
   created_at: string;
   updated_at: string;
-  blocked_reason?: string;
+  blocked_reason?: string[];
   evidence?: string[];
 }
 

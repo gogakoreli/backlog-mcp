@@ -1,9 +1,13 @@
 import { fetchTask } from '../utils/api.js';
+import type { Reference } from '../utils/api.js';
 import { copyIcon } from '../icons/index.js';
 
-function linkify(text: string): string {
-  const urlRegex = /(https?:\/\/[^\s<>"']+)/g;
-  return text.replace(urlRegex, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+function linkify(input: string | Reference): string {
+  if (typeof input === 'string') {
+    const urlRegex = /(https?:\/\/[^\s<>"']+)/g;
+    return input.replace(urlRegex, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  }
+  return `<a href="${input.url}" target="_blank" rel="noopener">${input.title || input.url}</a>`;
 }
 
 export class TaskDetail extends HTMLElement {
@@ -52,19 +56,21 @@ export class TaskDetail extends HTMLElement {
             ${task.epic_id ? `<span class="task-meta-epic"><span class="task-meta-epic-label">Epic:</span><a href="#" class="epic-link" data-epic-id="${task.epic_id}"><task-badge task-id="${task.epic_id}" type="epic"></task-badge></a>${task.epicTitle ? `<span class="epic-title">${task.epicTitle}</span>` : ''}</span>` : ''}
           </div>
           ${task.references?.length ? `
-            <div class="task-meta-evidence">
-              <div class="task-meta-evidence-label">References:</div>
-              <ul>${task.references.map((r: any) => {
-                const url = typeof r === 'string' ? r : r.url;
-                const title = typeof r === 'string' ? r : (r.title || r.url);
-                return `<li><a href="${url}" target="_blank" rel="noopener">${title}</a></li>`;
-              }).join('')}</ul>
+            <div class="task-meta-section">
+              <div class="task-meta-section-label">References:</div>
+              <ul>${task.references.map((r: Reference) => `<li>${linkify(r)}</li>`).join('')}</ul>
             </div>
           ` : ''}
           ${task.evidence?.length ? `
-            <div class="task-meta-evidence">
-              <div class="task-meta-evidence-label">Evidence:</div>
+            <div class="task-meta-section">
+              <div class="task-meta-section-label">Evidence:</div>
               <ul>${task.evidence.map((e: string) => `<li>${linkify(e)}</li>`).join('')}</ul>
+            </div>
+          ` : ''}
+          ${task.blocked_reason?.length ? `
+            <div class="task-meta-section blocked-reason-section">
+              <div class="task-meta-section-label">Blocked</div>
+              <ul>${task.blocked_reason.map((r: string) => `<li>${linkify(r)}</li>`).join('')}</ul>
             </div>
           ` : ''}
         </div>
@@ -105,8 +111,9 @@ export class TaskDetail extends HTMLElement {
       
       // Bind copy raw button (in pane header)
       const copyRawBtn = paneHeader?.querySelector('.copy-raw');
-      if (copyRawBtn && task.raw) {
-        copyRawBtn.addEventListener('click', () => navigator.clipboard.writeText(task.raw));
+      const raw = task.raw;
+      if (copyRawBtn && raw) {
+        copyRawBtn.addEventListener('click', () => navigator.clipboard.writeText(raw));
       }
     } catch (error) {
       this.innerHTML = `<div class="error">Failed to load task: ${(error as Error).message}</div>`;

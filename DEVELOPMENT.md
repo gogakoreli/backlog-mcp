@@ -3,8 +3,8 @@
 ## Quick Start
 
 ```bash
-npm install
-npm run dev  # Starts MCP server + web viewer with hot reload
+pnpm install
+pnpm dev  # Starts MCP server + web viewer with hot reload
 ```
 
 ## Architecture
@@ -62,7 +62,7 @@ viewer/
 
 ```bash
 # Build and test
-npm run build && npm test
+pnpm build && pnpm test
 
 # Manual JSON-RPC call
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"backlog_list","arguments":{}}}' | node dist/server.js

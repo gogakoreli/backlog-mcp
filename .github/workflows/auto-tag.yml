@@ -51,22 +51,22 @@ jobs:
           VERSION="v${{ steps.version.outputs.current }}"
           gh release create "$VERSION" --title "$VERSION" --generate-notes
 
+      - uses: pnpm/action-setup@v4
+        if: steps.version.outputs.changed == 'true'
+
       - uses: actions/setup-node@v4
         if: steps.version.outputs.changed == 'true'
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
-
-      - name: Update npm
-        if: steps.version.outputs.changed == 'true'
-        run: npm install -g npm@latest
+          cache: 'pnpm'
 
       - name: Publish to npm
         if: steps.version.outputs.changed == 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          npm ci
-          npm run build
-          npm test || true
-          npm publish
+          pnpm install --frozen-lockfile
+          pnpm build
+          pnpm test || true
+          pnpm publish --no-git-checks

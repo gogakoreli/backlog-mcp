@@ -258,7 +258,7 @@
     }
     
     .status-open { background: #1f6feb; color: white; }
-    .status-in_progress { background: #0969da; color: white; }
+    .status-in_progress { background: #d97706; color: white; }
     .status-blocked { background: #cf222e; color: white; }
     .status-done { background: #1a7f37; color: white; }
     .status-cancelled { background: #57606a; color: white; }

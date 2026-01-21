@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { createTask, STATUSES, TASK_TYPES, type Task } from './schema.js';
 import { storage } from './backlog.js';
 import { startViewer } from './viewer.js';
+import { writeResource } from './resources/index.js';
 
 // Read version from package.json
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -85,7 +86,8 @@ server.registerTool(
     }),
   },
   async ({ title, description, type, epic_id, references }) => {
-    const task = createTask({ title, description, type, epic_id, references }, storage.list());
+    const existingIds = storage.getAllIds().map(id => ({ id }));
+    const task = createTask({ title, description, type, epic_id, references }, existingIds);
     storage.add(task);
     return { content: [{ type: 'text' as const, text: `Created ${task.id}` }] };
   }
@@ -139,6 +141,47 @@ server.registerTool(
       return { content: [{ type: 'text' as const, text: `Not found: ${id}` }], isError: true };
     }
     return { content: [{ type: 'text' as const, text: `Deleted ${id}` }] };
+  }
+);
+
+server.registerTool(
+  'write_resource',
+  {
+    description: 'Write to MCP resources using fs_write-style operations. Similar to @builtin/fs_write but for mcp:// URIs.',
+    inputSchema: z.object({
+      uri: z.string().describe('Resource URI (e.g., mcp://backlog/tasks/TASK-0039/description)'),
+      command: z.enum(['strReplace', 'insert']).describe('Operation: strReplace or insert'),
+      oldStr: z.string().optional().describe('For strReplace: string to find'),
+      newStr: z.string().optional().describe('For strReplace: replacement string'),
+      content: z.string().optional().describe('For insert: content to add'),
+      insertLine: z.number().optional().describe('For insert: line number (0-based). Omit to append.'),
+    }),
+  },
+  async ({ uri, command, oldStr, newStr, content, insertLine }) => {
+    let operation;
+    if (command === 'strReplace') {
+      operation = { type: 'str_replace', old_str: oldStr!, new_str: newStr! };
+    } else if (command === 'insert') {
+      if (insertLine !== undefined) {
+        operation = { type: 'insert', line: insertLine, content: content || newStr || '' };
+      } else {
+        operation = { type: 'append', content: content || newStr || '' };
+      }
+    }
+    
+    const result = writeResource(
+      { uri, operation: operation as any },
+      (taskId) => storage.getFilePath(taskId)
+    );
+    
+    if (!result.success) {
+      return { 
+        content: [{ type: 'text' as const, text: `${result.message}\n${result.error || ''}` }], 
+        isError: true 
+      };
+    }
+    
+    return { content: [{ type: 'text' as const, text: result.message }] };
   }
 );
 

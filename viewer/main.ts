@@ -21,16 +21,18 @@ urlState.subscribe((state) => {
     const detail = document.querySelector('task-detail') as any;
     detail?.loadTask?.(state.task);
   }
-
-  if (state.resource) {
-    openSplitPane(state.resource);
-  } else if (splitActive) {
-    closeSplitPane();
-  }
 });
 
 // Initialize on load
-document.addEventListener('DOMContentLoaded', () => urlState.init());
+document.addEventListener('DOMContentLoaded', () => {
+  urlState.init();
+  
+  // Restore resource from localStorage
+  const savedResource = localStorage.getItem('openResource');
+  if (savedResource) {
+    openSplitPane(savedResource);
+  }
+});
 
 // Component events -> URL updates
 document.addEventListener('filter-change', ((e: CustomEvent) => {
@@ -46,11 +48,13 @@ document.addEventListener('epic-pin', ((e: CustomEvent) => {
 }) as EventListener);
 
 document.addEventListener('resource-open', ((e: CustomEvent) => {
-  urlState.set({ resource: e.detail.path });
+  localStorage.setItem('openResource', e.detail.path);
+  openSplitPane(e.detail.path);
 }) as EventListener);
 
 document.addEventListener('resource-close', () => {
-  urlState.set({ resource: undefined });
+  localStorage.removeItem('openResource');
+  closeSplitPane();
 });
 
 function openSplitPane(path: string) {

@@ -3,7 +3,6 @@ type State = {
   type: string;
   task: string | null;
   epic: string | null;
-  resource: string | null;
 };
 
 type Listener = (state: State) => void;
@@ -23,7 +22,6 @@ class UrlState {
       type: params.get('type') || 'all',
       task: params.get('task'),
       epic: params.get('epic'),
-      resource: params.get('resource'),
     };
   }
 

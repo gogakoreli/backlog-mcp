@@ -46,7 +46,7 @@ export class ResourceViewer extends HTMLElement {
     `;
 
     this.querySelector('.resource-close')?.addEventListener('click', () => {
-      this.dispatchEvent(new CustomEvent('resource-close'));
+      this.dispatchEvent(new CustomEvent('resource-close', { bubbles: true }));
     });
 
     try {
@@ -86,7 +86,7 @@ export class ResourceViewer extends HTMLElement {
         <button class="resource-close" title="Close (Cmd+W)">✕</button>
       `;
       header.querySelector('.resource-close')?.addEventListener('click', () => {
-        this.dispatchEvent(new CustomEvent('resource-close'));
+        this.dispatchEvent(new CustomEvent('resource-close', { bubbles: true }));
       });
       container.appendChild(header);
     }

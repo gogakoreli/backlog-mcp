@@ -13,9 +13,7 @@ class SplitPaneService {
   open(path: string) {
     if (!this.rightPane) return;
 
-    if (this.pane) {
-      // Pane already exists, just show it and reload
-      this.pane.style.display = 'flex';
+    if (this.viewer) {
       this.viewer.loadResource(path);
       this.setHeaderTitle(path.split('/').pop() || path, path);
     } else {
@@ -23,19 +21,19 @@ class SplitPaneService {
       
       // Get task pane
       const taskPane = this.rightPane.querySelector('.task-pane') as HTMLElement;
-      if (taskPane) {
-        // Restore saved width
+      
+      // Add resize handle if not exists
+      if (!this.rightPane.querySelector('.split-resize-handle')) {
         const savedWidth = localStorage.getItem('taskPaneWidth');
-        if (savedWidth) {
+        if (savedWidth && taskPane) {
           taskPane.style.width = savedWidth;
         }
+        
+        const handle = resizeService.createHandle(this.rightPane, taskPane, 'taskPaneWidth');
+        handle.dataset.storageKey = 'taskPaneWidth';
+        handle.classList.add('split-resize-handle');
+        this.rightPane.appendChild(handle);
       }
-      
-      // Add resize handle (only once)
-      const handle = resizeService.createHandle(this.rightPane, taskPane, 'taskPaneWidth');
-      handle.dataset.storageKey = 'taskPaneWidth';
-      handle.classList.add('split-resize-handle');
-      this.rightPane.appendChild(handle);
       
       // Create proper pane structure
       this.pane = document.createElement('div');
@@ -76,12 +74,14 @@ class SplitPaneService {
 
   close() {
     if (this.pane) {
-      // Hide instead of remove
-      this.pane.style.display = 'none';
+      this.pane.remove();
+      this.pane = null;
+      this.viewer = null;
+      this.headerContent = null;
     }
     
-    // Keep resize handle and split-active class
-    // This allows resizing even when resource pane is hidden
+    // Keep resize handle - don't remove it
+    this.rightPane?.classList.remove('split-active');
   }
 
   isOpen(): boolean {

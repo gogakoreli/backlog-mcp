@@ -73,17 +73,22 @@ class BacklogStorage {
     return null;
   }
 
-  list(filter?: { status?: Status[]; type?: TaskType; epic_id?: string; limit?: number; counts?: boolean }): Task[] | { filtered: number; total: number } {
+  list(filter?: { status?: Status[]; type?: TaskType; epic_id?: string; limit?: number; counts?: boolean }): Task[] | { filtered: number; total: number; total_tasks: number; total_epics: number } {
     const { status, type, epic_id, limit = 20, counts = false } = filter ?? {};
 
     let tasks = Array.from(this.iterateTasks());
     
     if (counts) {
-      const total = tasks.length;
+      const allTasks = tasks;
+      const total_tasks = allTasks.filter(t => (t.type ?? 'task') === 'task').length;
+      const total_epics = allTasks.filter(t => (t.type ?? 'task') === 'epic').length;
+      
       if (status) tasks = tasks.filter(t => status.includes(t.status));
       if (type) tasks = tasks.filter(t => (t.type ?? 'task') === type);
       if (epic_id) tasks = tasks.filter(t => t.epic_id === epic_id);
-      return { filtered: tasks.length, total };
+      
+      const total = type ? (type === 'epic' ? total_epics : total_tasks) : allTasks.length;
+      return { filtered: tasks.length, total, total_tasks, total_epics };
     }
     
     if (status) tasks = tasks.filter(t => status.includes(t.status));

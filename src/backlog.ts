@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import matter from 'gray-matter';
-import type { Task, Status } from './schema.js';
+import type { Task, Status, TaskType } from './schema.js';
 
 const TASKS_DIR = 'tasks';
 
@@ -73,12 +73,14 @@ class BacklogStorage {
     return null;
   }
 
-  list(filter?: { status?: Status[]; limit?: number }): Task[] {
-    const statusFilter = filter?.status;
-    const limit = filter?.limit ?? 20;
+  list(filter?: { status?: Status[]; type?: TaskType; epic_id?: string; limit?: number }): Task[] {
+    const { status, type, epic_id, limit = 20 } = filter ?? {};
 
-    const tasks = Array.from(this.iterateTasks())
-      .filter(t => !statusFilter || statusFilter.includes(t.status));
+    let tasks = Array.from(this.iterateTasks());
+    
+    if (status) tasks = tasks.filter(t => status.includes(t.status));
+    if (type) tasks = tasks.filter(t => (t.type ?? 'task') === type);
+    if (epic_id) tasks = tasks.filter(t => t.epic_id === epic_id);
 
     return tasks
       .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())

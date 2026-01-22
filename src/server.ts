@@ -48,10 +48,7 @@ server.registerTool(
     if (counts) {
       return { content: [{ type: 'text' as const, text: JSON.stringify(storage.counts(), null, 2) }] };
     }
-    let tasks = storage.list({ status });
-    if (type) tasks = tasks.filter(t => (t.type ?? 'task') === type);
-    if (epic_id) tasks = tasks.filter(t => t.epic_id === epic_id);
-    tasks = tasks.slice(0, limit ?? 20);
+    const tasks = storage.list({ status, type, epic_id, limit });
     const list = tasks.map((t) => ({ id: t.id, title: t.title, status: t.status, type: t.type ?? 'task', epic_id: t.epic_id }));
     return { content: [{ type: 'text' as const, text: JSON.stringify(list, null, 2) }] };
   }

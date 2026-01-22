@@ -124,13 +124,6 @@ class BacklogStorage {
     return counts;
   }
 
-  getAllIds(): string[] {
-    if (!existsSync(this.tasksPath)) return [];
-    return readdirSync(this.tasksPath)
-      .filter(f => f.endsWith('.md'))
-      .map(f => f.replace(/\.md$/, ''));
-  }
-
   getMaxId(type?: 'task' | 'epic'): number {
     const pattern = type === 'epic' ? /^EPIC-(\d{4,})\.md$/ : /^TASK-(\d{4,})\.md$/;
     let maxNum = 0;

@@ -2,6 +2,7 @@ class SplitPaneService {
   private pane: HTMLElement | null = null;
   private viewer: any = null;
   private rightPane: HTMLElement | null = null;
+  private headerContent: HTMLElement | null = null;
 
   init() {
     this.rightPane = document.getElementById('right-pane');
@@ -12,7 +13,7 @@ class SplitPaneService {
 
     if (this.viewer) {
       this.viewer.loadResource(path);
-      this.updateHeader(path);
+      this.setHeaderTitle(path.split('/').pop() || path, path);
     } else {
       this.rightPane.classList.add('split-active');
       
@@ -22,10 +23,20 @@ class SplitPaneService {
       
       const header = document.createElement('div');
       header.className = 'pane-header';
-      header.innerHTML = `
-        <div class="pane-title" id="resource-pane-title"></div>
-        <button class="btn-outline resource-close-btn" title="Close (Cmd+W)">✕</button>
-      `;
+      
+      this.headerContent = document.createElement('div');
+      this.headerContent.className = 'pane-header-content';
+      
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'btn-outline resource-close-btn';
+      closeBtn.title = 'Close (Cmd+W)';
+      closeBtn.textContent = '✕';
+      closeBtn.addEventListener('click', () => {
+        document.dispatchEvent(new CustomEvent('resource-close'));
+      });
+      
+      header.appendChild(this.headerContent);
+      header.appendChild(closeBtn);
       
       const content = document.createElement('div');
       content.className = 'pane-content';
@@ -38,13 +49,8 @@ class SplitPaneService {
       this.pane.appendChild(content);
       this.rightPane.appendChild(this.pane);
       
-      // Bind close button
-      header.querySelector('.resource-close-btn')?.addEventListener('click', () => {
-        document.dispatchEvent(new CustomEvent('resource-close'));
-      });
-      
       this.viewer.loadResource(path);
-      this.updateHeader(path);
+      this.setHeaderTitle(path.split('/').pop() || path, path);
     }
   }
 
@@ -53,6 +59,7 @@ class SplitPaneService {
       this.pane.remove();
       this.pane = null;
       this.viewer = null;
+      this.headerContent = null;
     }
     this.rightPane?.classList.remove('split-active');
   }
@@ -61,13 +68,23 @@ class SplitPaneService {
     return this.pane !== null;
   }
 
-  private updateHeader(path: string) {
-    const filename = path.split('/').pop() || path;
-    const titleEl = document.getElementById('resource-pane-title');
-    if (titleEl) {
-      titleEl.textContent = filename;
-      titleEl.title = path;
-    }
+  setHeaderTitle(title: string, subtitle?: string) {
+    if (!this.headerContent) return;
+    
+    this.headerContent.innerHTML = `
+      <div class="pane-title">${title}</div>
+      ${subtitle ? `<div class="pane-subtitle">${subtitle}</div>` : ''}
+    `;
+  }
+
+  setHeaderContent(element: HTMLElement) {
+    if (!this.headerContent) return;
+    this.headerContent.innerHTML = '';
+    this.headerContent.appendChild(element);
+  }
+
+  getViewer(): any {
+    return this.viewer;
   }
 }
 

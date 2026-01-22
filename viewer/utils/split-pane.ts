@@ -32,6 +32,7 @@ class SplitPaneService {
       // Add resize handle
       const handle = resizeService.createHandle(this.rightPane, taskPane, 'taskPaneWidth');
       handle.dataset.storageKey = 'taskPaneWidth';
+      handle.classList.add('split-resize-handle');
       this.rightPane.appendChild(handle);
       
       // Create proper pane structure
@@ -79,8 +80,8 @@ class SplitPaneService {
       this.headerContent = null;
     }
     
-    // Remove resize handle
-    const handle = this.rightPane?.querySelector('.resize-handle');
+    // Remove split pane resize handle only
+    const handle = this.rightPane?.querySelector('.split-resize-handle');
     if (handle) {
       handle.remove();
     }

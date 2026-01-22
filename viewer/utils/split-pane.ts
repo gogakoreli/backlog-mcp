@@ -1,3 +1,5 @@
+import { resizeService } from './resize.js';
+
 class SplitPaneService {
   private pane: HTMLElement | null = null;
   private viewer: any = null;
@@ -16,6 +18,21 @@ class SplitPaneService {
       this.setHeaderTitle(path.split('/').pop() || path, path);
     } else {
       this.rightPane.classList.add('split-active');
+      
+      // Get task pane
+      const taskPane = this.rightPane.querySelector('.task-pane') as HTMLElement;
+      if (taskPane) {
+        // Restore saved width
+        const savedWidth = localStorage.getItem('taskPaneWidth');
+        if (savedWidth) {
+          taskPane.style.width = savedWidth;
+        }
+      }
+      
+      // Add resize handle
+      const handle = resizeService.createHandle(this.rightPane, taskPane, 'taskPaneWidth');
+      handle.dataset.storageKey = 'taskPaneWidth';
+      this.rightPane.appendChild(handle);
       
       // Create proper pane structure
       this.pane = document.createElement('div');
@@ -61,6 +78,13 @@ class SplitPaneService {
       this.viewer = null;
       this.headerContent = null;
     }
+    
+    // Remove resize handle
+    const handle = this.rightPane?.querySelector('.resize-handle');
+    if (handle) {
+      handle.remove();
+    }
+    
     this.rightPane?.classList.remove('split-active');
   }
 

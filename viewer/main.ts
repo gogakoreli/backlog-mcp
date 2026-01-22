@@ -4,7 +4,11 @@ import './components/task-list.js';
 import './components/task-item.js';
 import './components/task-detail.js';
 import './components/task-badge.js';
+import './components/resource-viewer.js';
 import { urlState } from './utils/url-state.js';
+import { splitPane } from './utils/split-pane.js';
+import { resizeService } from './utils/resize.js';
+import { layoutService } from './utils/layout.js';
 
 // Subscribe components to URL state changes - single source of truth
 urlState.subscribe((state) => {
@@ -21,7 +25,18 @@ urlState.subscribe((state) => {
 });
 
 // Initialize on load
-document.addEventListener('DOMContentLoaded', () => urlState.init());
+document.addEventListener('DOMContentLoaded', () => {
+  urlState.init();
+  resizeService.init();
+  layoutService.init();
+  splitPane.init();
+  
+  // Restore resource from localStorage
+  const savedResource = localStorage.getItem('openResource');
+  if (savedResource) {
+    splitPane.open(savedResource);
+  }
+});
 
 // Component events -> URL updates
 document.addEventListener('filter-change', ((e: CustomEvent) => {
@@ -35,3 +50,13 @@ document.addEventListener('task-selected', ((e: CustomEvent) => {
 document.addEventListener('epic-pin', ((e: CustomEvent) => {
   urlState.set({ epic: e.detail.epicId });
 }) as EventListener);
+
+document.addEventListener('resource-open', ((e: CustomEvent) => {
+  localStorage.setItem('openResource', e.detail.path);
+  splitPane.open(e.detail.path);
+}) as EventListener);
+
+document.addEventListener('resource-close', () => {
+  localStorage.removeItem('openResource');
+  splitPane.close();
+});

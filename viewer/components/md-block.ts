@@ -279,7 +279,7 @@ export class MarkdownBlock extends MarkdownElement {
 				let prevSrc = this.src;
 				this._src = url;
 
-				if (this.src !== prevSrc) {
+				if (this.src !== prevSrc && this.src) {
 					fetch(this.src)
 						.then(response => {
 							if (!response.ok) {

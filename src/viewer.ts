@@ -128,6 +128,60 @@ export async function startViewer(port: number = 3030): Promise<void> {
       return;
     }
     
+    // GET /resource?path=... - read file content for in-browser viewing
+    if (req.url?.startsWith('/resource?')) {
+      const url = new URL(req.url, `http://localhost:${port}`);
+      const filePath = url.searchParams.get('path');
+      
+      if (!filePath) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing path parameter' }));
+        return;
+      }
+      
+      if (!existsSync(filePath)) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'File not found', path: filePath }));
+        return;
+      }
+      
+      try {
+        const content = readFileSync(filePath, 'utf-8');
+        const ext = filePath.split('.').pop()?.toLowerCase() || 'txt';
+        const mimeMap: Record<string, string> = {
+          md: 'text/markdown',
+          ts: 'text/typescript',
+          js: 'text/javascript',
+          json: 'application/json',
+          txt: 'text/plain',
+        };
+        
+        let frontmatter = {};
+        let bodyContent = content;
+        
+        // Parse frontmatter for markdown files
+        if (ext === 'md') {
+          const matter = await import('gray-matter');
+          const parsed = matter.default(content);
+          frontmatter = parsed.data;
+          bodyContent = parsed.content;
+        }
+        
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ 
+          content: bodyContent,
+          frontmatter,
+          type: mimeMap[ext] || 'text/plain',
+          path: filePath,
+          ext 
+        }));
+      } catch (error) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Failed to read file', message: (error as Error).message }));
+      }
+      return;
+    }
+    
     // GET /open-file?path=... - open any local file
     if (req.url?.startsWith('/open-file?')) {
       const url = new URL(req.url, `http://localhost:${port}`);

@@ -8,6 +8,20 @@ class SplitPaneService {
 
   init() {
     this.rightPane = document.getElementById('right-pane');
+    
+    // Add resize handle between task and resource panes (always present)
+    const taskPane = this.rightPane?.querySelector('.task-pane') as HTMLElement;
+    if (this.rightPane && taskPane) {
+      const savedWidth = localStorage.getItem('taskPaneWidth');
+      if (savedWidth) {
+        taskPane.style.width = savedWidth;
+      }
+      
+      const handle = resizeService.createHandle(this.rightPane, taskPane, 'taskPaneWidth');
+      handle.dataset.storageKey = 'taskPaneWidth';
+      handle.classList.add('split-resize-handle');
+      this.rightPane.appendChild(handle);
+    }
   }
 
   open(path: string) {

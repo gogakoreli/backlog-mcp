@@ -23,7 +23,7 @@ describe('Storage', () => {
 
   describe('add', () => {
     it('should create a new task', () => {
-      const task = createTask({ title: 'Test task' }, []);
+      const task = createTask({ id: 'TASK-0001', title: 'Test task' });
       storage.add(task);
 
       const retrieved = storage.get(task.id);
@@ -34,7 +34,7 @@ describe('Storage', () => {
 
   describe('save', () => {
     it('should update an existing task', () => {
-      const task = createTask({ title: 'Original' }, []);
+      const task = createTask({ id: 'TASK-0001', title: 'Original' });
       storage.add(task);
 
       const updated = { ...task, title: 'Updated' };
@@ -45,7 +45,7 @@ describe('Storage', () => {
     });
 
     it('should archive task when status is done', () => {
-      const task = createTask({ title: 'Test' }, []);
+      const task = createTask({ id: 'TASK-0001', title: 'Test' });
       storage.add(task);
 
       const updated = { ...task, status: 'done' as const };
@@ -63,9 +63,8 @@ describe('Storage', () => {
 
   describe('list', () => {
     it('should list only active tasks by default', () => {
-      const existing = storage.list();
-      const task1 = createTask({ title: 'Active' }, existing);
-      const task2 = createTask({ title: 'Done' }, [...existing, task1]);
+      const task1 = createTask({ id: 'TASK-0001', title: 'Active' });
+      const task2 = createTask({ id: 'TASK-0002', title: 'Done' });
       
       storage.add(task1);
       storage.add(task2);
@@ -77,10 +76,9 @@ describe('Storage', () => {
     });
 
     it('should respect archivedLimit parameter', () => {
-      const existing = storage.list();
       const tasks: any[] = [];
-      for (let i = 0; i < 5; i++) {
-        const task = createTask({ title: `Task ${i}` }, [...existing, ...tasks]);
+      for (let i = 1; i <= 5; i++) {
+        const task = createTask({ id: `TASK-${String(i).padStart(4, '0')}`, title: `Task ${i}` });
         tasks.push(task);
       }
 
@@ -96,7 +94,7 @@ describe('Storage', () => {
 
   describe('delete', () => {
     it('should delete an active task', () => {
-      const task = createTask({ title: 'Test' }, []);
+      const task = createTask({ id: 'TASK-0001', title: 'Test' });
       storage.add(task);
 
       const deleted = storage.delete(task.id);
@@ -105,7 +103,7 @@ describe('Storage', () => {
     });
 
     it('should delete an archived task', () => {
-      const task = createTask({ title: 'Test' }, []);
+      const task = createTask({ id: 'TASK-0001', title: 'Test' });
       storage.add(task);
       storage.save({ ...task, status: 'done' });
 
@@ -123,9 +121,10 @@ describe('Storage', () => {
   describe('getMarkdown', () => {
     it('should preserve description with markdown formatting', () => {
       const task = createTask({ 
+        id: 'TASK-0001',
         title: 'Test',
         description: '## Heading\n\n- Item 1\n- Item 2'
-      }, []);
+      });
       
       storage.add(task);
       const markdown = storage.getMarkdown(task.id);
@@ -137,8 +136,8 @@ describe('Storage', () => {
 
   describe('counts', () => {
     it('should return counts by status', () => {
-      const task1 = createTask({ title: 'Open' }, []);
-      const task2 = createTask({ title: 'Done' }, [task1]);
+      const task1 = createTask({ id: 'TASK-0001', title: 'Open' });
+      const task2 = createTask({ id: 'TASK-0002', title: 'Done' });
       
       storage.add(task1);
       storage.add(task2);

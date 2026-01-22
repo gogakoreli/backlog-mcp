@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { nextTaskId } from './schema.js';
 
 import { createTask, STATUSES, TASK_TYPES, type Task } from './schema.js';
 import { storage } from './backlog.js';
@@ -86,8 +87,8 @@ server.registerTool(
     }),
   },
   async ({ title, description, type, epic_id, references }) => {
-    const existingIds = storage.getAllIds().map(id => ({ id }));
-    const task = createTask({ title, description, type, epic_id, references }, existingIds);
+    const id = nextTaskId(storage.getMaxId(type), type);
+    const task = createTask({ id, title, description, type, epic_id, references });
     storage.add(task);
     return { content: [{ type: 'text' as const, text: `Created ${task.id}` }] };
   }

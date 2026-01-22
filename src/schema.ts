@@ -20,17 +20,8 @@ export function formatTaskId(num: number, type?: 'task' | 'epic'): string {
   return `${prefix}-${num.toString().padStart(4, '0')}`;
 }
 
-export function nextTaskId(existingTasks: ReadonlyArray<{ id: string }>, type?: 'task' | 'epic'): string {
-  const pattern = type === 'epic' ? EPIC_ID_PATTERN : TASK_ID_PATTERN;
-  let maxNum = 0;
-  for (const task of existingTasks) {
-    const match = pattern.exec(task.id);
-    if (match?.[1]) {
-      const num = parseInt(match[1], 10);
-      if (num > maxNum) maxNum = num;
-    }
-  }
-  return formatTaskId(maxNum + 1, type);
+export function nextTaskId(maxId: number, type?: 'task' | 'epic'): string {
+  return formatTaskId(maxId + 1, type);
 }
 
 // ============================================================================
@@ -71,7 +62,7 @@ export interface Task {
 // ============================================================================
 
 export interface CreateTaskInput {
-  id?: string;
+  id: string;
   title: string;
   description?: string;
   type?: TaskType;
@@ -79,13 +70,10 @@ export interface CreateTaskInput {
   references?: Reference[];
 }
 
-export function createTask(
-  input: CreateTaskInput,
-  existingTasks: ReadonlyArray<{ id: string }> = []
-): Task {
+export function createTask(input: CreateTaskInput): Task {
   const now = new Date().toISOString();
   const task: Task = {
-    id: input.id ?? nextTaskId(existingTasks, input.type),
+    id: input.id,
     title: input.title,
     status: 'open',
     created_at: now,

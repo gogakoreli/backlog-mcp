@@ -4,8 +4,6 @@ import matter from 'gray-matter';
 import type { Task, Status } from './schema.js';
 
 const TASKS_DIR = 'tasks';
-const ARCHIVE_DIR = 'archive';
-const TERMINAL_STATUSES: Status[] = ['done', 'cancelled'];
 
 class BacklogStorage {
   private dataDir: string = 'data';
@@ -26,18 +24,14 @@ class BacklogStorage {
     return join(this.dataDir, TASKS_DIR);
   }
 
-  private get archivePath(): string {
-    return join(this.dataDir, ARCHIVE_DIR);
-  }
-
   private ensureDir(dir: string): void {
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
   }
 
-  private taskFilePath(id: string, archived: boolean = false): string {
-    return join(archived ? this.archivePath : this.tasksPath, `${id}.md`);
+  private taskFilePath(id: string): string {
+    return join(this.tasksPath, `${id}.md`);
   }
 
   private taskToMarkdown(task: Task): string {
@@ -51,107 +45,62 @@ class BacklogStorage {
   }
 
   getFilePath(id: string): string | null {
-    const activePath = this.taskFilePath(id, false);
-    if (existsSync(activePath)) return activePath;
-    const archivePath = this.taskFilePath(id, true);
-    if (existsSync(archivePath)) return archivePath;
-    return null;
+    const path = this.taskFilePath(id);
+    return existsSync(path) ? path : null;
+  }
+
+  private *iterateTasks(): Generator<Task> {
+    if (existsSync(this.tasksPath)) {
+      for (const file of readdirSync(this.tasksPath).filter(f => f.endsWith('.md'))) {
+        yield this.markdownToTask(readFileSync(join(this.tasksPath, file), 'utf-8'));
+      }
+    }
   }
 
   get(id: string): Task | undefined {
-    const activePath = this.taskFilePath(id, false);
-    if (existsSync(activePath)) {
-      return this.markdownToTask(readFileSync(activePath, 'utf-8'));
-    }
-    const archivePath = this.taskFilePath(id, true);
-    if (existsSync(archivePath)) {
-      return this.markdownToTask(readFileSync(archivePath, 'utf-8'));
+    const path = this.taskFilePath(id);
+    if (existsSync(path)) {
+      return this.markdownToTask(readFileSync(path, 'utf-8'));
     }
     return undefined;
   }
 
   getMarkdown(id: string): string | null {
-    const activePath = this.taskFilePath(id, false);
-    if (existsSync(activePath)) {
-      return readFileSync(activePath, 'utf-8');
-    }
-    const archivePath = this.taskFilePath(id, true);
-    if (existsSync(archivePath)) {
-      return readFileSync(archivePath, 'utf-8');
+    const path = this.taskFilePath(id);
+    if (existsSync(path)) {
+      return readFileSync(path, 'utf-8');
     }
     return null;
   }
 
   list(filter?: { status?: Status[]; limit?: number }): Task[] {
-    const tasks: Task[] = [];
     const statusFilter = filter?.status;
     const limit = filter?.limit ?? 20;
 
-    // Load active tasks
-    if (existsSync(this.tasksPath)) {
-      for (const file of readdirSync(this.tasksPath).filter(f => f.endsWith('.md'))) {
-        const task = this.markdownToTask(readFileSync(join(this.tasksPath, file), 'utf-8'));
-        if (!statusFilter || statusFilter.includes(task.status)) {
-          tasks.push(task);
-        }
-      }
-    }
+    const tasks = Array.from(this.iterateTasks())
+      .filter(t => !statusFilter || statusFilter.includes(t.status));
 
-    // Load archived tasks if needed
-    const needsArchived = !statusFilter || statusFilter.some(s => TERMINAL_STATUSES.includes(s));
-    if (needsArchived && existsSync(this.archivePath)) {
-      for (const file of readdirSync(this.archivePath).filter(f => f.endsWith('.md'))) {
-        const task = this.markdownToTask(readFileSync(join(this.archivePath, file), 'utf-8'));
-        if (!statusFilter || statusFilter.includes(task.status)) {
-          tasks.push(task);
-        }
-      }
-    }
-
-    // Sort: active first, then by date desc
-    const isTerminal = (s: Status) => TERMINAL_STATUSES.includes(s);
     return tasks
-      .sort((a, b) => {
-        const aTerminal = isTerminal(a.status) ? 1 : 0;
-        const bTerminal = isTerminal(b.status) ? 1 : 0;
-        if (aTerminal !== bTerminal) return aTerminal - bTerminal;
-        return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-      })
+      .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
       .slice(0, limit);
   }
 
   add(task: Task): void {
     this.ensureDir(this.tasksPath);
-    const filePath = this.taskFilePath(task.id, false);
+    const filePath = this.taskFilePath(task.id);
     writeFileSync(filePath, this.taskToMarkdown(task));
   }
 
   save(task: Task): void {
-    const isTerminal = TERMINAL_STATUSES.includes(task.status);
-    const activePath = this.taskFilePath(task.id, false);
-    const archivePath = this.taskFilePath(task.id, true);
-
-    // Move to archive if terminal status
-    if (isTerminal) {
-      this.ensureDir(this.archivePath);
-      writeFileSync(archivePath, this.taskToMarkdown(task));
-      if (existsSync(activePath)) unlinkSync(activePath);
-    } else {
-      this.ensureDir(this.tasksPath);
-      writeFileSync(activePath, this.taskToMarkdown(task));
-      if (existsSync(archivePath)) unlinkSync(archivePath);
-    }
+    this.ensureDir(this.tasksPath);
+    const filePath = this.taskFilePath(task.id);
+    writeFileSync(filePath, this.taskToMarkdown(task));
   }
 
   delete(id: string): boolean {
-    const activePath = this.taskFilePath(id, false);
-    if (existsSync(activePath)) {
-      unlinkSync(activePath);
-      return true;
-    }
-    const archivePath = this.taskFilePath(id, true);
-    if (existsSync(archivePath)) {
-      unlinkSync(archivePath);
+    const path = this.taskFilePath(id);
+    if (existsSync(path)) {
+      unlinkSync(path);
       return true;
     }
     return false;
@@ -166,39 +115,35 @@ class BacklogStorage {
       cancelled: 0,
     };
 
-    if (existsSync(this.tasksPath)) {
-      for (const file of readdirSync(this.tasksPath).filter(f => f.endsWith('.md'))) {
-        const task = this.markdownToTask(readFileSync(join(this.tasksPath, file), 'utf-8'));
-        counts[task.status]++;
-      }
-    }
-
-    if (existsSync(this.archivePath)) {
-      for (const file of readdirSync(this.archivePath).filter(f => f.endsWith('.md'))) {
-        const task = this.markdownToTask(readFileSync(join(this.archivePath, file), 'utf-8'));
-        counts[task.status]++;
-      }
+    for (const task of this.iterateTasks()) {
+      counts[task.status]++;
     }
 
     return counts;
   }
 
   getAllIds(): string[] {
-    const ids: string[] = [];
+    if (!existsSync(this.tasksPath)) return [];
+    return readdirSync(this.tasksPath)
+      .filter(f => f.endsWith('.md'))
+      .map(f => f.replace(/\.md$/, ''));
+  }
+
+  getMaxId(type?: 'task' | 'epic'): number {
+    const pattern = type === 'epic' ? /^EPIC-(\d{4,})\.md$/ : /^TASK-(\d{4,})\.md$/;
+    let maxNum = 0;
 
     if (existsSync(this.tasksPath)) {
-      for (const file of readdirSync(this.tasksPath).filter(f => f.endsWith('.md'))) {
-        ids.push(file.replace(/\.md$/, ''));
+      for (const file of readdirSync(this.tasksPath)) {
+        const match = pattern.exec(file);
+        if (match?.[1]) {
+          const num = parseInt(match[1], 10);
+          if (num > maxNum) maxNum = num;
+        }
       }
     }
 
-    if (existsSync(this.archivePath)) {
-      for (const file of readdirSync(this.archivePath).filter(f => f.endsWith('.md'))) {
-        ids.push(file.replace(/\.md$/, ''));
-      }
-    }
-
-    return ids;
+    return maxNum;
   }
 }
 

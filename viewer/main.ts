@@ -35,6 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (appContainer && leftPane) {
     const handle = resizeService.createHandle(appContainer, leftPane, 'leftPaneWidth');
     handle.dataset.storageKey = 'leftPaneWidth';
+    handle.classList.add('main-resize-handle');
     appContainer.insertBefore(handle, leftPane.nextSibling);
   }
   

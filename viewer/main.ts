@@ -39,6 +39,21 @@ document.addEventListener('DOMContentLoaded', () => {
     appContainer.insertBefore(handle, leftPane.nextSibling);
   }
   
+  // Add resize handle between task and resource panes (always present)
+  const rightPane = document.getElementById('right-pane');
+  const taskPane = rightPane?.querySelector('.task-pane') as HTMLElement;
+  if (rightPane && taskPane) {
+    const savedWidth = localStorage.getItem('taskPaneWidth');
+    if (savedWidth) {
+      taskPane.style.width = savedWidth;
+    }
+    
+    const handle = resizeService.createHandle(rightPane, taskPane, 'taskPaneWidth');
+    handle.dataset.storageKey = 'taskPaneWidth';
+    handle.classList.add('split-resize-handle');
+    rightPane.appendChild(handle);
+  }
+  
   // Restore resource from localStorage
   const savedResource = localStorage.getItem('openResource');
   if (savedResource) {

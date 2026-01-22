@@ -19,22 +19,6 @@ class SplitPaneService {
     } else {
       this.rightPane.classList.add('split-active');
       
-      // Get task pane
-      const taskPane = this.rightPane.querySelector('.task-pane') as HTMLElement;
-      
-      // Add resize handle if not exists
-      if (!this.rightPane.querySelector('.split-resize-handle')) {
-        const savedWidth = localStorage.getItem('taskPaneWidth');
-        if (savedWidth && taskPane) {
-          taskPane.style.width = savedWidth;
-        }
-        
-        const handle = resizeService.createHandle(this.rightPane, taskPane, 'taskPaneWidth');
-        handle.dataset.storageKey = 'taskPaneWidth';
-        handle.classList.add('split-resize-handle');
-        this.rightPane.appendChild(handle);
-      }
-      
       // Create proper pane structure
       this.pane = document.createElement('div');
       this.pane.className = 'resource-pane';

@@ -105,7 +105,10 @@ export class TaskDetail extends HTMLElement {
         const path = link.getAttribute('href')!.replace('file://', '');
         link.addEventListener('click', (e) => {
           e.preventDefault();
-          fetch(`/open-file?path=${encodeURIComponent(path)}`);
+          this.dispatchEvent(new CustomEvent('resource-open', { 
+            detail: { path },
+            bubbles: true 
+          }));
         });
       });
       

@@ -25,6 +25,23 @@
       flex-direction: column;
       overflow: hidden;
     }
+
+    #task-pane {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      flex: 1;
+    }
+
+    #task-pane.split-active {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+    }
+
+    #task-pane.split-active task-detail {
+      border-right: 1px solid #3e3e42;
+    }
     
     .pane-header {
       padding: 16px 20px;
@@ -619,4 +636,103 @@ task-detail .markdown-body {
 .task-id-btn, .epic-id-btn {
   font-family: monospace;
   font-weight: 600;
+}
+
+/* Resource Viewer */
+.resource-viewer {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #1e1e1e;
+}
+
+.resource-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid #3e3e42;
+  background: #252526;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.resource-filename {
+  font-size: 14px;
+  font-weight: 500;
+  color: #d4d4d4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resource-close {
+  background: transparent;
+  border: none;
+  color: #858585;
+  cursor: pointer;
+  font-size: 18px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.resource-close:hover {
+  background: #3e3e42;
+  color: #d4d4d4;
+}
+
+.resource-content {
+  flex: 1;
+  overflow: auto;
+  padding: 20px;
+}
+
+.resource-content pre {
+  background: #1e1e1e;
+  border: 1px solid #3e3e42;
+  border-radius: 6px;
+  padding: 16px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.resource-content code {
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  color: #d4d4d4;
+}
+
+.resource-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #858585;
+  gap: 12px;
+}
+
+.resource-empty-icon {
+  font-size: 48px;
+  opacity: 0.5;
+}
+
+.resource-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  color: #858585;
+}
+
+.resource-error {
+  padding: 20px;
+  color: #f48771;
+  text-align: center;
+}
+
+.resource-error-detail {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #858585;
 }

@@ -4,7 +4,10 @@ import './components/task-list.js';
 import './components/task-item.js';
 import './components/task-detail.js';
 import './components/task-badge.js';
+import './components/resource-viewer.js';
 import { urlState } from './utils/url-state.js';
+
+let splitActive = false;
 
 // Subscribe components to URL state changes - single source of truth
 urlState.subscribe((state) => {
@@ -17,6 +20,12 @@ urlState.subscribe((state) => {
   if (state.task) {
     const detail = document.querySelector('task-detail') as any;
     detail?.loadTask?.(state.task);
+  }
+
+  if (state.resource) {
+    openSplitPane(state.resource);
+  } else if (splitActive) {
+    closeSplitPane();
   }
 });
 
@@ -35,3 +44,42 @@ document.addEventListener('task-selected', ((e: CustomEvent) => {
 document.addEventListener('epic-pin', ((e: CustomEvent) => {
   urlState.set({ epic: e.detail.epicId });
 }) as EventListener);
+
+document.addEventListener('resource-open', ((e: CustomEvent) => {
+  urlState.set({ resource: e.detail.path });
+}) as EventListener);
+
+document.addEventListener('resource-close', () => {
+  urlState.set({ resource: undefined });
+});
+
+function openSplitPane(path: string) {
+  const taskPane = document.getElementById('task-pane');
+  if (!taskPane || splitActive) {
+    if (splitActive) {
+      const viewer = document.querySelector('resource-viewer') as any;
+      viewer?.loadResource?.(path);
+    }
+    return;
+  }
+
+  taskPane.classList.add('split-active');
+  
+  const viewer = document.createElement('resource-viewer');
+  taskPane.appendChild(viewer);
+  viewer.loadResource(path);
+  
+  splitActive = true;
+}
+
+function closeSplitPane() {
+  const taskPane = document.getElementById('task-pane');
+  const viewer = taskPane?.querySelector('resource-viewer');
+  
+  if (viewer) {
+    viewer.remove();
+  }
+  
+  taskPane?.classList.remove('split-active');
+  splitActive = false;
+}

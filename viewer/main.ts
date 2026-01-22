@@ -59,26 +59,28 @@ document.addEventListener('resource-close', () => {
 
 function openSplitPane(path: string) {
   const taskPane = document.getElementById('task-pane');
-  if (!taskPane || splitActive) {
-    if (splitActive) {
-      const viewer = document.querySelector('resource-viewer') as any;
-      viewer?.loadResource?.(path);
-    }
-    return;
+  if (!taskPane) return;
+  
+  // Check if split pane viewer already exists
+  let viewer = taskPane.querySelector('resource-viewer.split-pane-viewer') as any;
+  
+  if (viewer) {
+    // Reload existing viewer
+    viewer.loadResource(path);
+  } else {
+    // Create new split pane viewer
+    taskPane.classList.add('split-active');
+    viewer = document.createElement('resource-viewer');
+    viewer.classList.add('split-pane-viewer');
+    taskPane.appendChild(viewer);
+    viewer.loadResource(path);
+    splitActive = true;
   }
-
-  taskPane.classList.add('split-active');
-  
-  const viewer = document.createElement('resource-viewer');
-  taskPane.appendChild(viewer);
-  viewer.loadResource(path);
-  
-  splitActive = true;
 }
 
 function closeSplitPane() {
   const taskPane = document.getElementById('task-pane');
-  const viewer = taskPane?.querySelector('resource-viewer');
+  const viewer = taskPane?.querySelector('resource-viewer.split-pane-viewer');
   
   if (viewer) {
     viewer.remove();

@@ -40,9 +40,11 @@
     .left-pane {
       width: 35%;
       min-width: 200px;
+      border-right: 1px solid #3e3e42;
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      position: relative;
     }
     
     .right-pane {
@@ -58,13 +60,15 @@
     .right-pane .task-pane {
       width: 50%;
       min-width: 200px;
+      border-right: 1px solid #3e3e42;
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      position: relative;
     }
 
     .right-pane.split-active .task-pane {
-      border-right: 1px solid #3e3e42;
+      /* border already set above */
     }
 
     .right-pane .resource-pane {
@@ -76,23 +80,22 @@
     }
 
     .resize-handle {
-      width: 1px;
-      background: #3e3e42;
+      width: 8px;
+      background: transparent;
       cursor: col-resize;
       flex-shrink: 0;
       position: relative;
       z-index: 10;
-      transition: background 0.15s;
+      margin-left: -4px;
+      margin-right: -4px;
     }
 
     .resize-handle:hover {
-      width: 3px;
-      background: #0969da;
+      background: rgba(9, 105, 218, 0.3);
     }
 
     .resize-handle:active {
-      width: 3px;
-      background: #0969da;
+      background: rgba(9, 105, 218, 0.5);
     }
     
     .pane-header {

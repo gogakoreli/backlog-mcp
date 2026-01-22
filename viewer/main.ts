@@ -5,7 +5,6 @@ import './components/task-item.js';
 import './components/task-detail.js';
 import './components/task-badge.js';
 import './components/resource-viewer.js';
-import './components/markdown-content.js';
 import { urlState } from './utils/url-state.js';
 
 let splitActive = false;

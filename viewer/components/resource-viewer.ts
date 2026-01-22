@@ -1,9 +1,13 @@
 export class ResourceViewer extends HTMLElement {
-  private currentPath: string | null = null;
+  private data: { frontmatter?: any; content: string; path?: string; ext?: string } | null = null;
+  private metadataRenderer?: (frontmatter: any) => HTMLElement;
+  private _showHeader: boolean = true;
 
   connectedCallback() {
     this.className = 'resource-viewer';
-    this.showEmpty();
+    if (!this.data) {
+      this.showEmpty();
+    }
   }
 
   showEmpty() {
@@ -15,8 +19,20 @@ export class ResourceViewer extends HTMLElement {
     `;
   }
 
+  setMetadataRenderer(renderer: (frontmatter: any) => HTMLElement) {
+    this.metadataRenderer = renderer;
+  }
+
+  setShowHeader(show: boolean) {
+    this._showHeader = show;
+  }
+
+  loadData(data: { frontmatter?: any; content: string; path?: string; ext?: string }) {
+    this.data = data;
+    this.render();
+  }
+
   async loadResource(path: string) {
-    this.currentPath = path;
     const filename = path.split('/').pop() || path;
     
     this.innerHTML = `
@@ -41,31 +57,7 @@ export class ResourceViewer extends HTMLElement {
         throw new Error(data.error || 'Failed to load resource');
       }
 
-      const contentDiv = this.querySelector('.resource-content');
-      if (!contentDiv) return;
-
-      if (data.ext === 'md') {
-        const markdownContent = document.createElement('markdown-content') as any;
-        markdownContent.content = data.content;
-        markdownContent.frontmatter = data.frontmatter || {};
-        contentDiv.innerHTML = '';
-        contentDiv.appendChild(markdownContent);
-      } else if (['ts', 'js', 'json', 'txt'].includes(data.ext)) {
-        const pre = document.createElement('pre');
-        const code = document.createElement('code');
-        code.className = `language-${data.ext}`;
-        code.textContent = data.content;
-        pre.appendChild(code);
-        contentDiv.innerHTML = '';
-        contentDiv.appendChild(pre);
-        
-        // Syntax highlighting if available
-        if ((window as any).hljs) {
-          (window as any).hljs.highlightElement(code);
-        }
-      } else {
-        contentDiv.innerHTML = `<pre>${data.content}</pre>`;
-      }
+      this.loadData(data);
     } catch (error) {
       const contentDiv = this.querySelector('.resource-content');
       if (contentDiv) {
@@ -77,6 +69,118 @@ export class ResourceViewer extends HTMLElement {
         `;
       }
     }
+  }
+
+  private render() {
+    if (!this.data) return;
+
+    const container = document.createElement('div');
+    
+    // Header (for split pane use case)
+    if (this._showHeader && this.data.path) {
+      const filename = this.data.path.split('/').pop() || this.data.path;
+      const header = document.createElement('div');
+      header.className = 'resource-header';
+      header.innerHTML = `
+        <span class="resource-filename" title="${this.data.path}">${filename}</span>
+        <button class="resource-close" title="Close (Cmd+W)">✕</button>
+      `;
+      header.querySelector('.resource-close')?.addEventListener('click', () => {
+        this.dispatchEvent(new CustomEvent('resource-close'));
+      });
+      container.appendChild(header);
+    }
+
+    const content = document.createElement('div');
+    content.className = 'resource-content';
+
+    // Render based on file type
+    if (this.data.ext === 'md' || this.data.frontmatter) {
+      content.appendChild(this.renderMarkdownDocument());
+    } else if (this.data.ext && ['ts', 'js', 'json', 'txt'].includes(this.data.ext)) {
+      content.appendChild(this.renderCode());
+    } else {
+      content.innerHTML = `<pre>${this.data.content}</pre>`;
+    }
+
+    container.appendChild(content);
+    this.innerHTML = '';
+    this.appendChild(container);
+  }
+
+  private renderMarkdownDocument(): HTMLElement {
+    const article = document.createElement('article');
+    article.className = 'markdown-body';
+
+    // Render metadata
+    if (this.data!.frontmatter && Object.keys(this.data!.frontmatter).length > 0) {
+      if (this.metadataRenderer) {
+        article.appendChild(this.metadataRenderer(this.data!.frontmatter));
+      } else {
+        article.appendChild(this.renderDefaultMetadata(this.data!.frontmatter));
+      }
+    }
+
+    // Render markdown content
+    const mdBlock = document.createElement('md-block');
+    mdBlock.textContent = this.data!.content;
+    article.appendChild(mdBlock);
+
+    // Intercept file:// links
+    setTimeout(() => {
+      article.querySelectorAll('a[href^="file://"]').forEach(link => {
+        const path = link.getAttribute('href')!.replace('file://', '');
+        link.addEventListener('click', (e) => {
+          e.preventDefault();
+          this.dispatchEvent(new CustomEvent('resource-open', { 
+            detail: { path },
+            bubbles: true 
+          }));
+        });
+      });
+    }, 0);
+
+    return article;
+  }
+
+  private renderDefaultMetadata(frontmatter: any): HTMLElement {
+    const metaDiv = document.createElement('div');
+    metaDiv.className = 'frontmatter-meta';
+    metaDiv.innerHTML = `
+      <dl class="frontmatter-list">
+        ${Object.entries(frontmatter).map(([key, value]) => `
+          <div class="frontmatter-item">
+            <dt>${key}</dt>
+            <dd>${this.formatValue(value)}</dd>
+          </div>
+        `).join('')}
+      </dl>
+    `;
+    return metaDiv;
+  }
+
+  private renderCode(): HTMLElement {
+    const pre = document.createElement('pre');
+    const code = document.createElement('code');
+    code.className = `language-${this.data!.ext}`;
+    code.textContent = this.data!.content;
+    pre.appendChild(code);
+    
+    if ((window as any).hljs) {
+      (window as any).hljs.highlightElement(code);
+    }
+    
+    return pre;
+  }
+
+  private formatValue(value: any): string {
+    if (Array.isArray(value)) {
+      return `<ul>${value.map(v => `<li>${this.formatValue(v)}</li>`).join('')}</ul>`;
+    }
+    if (typeof value === 'object' && value !== null) {
+      return `<pre>${JSON.stringify(value, null, 2)}</pre>`;
+    }
+    return String(value);
   }
 }
 

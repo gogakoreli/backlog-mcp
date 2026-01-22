@@ -70,8 +70,8 @@ function openSplitPane(path: string) {
   } else {
     // Create new split pane viewer
     taskPane.classList.add('split-active');
-    viewer = document.createElement('resource-viewer');
-    viewer.classList.add('split-pane-viewer');
+    viewer = document.createElement('resource-viewer') as any;
+    viewer.className = 'resource-viewer split-pane-viewer';
     taskPane.appendChild(viewer);
     viewer.loadResource(path);
     splitActive = true;

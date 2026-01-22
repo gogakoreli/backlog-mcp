@@ -48,32 +48,34 @@ export class TaskDetail extends HTMLElement {
       }
 
       const metaHtml = `
-        <div class="task-meta-card">
-          <h1 class="task-meta-title">${task.title || ''}</h1>
-          <div class="task-meta-row">
-            <span>Created: ${task.created_at ? new Date(task.created_at).toLocaleDateString() : ''}</span>
-            <span>Updated: ${task.updated_at ? new Date(task.updated_at).toLocaleDateString() : ''}</span>
-            ${task.epic_id ? `<span class="task-meta-epic"><span class="task-meta-epic-label">Epic:</span><a href="#" class="epic-link" data-epic-id="${task.epic_id}"><task-badge task-id="${task.epic_id}" type="epic"></task-badge></a>${task.epicTitle ? `<span class="epic-title">${task.epicTitle}</span>` : ''}</span>` : ''}
+        <article class="markdown-body">
+          <div class="task-meta-card">
+            <h1 class="task-meta-title">${task.title || ''}</h1>
+            <div class="task-meta-row">
+              <span>Created: ${task.created_at ? new Date(task.created_at).toLocaleDateString() : ''}</span>
+              <span>Updated: ${task.updated_at ? new Date(task.updated_at).toLocaleDateString() : ''}</span>
+              ${task.epic_id ? `<span class="task-meta-epic"><span class="task-meta-epic-label">Epic:</span><a href="#" class="epic-link" data-epic-id="${task.epic_id}"><task-badge task-id="${task.epic_id}" type="epic"></task-badge></a>${task.epicTitle ? `<span class="epic-title">${task.epicTitle}</span>` : ''}</span>` : ''}
+            </div>
+            ${task.references?.length ? `
+              <div class="task-meta-section">
+                <div class="task-meta-section-label">References:</div>
+                <ul>${task.references.map((r: Reference) => `<li>${linkify(r)}</li>`).join('')}</ul>
+              </div>
+            ` : ''}
+            ${task.evidence?.length ? `
+              <div class="task-meta-section">
+                <div class="task-meta-section-label">Evidence:</div>
+                <ul>${task.evidence.map((e: string) => `<li>${linkify(e)}</li>`).join('')}</ul>
+              </div>
+            ` : ''}
+            ${task.blocked_reason?.length ? `
+              <div class="task-meta-section blocked-reason-section">
+                <div class="task-meta-section-label">Blocked</div>
+                <ul>${task.blocked_reason.map((r: string) => `<li>${linkify(r)}</li>`).join('')}</ul>
+              </div>
+            ` : ''}
           </div>
-          ${task.references?.length ? `
-            <div class="task-meta-section">
-              <div class="task-meta-section-label">References:</div>
-              <ul>${task.references.map((r: Reference) => `<li>${linkify(r)}</li>`).join('')}</ul>
-            </div>
-          ` : ''}
-          ${task.evidence?.length ? `
-            <div class="task-meta-section">
-              <div class="task-meta-section-label">Evidence:</div>
-              <ul>${task.evidence.map((e: string) => `<li>${linkify(e)}</li>`).join('')}</ul>
-            </div>
-          ` : ''}
-          ${task.blocked_reason?.length ? `
-            <div class="task-meta-section blocked-reason-section">
-              <div class="task-meta-section-label">Blocked</div>
-              <ul>${task.blocked_reason.map((r: string) => `<li>${linkify(r)}</li>`).join('')}</ul>
-            </div>
-          ` : ''}
-        </div>
+        </article>
       `;
       
       const metaDiv = document.createElement('div');

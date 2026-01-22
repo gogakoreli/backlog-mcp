@@ -47,6 +47,7 @@ export class ResourceViewer extends HTMLElement {
       if (data.ext === 'md') {
         const markdownContent = document.createElement('markdown-content') as any;
         markdownContent.content = data.content;
+        markdownContent.frontmatter = data.frontmatter || {};
         contentDiv.innerHTML = '';
         contentDiv.appendChild(markdownContent);
       } else if (['ts', 'js', 'json', 'txt'].includes(data.ext)) {

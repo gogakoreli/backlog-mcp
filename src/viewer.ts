@@ -156,9 +156,21 @@ export async function startViewer(port: number = 3030): Promise<void> {
           txt: 'text/plain',
         };
         
+        let frontmatter = {};
+        let bodyContent = content;
+        
+        // Parse frontmatter for markdown files
+        if (ext === 'md') {
+          const matter = await import('gray-matter');
+          const parsed = matter.default(content);
+          frontmatter = parsed.data;
+          bodyContent = parsed.content;
+        }
+        
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ 
-          content, 
+          content: bodyContent,
+          frontmatter,
           type: mimeMap[ext] || 'text/plain',
           path: filePath,
           ext 

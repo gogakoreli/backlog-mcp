@@ -736,3 +736,50 @@ task-detail .markdown-body {
   font-size: 13px;
   color: #858585;
 }
+
+/* Frontmatter Metadata */
+.frontmatter-meta {
+  padding: 16px;
+  margin: 16px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+}
+
+.frontmatter-list {
+  display: grid;
+  gap: 12px;
+}
+
+.frontmatter-item {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.frontmatter-item dt {
+  font-weight: 600;
+  color: #8b949e;
+  font-size: 13px;
+  text-transform: capitalize;
+}
+
+.frontmatter-item dd {
+  color: #d4d4d4;
+  font-size: 14px;
+  word-break: break-word;
+}
+
+.frontmatter-item dd ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.frontmatter-item dd pre {
+  background: #0d1117;
+  padding: 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  overflow-x: auto;
+}

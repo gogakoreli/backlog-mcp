@@ -58,11 +58,6 @@ export class TaskDetail extends HTMLElement {
         ${task.epic_id ? `<button class="btn-outline epic-id-btn" onclick="navigator.clipboard.writeText('${task.epic_id}')" title="Copy Epic ID"><task-badge task-id="${task.epic_id}" type="epic"></task-badge> ${copyIcon}</button>` : ''}
         <button class="btn-outline task-id-btn" onclick="navigator.clipboard.writeText('${task.id}')" title="Copy ID"><task-badge task-id="${task.id}" type="${task.type || 'task'}"></task-badge> ${copyIcon}</button>
         <span class="status-badge status-${task.status || 'open'}">${(task.status || 'open').replace('_', ' ')}</span>
-        ${task.filePath ? `
-          <div class="task-meta-path">
-            <a href="#" class="open-link" onclick="fetch('http://localhost:3030/open/${task.id}');return false;" title="Open in editor">${task.filePath}</a>
-          </div>
-        ` : ''}
       </div>
       <button class="copy-btn copy-raw btn-outline" title="Copy markdown">Copy Markdown ${copyIcon}</button>
     `;

@@ -458,19 +458,11 @@
   color: #c9d1d9;
   font-weight: 600;
 }
-#task-pane-header .task-meta-path .open-link {
-  font-size: 12px;
-  font-family: monospace;
-  color: #c9d1d9;
   background: #21262d;
   padding: 4px 10px;
   border-radius: 4px;
   text-decoration: none;
 }
-#task-pane-header .task-meta-path .open-link:hover {
-  color: #58a6ff;
-}
-#task-pane-header .copy-btn:not(.btn-outline) {
   background: none;
   border: none;
   cursor: pointer;
@@ -518,10 +510,6 @@
 .epic-title {
   color: #d4d4d4;
 }
-.task-meta-path {
-  display: flex;
-  align-items: center;
-}
 .task-meta-path .open-link {
   font-size: 11px;
   font-family: monospace;
@@ -531,20 +519,12 @@
   border-radius: 4px;
   text-decoration: none;
 }
-.task-meta-path .open-link:hover {
-  color: #58a6ff;
-}
-.task-meta-path .copy-btn {
   background: none;
   border: none;
   cursor: pointer;
   padding: 2px;
   color: #8b949e;
 }
-.task-meta-path .copy-btn:hover {
-  color: #58a6ff;
-}
-.task-meta-section {
   margin-top: 12px;
   font-size: 13px;
 }

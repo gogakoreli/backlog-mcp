@@ -40,16 +40,16 @@ server.registerTool(
       status: z.array(z.enum(STATUSES)).optional().describe('Filter: open, in_progress, blocked, done, cancelled. Default: open, in_progress, blocked'),
       type: z.enum(TASK_TYPES).optional().describe('Filter by type: task, epic, or omit for all'),
       epic_id: z.string().optional().describe('Filter tasks belonging to a specific epic'),
-      counts: z.boolean().optional().describe('Return counts per status instead of task list'),
+      counts: z.boolean().optional().describe('Return count of items matching filters (filtered) and total items in backlog. Useful for pagination awareness. Default: false'),
       limit: z.number().optional().describe('Max tasks to return. Default: 20'),
     }),
   },
   async ({ status, type, epic_id, counts, limit }) => {
+    const result = storage.list({ status, type, epic_id, counts, limit });
     if (counts) {
-      return { content: [{ type: 'text' as const, text: JSON.stringify(storage.counts(), null, 2) }] };
+      return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
     }
-    const tasks = storage.list({ status, type, epic_id, limit });
-    const list = tasks.map((t) => ({ id: t.id, title: t.title, status: t.status, type: t.type ?? 'task', epic_id: t.epic_id }));
+    const list = (result as Task[]).map((t) => ({ id: t.id, title: t.title, status: t.status, type: t.type ?? 'task', epic_id: t.epic_id }));
     return { content: [{ type: 'text' as const, text: JSON.stringify(list, null, 2) }] };
   }
 );

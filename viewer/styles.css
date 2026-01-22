@@ -26,26 +26,22 @@
       overflow: hidden;
     }
 
-    #task-pane {
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      flex: 1;
-    }
-
-    #task-pane.split-active {
+    .right-pane.split-active {
       display: grid;
       grid-template-columns: 50% 50%;
       gap: 0;
     }
 
-    #task-pane.split-active task-detail {
-      border-right: 1px solid #3e3e42;
+    .right-pane .task-pane,
+    .right-pane .resource-pane {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
       min-width: 0;
     }
 
-    #task-pane.split-active .split-pane-viewer {
-      min-width: 0;
+    .right-pane.split-active .task-pane {
+      border-right: 1px solid #3e3e42;
     }
     
     .pane-header {

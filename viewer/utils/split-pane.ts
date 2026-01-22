@@ -1,35 +1,73 @@
 class SplitPaneService {
+  private pane: HTMLElement | null = null;
   private viewer: any = null;
-  private taskPane: HTMLElement | null = null;
+  private rightPane: HTMLElement | null = null;
 
   init() {
-    this.taskPane = document.getElementById('task-pane');
+    this.rightPane = document.getElementById('right-pane');
   }
 
   open(path: string) {
-    if (!this.taskPane) return;
+    if (!this.rightPane) return;
 
     if (this.viewer) {
       this.viewer.loadResource(path);
+      this.updateHeader(path);
     } else {
-      this.taskPane.classList.add('split-active');
+      this.rightPane.classList.add('split-active');
+      
+      // Create proper pane structure
+      this.pane = document.createElement('div');
+      this.pane.className = 'resource-pane';
+      
+      const header = document.createElement('div');
+      header.className = 'pane-header';
+      header.innerHTML = `
+        <div class="pane-title" id="resource-pane-title"></div>
+        <button class="btn-outline resource-close-btn" title="Close (Cmd+W)">✕</button>
+      `;
+      
+      const content = document.createElement('div');
+      content.className = 'pane-content';
+      
       this.viewer = document.createElement('resource-viewer');
-      this.viewer.className = 'resource-viewer split-pane-viewer';
-      this.taskPane.appendChild(this.viewer);
+      this.viewer.setShowHeader(false);
+      content.appendChild(this.viewer);
+      
+      this.pane.appendChild(header);
+      this.pane.appendChild(content);
+      this.rightPane.appendChild(this.pane);
+      
+      // Bind close button
+      header.querySelector('.resource-close-btn')?.addEventListener('click', () => {
+        document.dispatchEvent(new CustomEvent('resource-close'));
+      });
+      
       this.viewer.loadResource(path);
+      this.updateHeader(path);
     }
   }
 
   close() {
-    if (this.viewer) {
-      this.viewer.remove();
+    if (this.pane) {
+      this.pane.remove();
+      this.pane = null;
       this.viewer = null;
     }
-    this.taskPane?.classList.remove('split-active');
+    this.rightPane?.classList.remove('split-active');
   }
 
   isOpen(): boolean {
-    return this.viewer !== null;
+    return this.pane !== null;
+  }
+
+  private updateHeader(path: string) {
+    const filename = path.split('/').pop() || path;
+    const titleEl = document.getElementById('resource-pane-title');
+    if (titleEl) {
+      titleEl.textContent = filename;
+      titleEl.title = path;
+    }
   }
 }
 

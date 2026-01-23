@@ -39,7 +39,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc && esbuild viewer/main.ts --bundle --format=esm --outdir=dist/viewer",
+    "build": "tsc && esbuild viewer/main.ts --bundle --format=esm --outdir=dist/viewer --loader:.svg=text",
     "clean": "rm -rf dist",
     "start": "node dist/server.js",
     "test": "vitest run",

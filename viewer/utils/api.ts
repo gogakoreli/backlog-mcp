@@ -1,6 +1,5 @@
-export const API_URL = typeof window !== 'undefined' && window.location.port 
-  ? `http://localhost:${window.location.port}` 
-  : 'http://localhost:3030';
+// API URL dynamically uses the current page's port (works for both dev:3031 and prod:3030)
+export const API_URL = `http://localhost:${window.location.port || 3030}`;
 
 export interface Reference {
   url: string;

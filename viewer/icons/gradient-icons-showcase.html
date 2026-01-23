@@ -2,7 +2,289 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>MCP Icon Options</title>
+  <title>Gradient Icon Showcase - backlog-mcp</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      padding: 40px;
+      background: #0d1117;
+      color: #c9d1d9;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    h1 {
+      color: #58a6ff;
+      margin-bottom: 10px;
+    }
+    .subtitle {
+      color: #8b949e;
+      margin-bottom: 40px;
+    }
+    .option {
+      margin: 30px 0;
+      padding: 20px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+    }
+    .option h3 {
+      margin-top: 0;
+      color: #58a6ff;
+    }
+    .link {
+      font-size: 16px;
+      color: #58a6ff;
+      text-decoration: none;
+      display: inline-block;
+      margin: 10px 0;
+    }
+    .link:hover {
+      text-decoration: underline;
+    }
+    .use-cases {
+      color: #8b949e;
+      font-size: 14px;
+      margin-top: 10px;
+    }
+    
+    /* Option 7: Heavy Outline Lightning with Gradient */
+    .option7 .link::after {
+      content: "";
+      display: inline-block;
+      width: 1.2em;
+      height: 1.2em;
+      margin-left: 0.3em;
+      vertical-align: middle;
+      margin-bottom: 0.2em;
+      background: linear-gradient(135deg, #00d4ff 0%, #7b2dff 50%, #ff2d7b 100%);
+      mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M13 2L3 14h8l-1 8 10-12h-8l1-8z' stroke='black' stroke-width='3' stroke-linejoin='round' stroke-linecap='round' fill='none'/%3E%3C/svg%3E");
+    }
+    
+    /* Option 8: Gradient Sparkle */
+    .option8 .link::after {
+      content: "";
+      display: inline-block;
+      width: 1.2em;
+      height: 1.2em;
+      margin-left: 0.3em;
+      vertical-align: middle;
+      margin-bottom: 0.2em;
+      background: linear-gradient(135deg, #00d4ff 0%, #7b2dff 50%, #ff2d7b 100%);
+      mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M7.53 1.282a.5.5 0 01.94 0l.478 1.306a7.492 7.492 0 004.464 4.464l1.305.478a.5.5 0 010 .94l-1.305.478a7.492 7.492 0 00-4.464 4.464l-.478 1.305a.5.5 0 01-.94 0l-.478-1.305a7.492 7.492 0 00-4.464-4.464L1.282 8.47a.5.5 0 010-.94l1.306-.478a7.492 7.492 0 004.464-4.464l.478-1.306zM3.5 11.5a.5.5 0 01.5.5v.5h.5a.5.5 0 010 1H4v.5a.5.5 0 01-1 0V13.5h-.5a.5.5 0 010-1h.5V12a.5.5 0 01.5-.5zm9-9a.5.5 0 01.5.5v.5h.5a.5.5 0 010 1H13v.5a.5.5 0 01-1 0V4h-.5a.5.5 0 010-1h.5v-.5a.5.5 0 01.5-.5z'/%3E%3C/svg%3E");
+    }
+    
+    /* Option 9: Gradient Hexagon */
+    .option9 .link::after {
+      content: "";
+      display: inline-block;
+      width: 1.2em;
+      height: 1.2em;
+      margin-left: 0.3em;
+      vertical-align: middle;
+      margin-bottom: 0.2em;
+      background: linear-gradient(135deg, #00d4ff 0%, #7b2dff 50%, #ff2d7b 100%);
+      mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5'%3E%3Cpath d='M7.5 1.5l4.5 2.5v5l-4.5 2.5-4.5-2.5v-5z' stroke-linejoin='round'/%3E%3C/svg%3E");
+    }
+    
+    /* Option 10: Gradient Zap with Animated Glow */
+    .option10 .link::after {
+      content: "";
+      display: inline-block;
+      width: 1.3em;
+      height: 1.3em;
+      margin-left: 0.3em;
+      vertical-align: middle;
+      margin-bottom: 0.2em;
+      background: linear-gradient(135deg, #00d4ff 0%, #7b2dff 50%, #ff2d7b 100%);
+      animation: gradientPulse 3s ease-in-out infinite;
+      mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M13 2L3 14h8l-1 8 10-12h-8l1-8z' stroke='black' stroke-width='3.5' stroke-linejoin='round' stroke-linecap='round' fill='none'/%3E%3C/svg%3E");
+    }
+    
+    @keyframes gradientPulse {
+      0%, 100% { 
+        filter: drop-shadow(0 0 3px rgba(0, 212, 255, 0.6));
+      }
+      33% { 
+        filter: drop-shadow(0 0 5px rgba(123, 45, 255, 0.8));
+      }
+      66% { 
+        filter: drop-shadow(0 0 4px rgba(255, 45, 123, 0.7));
+      }
+    }
+    
+    /* Option 11: Rotating Gradient Ring */
+    .option11 .link::after {
+      content: "";
+      display: inline-block;
+      width: 1.2em;
+      height: 1.2em;
+      margin-left: 0.3em;
+      vertical-align: middle;
+      margin-bottom: 0.2em;
+      background: conic-gradient(from 0deg, #00d4ff, #7b2dff, #ff2d7b, #00d4ff);
+      animation: spin 3s linear infinite;
+      mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='black' stroke-width='3'/%3E%3C/svg%3E");
+    }
+    
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    
+    /* Option 12: Gradient Infinity */
+    .option12 .link::after {
+      content: "";
+      display: inline-block;
+      width: 1.4em;
+      height: 1em;
+      margin-left: 0.3em;
+      vertical-align: middle;
+      margin-bottom: 0.2em;
+      background: linear-gradient(90deg, #00d4ff 0%, #7b2dff 50%, #ff2d7b 100%);
+      mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 20'%3E%3Cpath d='M8 10c0-2.2 1.8-4 4-4s4 1.8 4 4-1.8 4-4 4-4-1.8-4-4zm8 0c0 2.2 1.8 4 4 4s4-1.8 4-4-1.8-4-4-4-4 1.8-4 4z' fill='none' stroke='black' stroke-width='2.5'/%3E%3C/svg%3E");
+    }
+    
+    /* Option 13: Gradient Wave/Signal */
+    .option13 .link::after {
+      content: "";
+      display: inline-block;
+      width: 1.2em;
+      height: 1.2em;
+      margin-left: 0.3em;
+      vertical-align: middle;
+      margin-bottom: 0.2em;
+      background: linear-gradient(135deg, #00d4ff 0%, #7b2dff 50%, #ff2d7b 100%);
+      animation: pulse 2s ease-in-out infinite;
+      mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83' stroke='black' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E");
+    }
+    
+    /* Option 14: Gradient Prism/Diamond */
+    .option14 .link::after {
+      content: "";
+      display: inline-block;
+      width: 1.2em;
+      height: 1.2em;
+      margin-left: 0.3em;
+      vertical-align: middle;
+      margin-bottom: 0.2em;
+      background: linear-gradient(135deg, #00d4ff 0%, #7b2dff 50%, #ff2d7b 100%);
+      filter: drop-shadow(0 0 4px rgba(123, 45, 255, 0.6));
+      mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2l4 6h-8l4-6zm-6 8h12l-6 12-6-12z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E");
+    }
+    
+    /* Option 15: Gradient Portal/Wormhole */
+    .option15 .link::after {
+      content: "";
+      display: inline-block;
+      width: 1.2em;
+      height: 1.2em;
+      margin-left: 0.3em;
+      vertical-align: middle;
+      margin-bottom: 0.2em;
+      background: conic-gradient(from 0deg, #00d4ff, #7b2dff, #ff2d7b, #7b2dff, #00d4ff);
+      animation: spin 4s linear infinite;
+      mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='10' fill='none' stroke='black' stroke-width='2'/%3E%3Ccircle cx='12' cy='12' r='6' fill='none' stroke='black' stroke-width='2'/%3E%3Ccircle cx='12' cy='12' r='3' fill='none' stroke='black' stroke-width='2'/%3E%3C/svg%3E");
+    }
+    
+    /* Option 16: Gradient Star */
+    .option16 .link::after {
+      content: "";
+      display: inline-block;
+      width: 1.2em;
+      height: 1.2em;
+      margin-left: 0.3em;
+      vertical-align: middle;
+      margin-bottom: 0.2em;
+      background: linear-gradient(180deg, #00d4ff 0%, #7b2dff 50%, #ff2d7b 100%);
+      mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2l3 7 7 1-5 5 1 7-6-4-6 4 1-7-5-5 7-1z' fill='black'/%3E%3C/svg%3E");
+    }
+  </style>
+</head>
+<body>
+  <h1>Gradient Icon Showcase</h1>
+  <p class="subtitle">Premium icons with signature gradient: <code>#00d4ff → #7b2dff → #ff2d7b</code></p>
+  
+  <div class="option option7">
+    <h3>Lightning Bolt (Heavy Outline)</h3>
+    <a href="#" class="link">mcp://backlog/resources/docs/adr/0006.md</a>
+    <div class="use-cases">
+      <strong>Use for:</strong> MCP resources, fast operations, power features, real-time updates
+    </div>
+  </div>
+  
+  <div class="option option8">
+    <h3>Sparkle</h3>
+    <a href="#" class="link">mcp://backlog/resources/docs/adr/0006.md</a>
+    <div class="use-cases">
+      <strong>Use for:</strong> AI-generated content, new features, highlights, special items, magic actions
+    </div>
+  </div>
+  
+  <div class="option option9">
+    <h3>Hexagon</h3>
+    <a href="#" class="link">mcp://backlog/resources/docs/adr/0006.md</a>
+    <div class="use-cases">
+      <strong>Use for:</strong> Protocols, standards, verified items, official badges, architecture
+    </div>
+  </div>
+  
+  <div class="option option10">
+    <h3>Lightning Bolt (Animated Glow)</h3>
+    <a href="#" class="link">mcp://backlog/resources/docs/adr/0006.md</a>
+    <div class="use-cases">
+      <strong>Use for:</strong> Active operations, live updates, real-time sync, attention-grabbing CTAs
+    </div>
+  </div>
+  
+  <div class="option option11">
+    <h3>Rotating Ring</h3>
+    <a href="#" class="link">mcp://backlog/resources/docs/adr/0006.md</a>
+    <div class="use-cases">
+      <strong>Use for:</strong> Loading states, active processes, continuous operations, sync in progress
+    </div>
+  </div>
+  
+  <div class="option option12">
+    <h3>Infinity Symbol</h3>
+    <a href="#" class="link">mcp://backlog/resources/docs/adr/0006.md</a>
+    <div class="use-cases">
+      <strong>Use for:</strong> Unlimited features, continuous sync, infinite scroll, endless resources
+    </div>
+  </div>
+  
+  <div class="option option13">
+    <h3>Wave/Signal</h3>
+    <a href="#" class="link">mcp://backlog/resources/docs/adr/0006.md</a>
+    <div class="use-cases">
+      <strong>Use for:</strong> Broadcasting, notifications, signals, communication, API calls, streaming
+    </div>
+  </div>
+  
+  <div class="option option14">
+    <h3>Prism/Diamond</h3>
+    <a href="#" class="link">mcp://backlog/resources/docs/adr/0006.md</a>
+    <div class="use-cases">
+      <strong>Use for:</strong> Premium features, valuable content, refined items, exclusive access
+    </div>
+  </div>
+  
+  <div class="option option15">
+    <h3>Portal/Wormhole (Rotating)</h3>
+    <a href="#" class="link">mcp://backlog/resources/docs/adr/0006.md</a>
+    <div class="use-cases">
+      <strong>Use for:</strong> Navigation shortcuts, quick access, deep links, gateways, cross-references
+    </div>
+  </div>
+  
+  <div class="option option16">
+    <h3>Star/Rocket</h3>
+    <a href="#" class="link">mcp://backlog/resources/docs/adr/0006.md</a>
+    <div class="use-cases">
+      <strong>Use for:</strong> Launch features, new releases, featured items, favorites, achievements
+    </div>
+  </div>
+</body>
+</html>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;

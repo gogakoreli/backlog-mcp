@@ -226,7 +226,7 @@ function resolveMcpUri(uri: string | URL): string {
 }
 
 // Register resource templates for dynamic task resources
-server.resource(
+server.registerResource(
   'Task File',
   'mcp://backlog/tasks/{taskId}/file',
   { mimeType: 'text/markdown', description: 'Task markdown file' },
@@ -240,7 +240,7 @@ server.resource(
   }
 );
 
-server.resource(
+server.registerResource(
   'Repository Resource',
   'mcp://backlog/resources/{path}',
   { description: 'Repository files (ADRs, source code, etc.)' },

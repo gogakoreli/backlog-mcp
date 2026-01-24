@@ -99,11 +99,12 @@ export class TaskList extends HTMLElement {
     
     // Group: epics first with their children, then orphan tasks
     const epics = tasks.filter(t => (t.type ?? 'task') === 'epic');
+    const rootEpics = epics.filter(e => !e.epic_id); // Only root epics for iteration
     const childTasks = tasks.filter(t => t.epic_id && epics.some(e => e.id === t.epic_id));
     const orphanTasks = tasks.filter(t => (t.type ?? 'task') === 'task' && !childTasks.includes(t));
     
     const grouped: Array<Task & { isChild?: boolean; childCount?: number }> = [];
-    for (const epic of epics) {
+    for (const epic of rootEpics) {
       const children = childTasks.filter(t => t.epic_id === epic.id);
       const isCollapsed = this.collapsedEpics.has(epic.id);
       grouped.push({ ...epic, childCount: children.length });

@@ -9,6 +9,9 @@ import { readMcpResource } from './resource-reader.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// Read version from package.json
+const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'));
+
 function isPortInUse(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const client = createConnection({ port }, () => {
@@ -28,6 +31,13 @@ export async function startViewer(port: number = 3030): Promise<void> {
   const server = createServer(async (req, res) => {
     // CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
+    
+    // Version endpoint
+    if (req.url === '/version') {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end(pkg.version);
+      return;
+    }
     
     // Serve index.html for root
     if (req.url === '/' || req.url === '/index.html' || req.url?.startsWith('/?')) {

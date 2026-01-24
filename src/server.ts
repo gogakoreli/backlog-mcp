@@ -12,7 +12,7 @@ import { nextTaskId } from './schema.js';
 
 import { createTask, STATUSES, TASK_TYPES, type Task } from './schema.js';
 import { storage } from './backlog.js';
-import { startViewer } from './viewer.js';
+import { ensureViewer } from './viewer-manager.js';
 import { writeResource, type Operation } from './resources/index.js';
 import { readMcpResource } from './resource-reader.js';
 import { resolveMcpUri } from './uri-resolver.js';
@@ -234,7 +234,7 @@ server.registerResource(
 
 async function main() {
   const viewerPort = parseInt(process.env.BACKLOG_VIEWER_PORT || '3030');
-  startViewer(viewerPort);
+  await ensureViewer(viewerPort);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

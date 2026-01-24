@@ -25,36 +25,22 @@ export function resolveMcpUri(uri: string): string {
   
   const path = url.pathname.substring(1); // Remove leading /
   
-  // mcp://backlog/tasks/{id} or mcp://backlog/tasks/{id}/file
+  if (path.includes('..')) {
+    throw new Error(`Path traversal not allowed: ${uri}`);
+  }
+  
+  const dataDir = getBacklogDataDir();
+  
+  // Special case: tasks/{id}, tasks/{id}/file, tasks/{id}/description -> tasks/{id}.md
   if (path.startsWith('tasks/')) {
-    const match = path.match(/^tasks\/([^/]+)(\/file)?$/);
-    if (!match) throw new Error(`Invalid task URI: ${uri}`);
-    
-    const taskId = match[1];
-    const dataDir = getBacklogDataDir();
-    return join(dataDir, 'tasks', `${taskId}.md`);
-  }
-  
-  // mcp://backlog/resources/{relativePath}
-  if (path.startsWith('resources/')) {
-    const relativePath = path.substring('resources/'.length);
-    if (relativePath.includes('..')) {
-      throw new Error(`Path traversal not allowed: ${uri}`);
+    const match = path.match(/^tasks\/([^/]+)(\/(?:file|description))?$/);
+    if (match) {
+      return join(dataDir, 'tasks', `${match[1]}.md`);
     }
-    return join(getRepoRoot(), relativePath);
   }
   
-  // mcp://backlog/artifacts/{relativePath}
-  if (path.startsWith('artifacts/')) {
-    const relativePath = path.substring('artifacts/'.length);
-    if (relativePath.includes('..')) {
-      throw new Error(`Path traversal not allowed: ${uri}`);
-    }
-    const dataDir = getBacklogDataDir();
-    return join(dirname(dataDir), relativePath);
-  }
-  
-  throw new Error(`Unknown MCP URI pattern: ${uri}`);
+  // Everything else: direct mapping to dataDir/{path}
+  return join(dataDir, path);
 }
 
 export function filePathToMcpUri(filePath: string): string | null {

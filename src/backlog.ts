@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, unlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, unlinkSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import matter from 'gray-matter';
 import type { Task, Status, TaskType } from './schema.js';
@@ -52,7 +52,15 @@ class BacklogStorage {
   private *iterateTasks(): Generator<Task> {
     if (existsSync(this.tasksPath)) {
       for (const file of readdirSync(this.tasksPath).filter(f => f.endsWith('.md'))) {
-        yield this.markdownToTask(readFileSync(join(this.tasksPath, file), 'utf-8'));
+        const filePath = join(this.tasksPath, file);
+        try {
+          yield this.markdownToTask(readFileSync(filePath, 'utf-8'));
+        } catch (error) {
+          // Skip files that were deleted between listing and reading
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+            throw error;
+          }
+        }
       }
     }
   }
@@ -103,6 +111,13 @@ class BacklogStorage {
     const path = this.taskFilePath(id);
     if (existsSync(path)) {
       unlinkSync(path);
+      
+      // Delete associated resources if they exist
+      const resourcesPath = join(this.dataDir, 'resources', id);
+      if (existsSync(resourcesPath)) {
+        rmSync(resourcesPath, { recursive: true, force: true });
+      }
+      
       return true;
     }
     return false;

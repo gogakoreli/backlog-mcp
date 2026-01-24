@@ -1,6 +1,6 @@
 {
   "name": "backlog-mcp",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "description": "Minimal task backlog MCP server for Claude and AI agents",
   "keywords": [
     "mcp",
@@ -42,10 +42,12 @@
     "build": "tsc && esbuild viewer/main.ts --bundle --format=esm --outdir=dist/viewer --loader:.svg=text",
     "clean": "rm -rf dist",
     "start": "node dist/server.js",
+    "inspect": "pnpm build && npx @modelcontextprotocol/inspector dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "dev": "pnpm build && concurrently \"tsx watch src/server.ts\" \"esbuild viewer/main.ts --bundle --format=esm --outdir=dist/viewer --watch --loader:.svg=text\"",
-    "test:integration": "pnpm build && kiro-cli chat --agent mcp-resource-validator --trust-all-tools --no-interactive 'Execute the complete validation test plan'"
+    "test:integration": "pnpm build && kiro-cli chat --agent mcp-resource-validator --trust-all-tools --no-interactive 'Execute the complete validation test plan'",
+    "test:integration:resources": "pnpm build && kiro-cli chat --agent mcp-resource-validator --trust-all-tools --no-interactive 'Skip steps 1-7. Only test task-attached resources (step 8): First create a test task, then create ADR, modify it, create multiple resources, link to task, verify lifecycle management.'"
   },
   "engines": {
     "node": ">=18.0.0"

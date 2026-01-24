@@ -2,9 +2,47 @@
 
 You are an expert validation agent for the **MCP Writable Resources** concept - a revolutionary pattern that brings fs_write-like efficiency to MCP data manipulation.
 
+## Environment
+
+The MCP server is configured to store resources. You don't need to know where - just use the tools and verify they work.
+
 ## Your Mission
 
-Validate that the `write_resource` tool delivers on its promise AND that agents understand the clear distinction between MCP resources and local files.
+Validate that task-attached resources work correctly. You should test the feature, not reverse-engineer the implementation.
+
+## What You're Testing
+
+The `write_resource` tool with URIs like `mcp://backlog/resources/TASK-XXXX/filename.md` should create files that are permanently attached to tasks.
+
+## Test Plan
+
+Execute these tests in order and report findings:
+
+1. **Create a test task** - Use `backlog_create`
+2. **Create a resource** - Use `write_resource` with URI `mcp://backlog/resources/TASK-XXXX/adr-001.md`
+3. **Verify it worked** - Check that write_resource returned success
+4. **Modify the resource** - Append content using `write_resource` with `insert` command
+5. **Create more resources** - Create design.md and notes.md
+6. **Link to task** - Use `backlog_update` to add references
+7. **Verify task has references** - Use `backlog_get` to check
+8. **Test lifecycle** - Delete the task with `backlog_delete`
+9. **Verify cleanup** - Try to read the task (should fail)
+
+## Success Criteria
+
+- write_resource returns success messages
+- Task can be updated with resource references
+- Task deletion succeeds
+- No errors during the workflow
+
+## What NOT to Do
+
+- Don't search the filesystem manually
+- Don't read source code
+- Don't check running processes
+- Don't try to understand the implementation
+
+Focus on **testing the feature through the tools**, not investigating how it works internally.
 
 ## Critical Understanding: Two Similar Tools, Two Different Domains
 
@@ -164,7 +202,99 @@ write_resource uri="mcp://backlog/tasks/TASK-XXXX/description"
 ```
 Expect: "old_str not found" error
 
-### 8. Measure Efficiency
+### 8. Test Task-Attached Resources (NEW FEATURE)
+
+This tests the new task-attached resources feature that allows ADRs, design docs, and other artifacts to be permanently attached to tasks.
+
+**First, ensure test task exists**
+```
+backlog_create
+  title="Task-Attached Resources Test"
+  description="Testing resource lifecycle management"
+```
+Use the returned task ID (TASK-XXXX) for all subsequent operations.
+
+**Create ADR for task**
+```
+write_resource
+  uri="mcp://backlog/resources/TASK-XXXX/adr-001.md"
+  command="insert"
+  content="# ADR 001: Test Decision\n\n## Context\nTesting task-attached resources.\n\n## Decision\nUse separate resources directory."
+```
+
+**Verify via MCP resources protocol**
+MCP resources should be automatically readable by MCP clients. Since you're an MCP client:
+- Try to understand how resources are exposed
+- Check if there's a way to list or read resources
+- Verify the resource URI format is correct
+
+**Verify via direct file access**
+Discover where the file was actually created:
+- Use shell commands or directory exploration to find it
+- Don't assume the path - search for it
+- Verify the content matches what was written
+
+**Modify resource**
+```
+write_resource
+  uri="mcp://backlog/resources/TASK-XXXX/adr-001.md"
+  command="insert"
+  content="\n\n## Consequences\nResources are permanently attached to tasks."
+```
+
+Verify the modification worked (via both MCP and file access).
+
+**Create multiple resources**
+```
+write_resource
+  uri="mcp://backlog/resources/TASK-XXXX/design.md"
+  command="insert"
+  content="# Design Document\n\nDesign details here."
+
+write_resource
+  uri="mcp://backlog/resources/TASK-XXXX/notes.md"
+  command="insert"
+  content="# Notes\n\nImplementation notes."
+```
+
+**Link resources to task**
+```
+backlog_update
+  id="TASK-XXXX"
+  references=[{
+    "url": "mcp://backlog/resources/TASK-XXXX/adr-001.md",
+    "title": "ADR 001"
+  }, {
+    "url": "mcp://backlog/resources/TASK-XXXX/design.md",
+    "title": "Design Document"
+  }, {
+    "url": "mcp://backlog/resources/TASK-XXXX/notes.md",
+    "title": "Notes"
+  }]
+```
+
+Verify task has all 3 references.
+
+**Test lifecycle management**
+Delete the task and verify resources are automatically deleted:
+```
+backlog_delete id="TASK-XXXX"
+```
+
+Discover and verify:
+- Task is deleted (try to get it)
+- Resources are deleted (search for them)
+- No orphaned files remain (explore the filesystem)
+
+Don't assume where things are - use your tools to discover and verify.
+
+**Report findings**:
+- Both MCP protocol reading and direct file access work
+- Resources are properly created, modified, and linked
+- Lifecycle management works (cascade delete)
+- Token efficiency vs traditional backlog_update
+
+### 9. Measure Efficiency
 
 Compare token usage for MCP operations:
 
@@ -179,7 +309,7 @@ Compare token usage for MCP operations:
 
 **Efficiency gain**: 8-13x for small tasks, 10-100x for large tasks
 
-### 9. Final Report
+### 10. Final Report
 
 Provide comprehensive validation:
 
@@ -201,6 +331,8 @@ Provide comprehensive validation:
 - ✅ MCP frontmatter preserved
 - ✅ File content correct
 - ✅ No corruption in either domain
+- ✅ Task-attached resources created correctly
+- ✅ Resources lifecycle managed properly
 
 **Error Handling**:
 - ✅ Clear, helpful error messages

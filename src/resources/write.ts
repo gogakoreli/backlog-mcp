@@ -13,7 +13,8 @@ export interface WriteResourceParams {
 
 export function writeResource(
   params: WriteResourceParams,
-  getFilePath: (taskId: string) => string | null
+  getFilePath: (taskId: string) => string | null,
+  resolvePath: (uri: string) => string
 ): WriteResourceResult {
   try {
     // Parse URI
@@ -22,7 +23,7 @@ export function writeResource(
       return {
         success: false,
         message: 'Invalid URI format',
-        error: 'Expected format: mcp://backlog/tasks/TASK-0039/description',
+        error: 'Expected format: mcp://backlog/...',
       };
     }
 
@@ -34,48 +35,48 @@ export function writeResource(
       };
     }
 
-    if (!parsed.taskId) {
+    // Handle task field edits (description/file)
+    if (parsed.taskId && parsed.field) {
+      const filePath = getFilePath(parsed.taskId);
+      if (!filePath) {
+        return {
+          success: false,
+          message: `Task not found: ${parsed.taskId}`,
+          error: `No file found for task ${parsed.taskId}`,
+        };
+      }
+
+      const fileContent = readFileSync(filePath, 'utf-8');
+      const { data: frontmatter, content: description } = matter(fileContent);
+
+      let newContent: string;
+      
+      if (parsed.field === 'description') {
+        newContent = applyOperation(description, params.operation);
+        const newFile = matter.stringify(newContent, frontmatter);
+        writeFileSync(filePath, newFile, 'utf-8');
+      } else if (parsed.field === 'file') {
+        newContent = applyOperation(fileContent, params.operation);
+        writeFileSync(filePath, newContent, 'utf-8');
+      } else {
+        return {
+          success: false,
+          message: `Unsupported field: ${parsed.field}`,
+          error: 'Only "description" and "file" fields are supported for editing',
+        };
+      }
+
       return {
-        success: false,
-        message: 'Task ID not found in URI',
-        error: 'Expected format: mcp://backlog/tasks/TASK-0039/description',
+        success: true,
+        message: `Successfully applied ${params.operation.type} to ${params.uri}`,
       };
     }
 
-    // Get file path
-    const filePath = getFilePath(parsed.taskId);
-    if (!filePath) {
-      return {
-        success: false,
-        message: `Task not found: ${parsed.taskId}`,
-        error: `No file found for task ${parsed.taskId}`,
-      };
-    }
-
-    // Read file
+    // Handle general file operations (artifacts, resources, etc.)
+    const filePath = resolvePath(params.uri);
     const fileContent = readFileSync(filePath, 'utf-8');
-    const { data: frontmatter, content: description } = matter(fileContent);
-
-    // Apply operation based on field
-    let newContent: string;
-    
-    if (parsed.field === 'description') {
-      // Edit description (markdown body)
-      newContent = applyOperation(description, params.operation);
-      // Write back
-      const newFile = matter.stringify(newContent, frontmatter);
-      writeFileSync(filePath, newFile, 'utf-8');
-    } else if (parsed.field === 'file') {
-      // Edit entire file
-      newContent = applyOperation(fileContent, params.operation);
-      writeFileSync(filePath, newContent, 'utf-8');
-    } else {
-      return {
-        success: false,
-        message: `Unsupported field: ${parsed.field}`,
-        error: 'Only "description" and "file" fields are supported for editing',
-      };
-    }
+    const newContent = applyOperation(fileContent, params.operation);
+    writeFileSync(filePath, newContent, 'utf-8');
 
     return {
       success: true,

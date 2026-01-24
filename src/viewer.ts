@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createConnection } from 'node:net';
 import { storage } from './backlog.js';
 import { resolveMcpUri, filePathToMcpUri } from './uri-resolver.js';
+import { readMcpResource } from './resource-reader.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -197,39 +198,15 @@ export async function startViewer(port: number = 3030): Promise<void> {
       }
       
       try {
+        const { content, frontmatter, mimeType } = readMcpResource(uri);
         const filePath = resolveMcpUri(uri);
-        
-        if (!existsSync(filePath)) {
-          res.writeHead(404, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Resource not found', uri }));
-          return;
-        }
-        
-        const content = readFileSync(filePath, 'utf-8');
         const ext = filePath.split('.').pop()?.toLowerCase() || 'txt';
-        const mimeMap: Record<string, string> = {
-          md: 'text/markdown',
-          ts: 'text/typescript',
-          js: 'text/javascript',
-          json: 'application/json',
-          txt: 'text/plain',
-        };
-        
-        let frontmatter = {};
-        let bodyContent = content;
-        
-        if (ext === 'md') {
-          const matter = await import('gray-matter');
-          const parsed = matter.default(content);
-          frontmatter = parsed.data;
-          bodyContent = parsed.content;
-        }
         
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ 
-          content: bodyContent,
-          frontmatter,
-          type: mimeMap[ext] || 'text/plain',
+          content,
+          frontmatter: frontmatter || {},
+          type: mimeType,
           path: filePath,
           fileUri: `file://${filePath}`,
           mcpUri: uri,

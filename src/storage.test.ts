@@ -144,8 +144,8 @@ describe('Storage', () => {
       storage.save({ ...task2, status: 'done' });
 
       const counts = storage.counts();
-      expect(counts.open).toBe(1);
-      expect(counts.done).toBe(1);
+      expect(counts.by_status.open).toBe(1);
+      expect(counts.by_status.done).toBe(1);
     });
   });
 });

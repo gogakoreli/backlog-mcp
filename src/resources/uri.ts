@@ -8,7 +8,7 @@ export interface ParsedURI {
 }
 
 export function parseURI(uri: string): ParsedURI | null {
-  // Expected format: mcp://backlog/tasks/TASK-0039/description
+  // Expected format: mcp://backlog/{resource}
   const match = uri.match(/^mcp:\/\/([^\/]+)\/(.+)$/);
   if (!match) return null;
 
@@ -16,18 +16,20 @@ export function parseURI(uri: string): ParsedURI | null {
   
   if (!server || !resource) return null;
   
-  // Parse resource path
-  const parts = resource.split('/');
-  
-  // For backlog: tasks/TASK-0039/description
-  if (parts[0] === 'tasks' && parts.length >= 2) {
+  // Check if it's a task field edit: tasks/{id}/description or tasks/{id}/file
+  const taskMatch = resource.match(/^tasks\/([^\/]+)(?:\/(description|file))?$/);
+  if (taskMatch) {
     return {
       server,
       resource,
-      taskId: parts[1],
-      field: parts[2] || 'file', // default to full file
+      taskId: taskMatch[1],
+      field: taskMatch[2] || 'file',
     };
   }
 
-  return { server, resource };
+  // General resource (artifacts, resources, etc.)
+  return {
+    server,
+    resource,
+  };
 }

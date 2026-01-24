@@ -2,7 +2,7 @@
 
 try { await import('dotenv/config'); } catch {}
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -13,7 +13,9 @@ import { nextTaskId } from './schema.js';
 import { createTask, STATUSES, TASK_TYPES, type Task } from './schema.js';
 import { storage } from './backlog.js';
 import { startViewer } from './viewer.js';
-import { writeResource } from './resources/index.js';
+import { writeResource, type Operation } from './resources/index.js';
+import { readMcpResource } from './resource-reader.js';
+import { resolveMcpUri } from './uri-resolver.js';
 
 // Read version from package.json
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -158,30 +160,36 @@ server.registerTool(
     }),
   },
   async ({ uri, command, oldStr, newStr, content, insertLine }) => {
-    let operation;
-    if (command === 'strReplace') {
-      operation = { type: 'str_replace', old_str: oldStr!, new_str: newStr! };
-    } else if (command === 'insert') {
-      if (insertLine !== undefined) {
+    try {
+      let operation: Operation;
+      if (command === 'strReplace') {
+        operation = { type: 'str_replace', old_str: oldStr!, new_str: newStr! };
+      } else if (insertLine !== undefined) {
         operation = { type: 'insert', line: insertLine, content: content || newStr || '' };
       } else {
         operation = { type: 'append', content: content || newStr || '' };
       }
-    }
-    
-    const result = writeResource(
-      { uri, operation: operation as any },
-      (taskId) => storage.getFilePath(taskId)
-    );
-    
-    if (!result.success) {
-      return { 
-        content: [{ type: 'text' as const, text: `${result.message}\n${result.error || ''}` }], 
-        isError: true 
+      
+      const result = writeResource(
+        { uri, operation },
+        (taskId) => storage.getFilePath(taskId),
+        (uri) => resolveMcpUri(uri)
+      );
+      
+      if (!result.success) {
+        return { 
+          content: [{ type: 'text' as const, text: `${result.message}\n${result.error || ''}` }], 
+          isError: true 
+        };
+      }
+      
+      return { content: [{ type: 'text' as const, text: result.message }] };
+    } catch (error) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true
       };
     }
-    
-    return { content: [{ type: 'text' as const, text: result.message }] };
   }
 );
 
@@ -189,54 +197,24 @@ server.registerTool(
 // Resources
 // ============================================================================
 
-// Helper to resolve MCP URIs to file paths
-function resolveMcpUri(uri: string | URL): string {
-  const url = typeof uri === 'string' ? new URL(uri) : uri;
-  
-  if (url.protocol !== 'mcp:' || url.hostname !== 'backlog') {
-    throw new Error(`Invalid MCP URI: ${url.toString()}`);
-  }
-  
-  const path = url.pathname.substring(1); // Remove leading /
-  
-  if (path.startsWith('tasks/')) {
-    const match = path.match(/^tasks\/([^/]+)(\/file)?$/);
-    if (!match || !match[1]) throw new Error(`Invalid task URI: ${url.toString()}`);
-    
-    const taskId = match[1];
-    const filePath = storage.getFilePath(taskId);
-    if (!filePath) throw new Error(`Task not found: ${taskId}`);
-    return filePath;
-  }
-  
-  if (path.startsWith('resources/')) {
-    const relativePath = path.substring('resources/'.length);
-    const repoRoot = join(__dirname, '..');
-    return join(repoRoot, relativePath);
-  }
-  
-  if (path.startsWith('artifacts/')) {
-    const relativePath = path.substring('artifacts/'.length);
-    const home = process.env.HOME || process.env.USERPROFILE || '~';
-    const backlogDataDir = process.env.BACKLOG_DATA_DIR ?? join(home, '.backlog');
-    return join(backlogDataDir, '..', relativePath);
-  }
-  
-  throw new Error(`Unknown MCP URI pattern: ${url.toString()}`);
-}
-
 // Register resource templates for dynamic task resources
 server.registerResource(
   'Task File',
   'mcp://backlog/tasks/{taskId}/file',
   { mimeType: 'text/markdown', description: 'Task markdown file' },
   async (uri: URL) => {
-    const filePath = resolveMcpUri(uri);
-    if (!existsSync(filePath)) {
-      throw new Error(`Resource not found: ${uri.toString()}`);
-    }
-    const content = readFileSync(filePath, 'utf-8');
-    return { contents: [{ uri: uri.toString(), mimeType: 'text/markdown', text: content }] };
+    const { content, mimeType } = readMcpResource(uri.toString());
+    return { contents: [{ uri: uri.toString(), mimeType, text: content }] };
+  }
+);
+
+server.registerResource(
+  'Task-Attached Resource',
+  'mcp://backlog/resources/{taskId}/{filename}',
+  { description: 'Task-attached resources (ADRs, design docs, etc.)' },
+  async (uri: URL) => {
+    const { content, mimeType } = readMcpResource(uri.toString());
+    return { contents: [{ uri: uri.toString(), mimeType, text: content }] };
   }
 );
 
@@ -245,20 +223,8 @@ server.registerResource(
   'mcp://backlog/resources/{path}',
   { description: 'Repository files (ADRs, source code, etc.)' },
   async (uri: URL) => {
-    const filePath = resolveMcpUri(uri);
-    if (!existsSync(filePath)) {
-      throw new Error(`Resource not found: ${uri.toString()}`);
-    }
-    const content = readFileSync(filePath, 'utf-8');
-    const ext = filePath.split('.').pop()?.toLowerCase() || 'txt';
-    const mimeMap: Record<string, string> = {
-      md: 'text/markdown',
-      json: 'application/json',
-      ts: 'text/typescript',
-      js: 'application/javascript',
-      txt: 'text/plain'
-    };
-    return { contents: [{ uri: uri.toString(), mimeType: mimeMap[ext] || 'text/plain', text: content }] };
+    const { content, mimeType } = readMcpResource(uri.toString());
+    return { contents: [{ uri: uri.toString(), mimeType, text: content }] };
   }
 );
 

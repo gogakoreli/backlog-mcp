@@ -8,6 +8,9 @@ An ADR documents an important architectural decision along with its context and 
 
 ## Active ADRs
 
+- [0012. Fix Nested Epic Rendering in Viewer](./0012-nested-epic-rendering-fix.md) - Filter root epics only to prevent duplicate rendering of nested epics - 2026-01-24
+- [0011. Viewer Version Management with Detached Process](./0011-viewer-version-management.md) - Automatic viewer restart on version mismatch using detached process and HTTP version endpoint - 2026-01-24
+- [0010. Unified Resource Path Resolution](./0010-unified-resource-path-resolution.md) - Centralized URI resolver for consistent MCP and HTTP resource handling - 2026-01-24
 - [0009. Read Resource Tool for Remote Deployment](./0009-read-resource-tool-for-remote-deployment.md) - Pragmatic workaround for Kiro CLI's lack of resources protocol support - 2026-01-23
 - [0008. Task-Attached Resources](./0008-task-attached-resources.md) - Separate resources directory with lifecycle management for ADRs and design docs - 2026-01-23
 - [0007. MCP Resource URI Implementation](./0007-mcp-resource-uri-implementation.md) - Shared URI resolver module for MCP and HTTP clients - 2026-01-22

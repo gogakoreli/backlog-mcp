@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { storage } from './backlog.js';
-import { createTask, nextTaskId } from './schema.js';
+import { storage } from '../backlog.js';
+import { createTask, nextTaskId } from '../schema.js';
 
 describe('Epic ID Generation', () => {
   const testDataDir = join(process.cwd(), 'test-data-epic-ids');

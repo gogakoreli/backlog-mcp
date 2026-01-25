@@ -1,17 +1,28 @@
 #!/usr/bin/env node
 
 import { spawn } from 'node:child_process';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
 import { ensureServer } from './server-manager.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 async function runBridge(port: number): Promise<void> {
   await ensureServer(port);
   
   const serverUrl = `http://localhost:${port}/mcp`;
   
-  // mcp-remote is installed as a dependency, so we can call it directly
-  const bridge = spawn('mcp-remote', [serverUrl, '--allow-http'], {
-    stdio: 'inherit',
-    shell: true // Allows finding mcp-remote in node_modules/.bin
+  // Resolve full path to mcp-remote in node_modules/.bin
+  const mcpRemotePath = join(__dirname, '..', '..', 'node_modules', '.bin', 'mcp-remote');
+  
+  if (!existsSync(mcpRemotePath)) {
+    console.error('mcp-remote not found. Please run: pnpm install');
+    process.exit(1);
+  }
+  
+  const bridge = spawn(mcpRemotePath, [serverUrl, '--allow-http', '--transport', 'sse-only'], {
+    stdio: 'inherit'
   });
   
   bridge.on('exit', (code) => process.exit(code || 0));

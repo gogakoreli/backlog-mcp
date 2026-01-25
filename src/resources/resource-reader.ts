@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from 'node:fs';
 import matter from 'gray-matter';
-import { resolveMcpUri } from './uri-resolver.js';
+import { resolveMcpUri } from '../utils/uri-resolver.js';
 
 export interface ResourceContent {
   content: string;

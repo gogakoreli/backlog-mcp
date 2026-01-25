@@ -7,7 +7,7 @@ const command = args[0];
 
 if (command === 'serve') {
   // HTTP server mode
-  const { startHttpServer } = await import('./http-server.js');
+  const { startHttpServer } = await import('../server/fastify-server.js');
   const port = parseInt(process.env.BACKLOG_VIEWER_PORT || '3030');
   await startHttpServer(port);
 } else if (command === '--help' || command === '-h') {
@@ -31,5 +31,5 @@ How it works:
   process.exit(0);
 } else {
   // Default: bridge mode (auto-spawn HTTP server)
-  await import('./cli/bridge.js');
+  await import('./bridge.js');
 }

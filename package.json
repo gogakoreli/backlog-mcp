@@ -45,7 +45,7 @@
     "inspect": "pnpm build && npx @modelcontextprotocol/inspector dist/cli.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev": "pnpm build && concurrently \"tsx watch src/http-server.ts\" \"esbuild viewer/main.ts --bundle --format=esm --outdir=dist/viewer --watch --loader:.svg=text\"",
+    "dev": "pnpm build && concurrently \"tsx watch src/server/fastify-server.ts\" \"esbuild viewer/main.ts --bundle --format=esm --outdir=dist/viewer --watch --loader:.svg=text\"",
     "test:integration": "pnpm build && kiro-cli chat --agent mcp-resource-validator --trust-all-tools --no-interactive 'Execute the complete validation test plan'",
     "test:integration:resources": "pnpm build && kiro-cli chat --agent mcp-resource-validator --trust-all-tools --no-interactive 'Skip steps 1-7. Only test task-attached resources (step 8): First create a test task, then create ADR, modify it, create multiple resources, link to task, verify lifecycle management.'"
   },
@@ -63,8 +63,11 @@
     "vitest": "^2.1.9"
   },
   "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@fastify/static": "^9.0.0",
     "@modelcontextprotocol/sdk": "^1.25.1",
     "dompurify": "^3.3.1",
+    "fastify": "^5.7.1",
     "gray-matter": "^4.0.3",
     "marked": "^17.0.1",
     "mcp-remote": "^0.1.37",

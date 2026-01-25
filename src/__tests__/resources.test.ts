@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
-import { resolveMcpUri } from '../uri-resolver.js';
+import { resolveMcpUri } from '../utils/uri-resolver.js';
 
 describe('URI Resolver - Task-Attached Resources', () => {
   let testDir: string;
@@ -87,7 +87,7 @@ describe('Resource Reader - Task-Attached Resources', () => {
   });
 
   it('should read task-attached markdown resource', async () => {
-    const { readMcpResource } = await import('../resource-reader.js');
+    const { readMcpResource } = await import('../resources/resource-reader.js');
     
     // Create test resource
     const resourceDir = join(testDir, 'resources', 'TASK-0068');
@@ -106,7 +106,7 @@ describe('Resource Reader - Task-Attached Resources', () => {
   });
 
   it('should parse frontmatter in markdown resources', async () => {
-    const { readMcpResource } = await import('../resource-reader.js');
+    const { readMcpResource } = await import('../resources/resource-reader.js');
     
     const resourceDir = join(testDir, 'resources', 'TASK-0068');
     mkdirSync(resourceDir, { recursive: true });
@@ -125,7 +125,7 @@ describe('Resource Reader - Task-Attached Resources', () => {
   });
 
   it('should throw error for non-existent resource', async () => {
-    const { readMcpResource } = await import('../resource-reader.js');
+    const { readMcpResource } = await import('../resources/resource-reader.js');
     
     const uri = 'mcp://backlog/resources/TASK-9999/missing.md';
     
@@ -133,7 +133,7 @@ describe('Resource Reader - Task-Attached Resources', () => {
   });
 
   it('should handle different file types', async () => {
-    const { readMcpResource } = await import('../resource-reader.js');
+    const { readMcpResource } = await import('../resources/resource-reader.js');
     
     const resourceDir = join(testDir, 'resources', 'TASK-0068');
     mkdirSync(resourceDir, { recursive: true });
@@ -150,7 +150,7 @@ describe('Resource Reader - Task-Attached Resources', () => {
   });
 
   it('should reproduce viewer endpoint failure - file exists but not found', async () => {
-    const { readMcpResource } = await import('../resource-reader.js');
+    const { readMcpResource } = await import('../resources/resource-reader.js');
     
     // Create the exact file that's failing in production
     const resourceDir = join(testDir, 'resources', 'TASK-0068');
@@ -182,8 +182,8 @@ describe('Resource Reader - Task-Attached Resources', () => {
     process.env.BACKLOG_DATA_DIR = '/Users/gkoreli/Documents/goga/.backlog';
     
     // Import fresh modules with production env
-    const { resolveMcpUri } = await import('../uri-resolver.js');
-    const { readMcpResource } = await import('../resource-reader.js');
+    const { resolveMcpUri } = await import('../utils/uri-resolver.js');
+    const { readMcpResource } = await import('../resources/resource-reader.js');
     
     const uri = 'mcp://backlog/resources/TASK-0068/test-adr.md';
     const resolved = resolveMcpUri(uri);
@@ -228,7 +228,7 @@ describe('Lifecycle Management', () => {
   });
 
   it('should delete resources when task is deleted', async () => {
-    const { storage } = await import('../backlog.js');
+    const { storage } = await import('../storage/backlog.js');
     storage.init(testDir);
     
     // Create task
@@ -256,7 +256,7 @@ describe('Lifecycle Management', () => {
   });
 
   it('should handle task deletion when no resources exist', async () => {
-    const { storage } = await import('../backlog.js');
+    const { storage } = await import('../storage/backlog.js');
     storage.init(testDir);
     
     const task = {
@@ -277,7 +277,7 @@ describe('Lifecycle Management', () => {
     const uri = 'mcp://backlog/resources/TASK-0072/adr-001.md';
     const content = '# ADR 001: Test Decision\n\n## Context\nTesting task-attached resources.\n\n## Decision\nUse separate resources directory.';
     
-    const { resolveMcpUri } = await import('../uri-resolver.js');
+    const { resolveMcpUri } = await import('../utils/uri-resolver.js');
     const filePath = resolveMcpUri(uri);
     const fileDir = dirname(filePath);
     

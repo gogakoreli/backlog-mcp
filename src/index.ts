@@ -9,10 +9,10 @@ export {
   type Task,
   type CreateTaskInput,
   createTask,
-} from './schema.js';
+} from './storage/schema.js';
 
 // Storage
-export { storage } from './backlog.js';
+export { storage } from './storage/backlog.js';
 
 // HTTP Server
-export { startHttpServer } from './http-server.js';
+export { startHttpServer } from './server/fastify-server.js';

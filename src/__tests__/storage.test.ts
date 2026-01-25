@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { storage } from '../backlog.js';
-import { createTask } from '../schema.js';
+import { storage } from '../storage/backlog.js';
+import { createTask } from '../storage/schema.js';
 
 const TEST_DATA_DIR = join(process.cwd(), 'test-data');
 

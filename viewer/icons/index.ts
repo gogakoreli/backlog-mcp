@@ -1,4 +1,4 @@
-// Import SVG files as strings
+// Import SVG files as inline markup
 import copyIconSvg from './copy.svg';
 import pinIconSvg from './pin.svg';
 import epicIconSvg from './epic.svg';

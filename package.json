@@ -38,8 +38,8 @@
   "scripts": {
     "build": "pnpm typecheck && tsdown && pnpm build:viewer",
     "typecheck": "tsc --noEmit",
-    "build:viewer": "esbuild viewer/main.ts --bundle --format=esm --outdir=dist/viewer --loader:.svg=file",
-    "dev": "tsx watch --env-file=.env src/server/fastify-server.ts",
+    "build:viewer": "esbuild viewer/main.ts --bundle --format=esm --outdir=dist/viewer --loader:.svg=text --loader:.css=css",
+    "dev": "concurrently \"esbuild viewer/main.ts --bundle --format=esm --outdir=dist/viewer --loader:.svg=text --loader:.css=css --watch\" \"tsx watch --env-file=.env src/server/fastify-server.ts\"",
     "clean": "rm -rf dist",
     "start": "node dist/cli/index.mjs",
     "inspect": "pnpm build && npx @modelcontextprotocol/inspector dist/cli/index.mjs",

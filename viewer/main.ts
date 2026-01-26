@@ -1,3 +1,5 @@
+import './styles.css';
+import './github-markdown.css';
 import './components/md-block.js';
 import './components/task-filter-bar.js';
 import './components/task-list.js';

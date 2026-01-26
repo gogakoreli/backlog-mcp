@@ -15,8 +15,6 @@ export default defineConfig({
   report: false,
   copy: [
     { from: 'viewer/*.html', to: 'dist/viewer/' },
-    { from: 'viewer/*.css', to: 'dist/viewer/' },
-    { from: 'viewer/*.svg', to: 'dist/viewer/' },
-    { from: 'viewer/icons/*.svg', to: 'dist/viewer/icons/' },
+    { from: 'viewer/logo.svg', to: 'dist/viewer/' },
   ],
 });

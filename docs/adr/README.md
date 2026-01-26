@@ -8,6 +8,7 @@ An ADR documents an important architectural decision along with its context and 
 
 ## Active ADRs
 
+- [0025. Enable StreamableHTTPServerTransport with Current Architecture](./0025-streamable-http-with-current-architecture.md) - Change mcp-remote transport flag to http-only, maintain exact architecture - 2026-01-26
 - [0022. Fix Missing /mcp/message POST Route](./0022-fix-missing-mcp-message-route.md) - Add separate POST route for MCP messages to fix SSE transport - 2026-01-25
 - [0019. Complete HTTP Architecture Migration](./0019-complete-http-architecture-migration.md) - Direct copy of missing endpoints to achieve 100% feature parity and delete old code - 2026-01-25
 - [0018. Restore Flexible Static File Serving](./0018-restore-flexible-static-file-serving.md) - Pattern-based static file serving to fix 404 errors and prevent future regressions - 2026-01-24
@@ -35,7 +36,12 @@ None yet.
 
 ## Rejected ADRs
 
-- [0023. Migrate to StreamableHTTPServerTransport](./0023-migrate-to-streamable-http-transport.md) - Blocked by mcp-remote incompatibility - 2026-01-25
+- [0024. Dual-Mode Server Architecture for StreamableHTTPServerTransport](./0024-dual-mode-server-for-streamable-http.md) - Rejected by user: "I like the current architecture" (Superseded by ADR-0025) - 2026-01-25
+- [0023. Migrate to StreamableHTTPServerTransport](./0023-migrate-to-streamable-http-transport.md) - Blocked by protocol mismatch (didn't change transport flag) (Superseded by ADR-0025) - 2026-01-25
+
+## Proposed ADRs
+
+None currently.
 
 ## Format
 

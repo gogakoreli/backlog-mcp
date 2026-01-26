@@ -21,7 +21,7 @@ async function runBridge(port: number): Promise<void> {
     process.exit(1);
   }
   
-  const bridge = spawn(mcpRemotePath, [serverUrl, '--allow-http', '--transport', 'sse-only'], {
+  const bridge = spawn(mcpRemotePath, [serverUrl, '--allow-http', '--transport', 'http-only'], {
     stdio: 'inherit'
   });
   

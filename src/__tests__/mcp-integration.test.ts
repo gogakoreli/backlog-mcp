@@ -20,27 +20,36 @@ describe('MCP Integration Tests', () => {
     serverProcess?.kill();
   });
   
-  it('should establish SSE connection', async () => {
+  it('should handle StreamableHTTP requests', async () => {
     const response = await fetch(`http://localhost:${port}/mcp`, {
-      headers: { 'Accept': 'text/event-stream' }
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, text/event-stream'
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test', version: '1.0' }
+        }
+      })
     });
     
     expect(response.status).toBe(200);
-    expect(response.headers.get('content-type')).toContain('text/event-stream');
-    
-    // Read first event to get session ID
-    const reader = response.body?.getReader();
-    const decoder = new TextDecoder();
-    const { value } = await reader!.read();
-    const text = decoder.decode(value);
-    
-    expect(text).toContain('event: endpoint');
-    expect(text).toContain('/mcp/message?sessionId=');
+    const data = await response.json();
+    expect(data).toHaveProperty('result');
+    expect(data.result).toHaveProperty('serverInfo');
+    expect(data.result.serverInfo.name).toBe('backlog-mcp');
   });
   
   it('should test stdio bridge mode', async () => {
     const bridge = spawn('node', ['dist/cli/index.js'], {
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, BACKLOG_VIEWER_PORT: port.toString() }
     });
     
     const initMessage = {

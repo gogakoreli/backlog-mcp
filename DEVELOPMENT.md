@@ -7,6 +7,45 @@ pnpm install
 pnpm dev  # Starts MCP server + web viewer with hot reload
 ```
 
+## CLI Commands
+
+```bash
+backlog-mcp              # Run as stdio MCP server (default)
+backlog-mcp serve        # Run HTTP server with viewer
+backlog-mcp version      # Show version
+backlog-mcp status       # Check if server is running (port, version, URLs)
+backlog-mcp stop         # Stop the server gracefully
+backlog-mcp --help       # Show help
+```
+
+**Development workflow:**
+```bash
+pnpm dev                 # Start dev server (port 3040, hot reload)
+pnpm build               # Build for production
+node dist/cli/index.mjs status  # Check local build
+node dist/cli/index.mjs stop    # Stop local server
+```
+
+## Server Architecture
+
+### Production Mode (Kiro/MCP Clients)
+
+When running via `backlog-mcp` (or `pnpm start`):
+- **HTTP server** spawns as a detached background process on port 3030 (default)
+- **stdio bridge** runs in foreground, connects to HTTP server via `mcp-remote`
+- HTTP server persists across sessions (shared by multiple MCP clients)
+- Auto-restarts on version upgrades
+
+### Development Mode
+
+When running `pnpm dev`:
+- Runs HTTP server directly in foreground (not detached) on port 3040
+- Uses `tsx watch` for hot reload on file changes
+- Ctrl+C cleanly shuts down via SIGINT handler
+- Reads port from `.env` file (`BACKLOG_VIEWER_PORT`)
+
+**Key difference**: Production uses detached process for persistence, dev uses foreground process for easy restart.
+
 ## Architecture
 
 - **UI is read-only** - all mutations happen via MCP tools from the LLM

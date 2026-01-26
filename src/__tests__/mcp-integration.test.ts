@@ -7,7 +7,7 @@ describe('MCP Integration Tests', () => {
   
   beforeAll(async () => {
     // Start server
-    serverProcess = spawn('node', ['dist/server/fastify-server.js'], {
+    serverProcess = spawn('node', ['dist/server/fastify-server.mjs'], {
       env: { ...process.env, BACKLOG_VIEWER_PORT: port.toString() },
       stdio: 'pipe'
     });
@@ -47,7 +47,7 @@ describe('MCP Integration Tests', () => {
   });
   
   it('should test stdio bridge mode', async () => {
-    const bridge = spawn('node', ['dist/cli/index.js'], {
+    const bridge = spawn('node', ['dist/cli/index.mjs'], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, BACKLOG_VIEWER_PORT: port.toString() }
     });

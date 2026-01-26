@@ -20,13 +20,13 @@ export class TaskItem extends HTMLElement {
     this.className = `task-item-wrapper ${isPinned ? 'pinned' : ''} ${isChild ? 'child' : ''}`;
     this.innerHTML = `
       <div class="task-item ${isSelected ? 'selected' : ''} type-${type}">
-        ${type === 'epic' ? `<button class="collapse-btn ${isCollapsed ? 'collapsed' : ''}" title="${isCollapsed ? 'Expand' : 'Collapse'}">${chevronIcon}</button>` : ''}
+        ${type === 'epic' ? `<button class="collapse-btn ${isCollapsed ? 'collapsed' : ''}" title="${isCollapsed ? 'Expand' : 'Collapse'}"><svg-icon src="${chevronIcon}"></svg-icon></button>` : ''}
         <task-badge task-id="${id}" type="${type}"></task-badge>
         <span class="task-title">${title}</span>
         ${isCollapsed && childCount ? `<span class="child-count">${childCount}</span>` : ''}
         <span class="status-badge status-${status}">${status.replace('_', ' ')}</span>
       </div>
-      ${type === 'epic' ? `<button class="pin-btn ${isPinned ? 'pinned' : ''}" title="${isPinned ? 'Unpin' : 'Pin to filter'}">${pinIcon}</button>` : ''}
+      ${type === 'epic' ? `<button class="pin-btn ${isPinned ? 'pinned' : ''}" title="${isPinned ? 'Unpin' : 'Pin to filter'}"><svg-icon src="${pinIcon}"></svg-icon></button>` : ''}
     `;
   }
   

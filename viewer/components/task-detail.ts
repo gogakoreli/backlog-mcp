@@ -55,11 +55,11 @@ export class TaskDetail extends HTMLElement {
   private updatePaneHeader(task: any) {
     const headerHtml = `
       <div class="task-header-left">
-        ${task.epic_id ? `<button class="btn-outline epic-id-btn" onclick="navigator.clipboard.writeText('${task.epic_id}')" title="Copy Epic ID"><task-badge task-id="${task.epic_id}" type="epic"></task-badge> ${copyIcon}</button>` : ''}
-        <button class="btn-outline task-id-btn" onclick="navigator.clipboard.writeText('${task.id}')" title="Copy ID"><task-badge task-id="${task.id}" type="${task.type || 'task'}"></task-badge> ${copyIcon}</button>
+        ${task.epic_id ? `<button class="btn-outline epic-id-btn" onclick="navigator.clipboard.writeText('${task.epic_id}')" title="Copy Epic ID"><task-badge task-id="${task.epic_id}" type="epic"></task-badge> <svg-icon src="${copyIcon}"></svg-icon></button>` : ''}
+        <button class="btn-outline task-id-btn" onclick="navigator.clipboard.writeText('${task.id}')" title="Copy ID"><task-badge task-id="${task.id}" type="${task.type || 'task'}"></task-badge> <svg-icon src="${copyIcon}"></svg-icon></button>
         <span class="status-badge status-${task.status || 'open'}">${(task.status || 'open').replace('_', ' ')}</span>
       </div>
-      <button class="copy-btn copy-raw btn-outline" title="Copy markdown">Copy Markdown ${copyIcon}</button>
+      <button class="copy-btn copy-raw btn-outline" title="Copy markdown">Copy Markdown <svg-icon src="${copyIcon}"></svg-icon></button>
     `;
     
     const paneHeader = document.getElementById('task-pane-header');

@@ -16,10 +16,10 @@ export class TaskBadge extends HTMLElement {
   render() {
     const id = this.getAttribute('task-id') || '';
     const type = this.getAttribute('type') || 'task';
-    const icon = type === 'epic' ? epicIcon : taskIcon;
+    const iconSrc = type === 'epic' ? epicIcon : taskIcon;
     
     this.className = `task-badge type-${type}`;
-    this.innerHTML = `<span class="task-badge-icon">${icon}</span><span class="task-badge-id">${id}</span>`;
+    this.innerHTML = `<svg-icon src="${iconSrc}" class="task-badge-icon"></svg-icon><span class="task-badge-id">${id}</span>`;
   }
 }
 

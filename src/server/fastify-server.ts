@@ -41,6 +41,7 @@ export async function startHttpServer(port: number = 3030): Promise<void> {
   console.log(`Backlog MCP server running on http://localhost:${port}`);
   console.log(`- Viewer: http://localhost:${port}/`);
   console.log(`- MCP endpoint: http://localhost:${port}/mcp`);
+  console.log(`- Data directory: ${dataDir}`);
 }
 
 // Graceful shutdown

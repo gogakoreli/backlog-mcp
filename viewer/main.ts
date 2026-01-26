@@ -8,6 +8,7 @@ import './components/task-item.js';
 import './components/task-detail.js';
 import './components/task-badge.js';
 import './components/resource-viewer.js';
+import './components/system-info-modal.js';
 import { urlState } from './utils/url-state.js';
 import { splitPane } from './utils/split-pane.js';
 import { resizeService } from './utils/resize.js';
@@ -33,6 +34,11 @@ document.addEventListener('DOMContentLoaded', () => {
   resizeService.init();
   layoutService.init();
   splitPane.init();
+  
+  // Wire up system info button
+  const systemInfoBtn = document.getElementById('system-info-btn');
+  const modal = document.querySelector('system-info-modal') as any;
+  systemInfoBtn?.addEventListener('click', () => modal?.open());
   
   // Restore resource from localStorage
   const savedResource = localStorage.getItem('openResource');

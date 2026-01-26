@@ -25,11 +25,25 @@ if (command === 'serve') {
     process.exit(1);
   }
   
-  const version = await getServerVersion(port);
-  console.log(`Server is running on port ${port}`);
-  console.log(`Version: ${version || 'unknown'}`);
-  console.log(`Viewer: http://localhost:${port}/`);
-  console.log(`MCP endpoint: http://localhost:${port}/mcp`);
+  try {
+    const response = await fetch(`http://localhost:${port}/api/status`);
+    const status = await response.json() as any;
+    
+    console.log(`Server is running on port ${status.port}`);
+    console.log(`Version: ${status.version}`);
+    console.log(`Data directory: ${status.dataDir}`);
+    console.log(`Task count: ${status.taskCount}`);
+    console.log(`Uptime: ${status.uptime}s`);
+    console.log(`Viewer: http://localhost:${port}/`);
+    console.log(`MCP endpoint: http://localhost:${port}/mcp`);
+  } catch (error) {
+    // Fallback to old behavior if /api/status doesn't exist
+    const version = await getServerVersion(port);
+    console.log(`Server is running on port ${port}`);
+    console.log(`Version: ${version || 'unknown'}`);
+    console.log(`Viewer: http://localhost:${port}/`);
+    console.log(`MCP endpoint: http://localhost:${port}/mcp`);
+  }
   process.exit(0);
 } else if (command === 'stop') {
   // Stop server

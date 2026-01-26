@@ -63,6 +63,18 @@ class PathResolver {
   }
   
   /**
+   * Resolve data directory to absolute path
+   * @param dataDir - Relative or absolute data directory path
+   * @returns Absolute path to data directory
+   */
+  public resolveDataDir(dataDir: string): string {
+    if (dataDir.startsWith('/')) {
+      return dataDir;
+    }
+    return this.fromRoot(dataDir);
+  }
+  
+  /**
    * Resolve a path relative to project root
    * @example paths.fromRoot('data', 'tasks') → '/path/to/package/data/tasks'
    */

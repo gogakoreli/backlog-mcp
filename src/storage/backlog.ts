@@ -20,6 +20,10 @@ class BacklogStorage {
     this.dataDir = dataDir;
   }
 
+  getDataDir(): string {
+    return this.dataDir;
+  }
+
   private get tasksPath(): string {
     return join(this.dataDir, TASKS_DIR);
   }

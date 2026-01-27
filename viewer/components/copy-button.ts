@@ -13,6 +13,7 @@ function getTooltip(): HTMLDivElement {
       color: #fff;
       padding: 6px 12px;
       border-radius: 6px;
+      border: 1px solid #444c56;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
       font-size: 12px;
       pointer-events: none;

@@ -40,7 +40,10 @@ export function registerViewerRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: 'Task not found' });
     }
     
-    return task;
+    // Include raw markdown for copy button
+    const raw = storage.getMarkdown(id);
+    
+    return { ...task, raw };
   });
 
   // System status

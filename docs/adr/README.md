@@ -8,6 +8,7 @@ An ADR documents an important architectural decision along with its context and 
 
 ## Active ADRs
 
+- [0032. Fix Copy Markdown Button](./0032-fix-copy-markdown-button.md) - Add raw field to task API response to restore copy markdown functionality - 2026-01-27
 - [0027. CLI Management Commands](./0027-cli-management-commands.md) - Add version, status, stop commands for better server control and troubleshooting - 2026-01-26
 - [0026. Build System Modernization and Path Resolution](./0026-build-system-modernization.md) - Migrate to tsdown, centralize path resolution, fix static asset serving - 2026-01-26
 - [0025. Enable StreamableHTTPServerTransport with Current Architecture](./0025-streamable-http-with-current-architecture.md) - Change mcp-remote transport flag to http-only, maintain exact architecture - 2026-01-26

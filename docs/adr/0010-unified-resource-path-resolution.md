@@ -1,7 +1,7 @@
 # 0010. Unified Resource Path Resolution
 
 **Date**: 2026-01-23
-**Status**: Accepted
+**Status**: Superseded by ADR-0031
 **Related**: ADR 0006, ADR 0007
 
 ## Context

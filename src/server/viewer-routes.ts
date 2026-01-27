@@ -4,8 +4,7 @@ import { exec } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import matter from 'gray-matter';
 import { storage } from '../storage/backlog.js';
-import { readMcpResource } from '../resources/resource-reader.js';
-import { resolveMcpUri, filePathToMcpUri } from '../utils/uri-resolver.js';
+import { resourceManager } from '../resources/manager.js';
 import { paths } from '../utils/paths.js';
 
 export function registerViewerRoutes(app: FastifyInstance) {
@@ -111,7 +110,7 @@ export function registerViewerRoutes(app: FastifyInstance) {
         type: mimeMap[ext] || 'text/plain',
         path: filePath,
         fileUri: `file://${filePath}`,
-        mcpUri: filePathToMcpUri(filePath),
+        mcpUri: resourceManager.toUri(filePath),
         ext
       };
     } catch (error: any) {
@@ -128,8 +127,8 @@ export function registerViewerRoutes(app: FastifyInstance) {
     }
     
     try {
-      const resource = await readMcpResource(uri);
-      const filePath = resolveMcpUri(uri);
+      const resource = resourceManager.read(uri);
+      const filePath = resourceManager.resolve(uri);
       const ext = filePath.split('.').pop()?.toLowerCase() || 'txt';
       
       return {

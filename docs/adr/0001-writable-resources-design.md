@@ -1,7 +1,7 @@
 # 0001. Writable Resources - Efficient Data Manipulation in MCP
 
 **Date**: 2026-01-21
-**Status**: Proposed
+**Status**: Superseded by ADR-0031 (write_resource tool simplified, /description and /file suffixes removed)
 **Backlog Item**: TASK-0039
 
 ## Context

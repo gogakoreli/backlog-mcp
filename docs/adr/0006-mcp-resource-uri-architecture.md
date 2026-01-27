@@ -1,7 +1,7 @@
 # 0006. MCP Resource URI Architecture
 
 **Date**: 2026-01-22
-**Status**: Proposed
+**Status**: Superseded by ADR-0031
 **Related**: ADR 0004 (MCP Resource Viewer Integration)
 
 ## Context

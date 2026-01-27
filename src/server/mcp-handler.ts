@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { registerTools } from '@/tools/index.js';
-import { registerResources } from '@/resources/index-resources.js';
+import { resourceManager } from '@/resources/manager.js';
 import { paths } from '@/utils/paths.js';
 
 export function registerMcpHandler(app: FastifyInstance) {
@@ -13,7 +13,8 @@ export function registerMcpHandler(app: FastifyInstance) {
     });
     
     registerTools(server);
-    registerResources(server);
+    resourceManager.registerResource(server);
+    resourceManager.registerWriteTool(server);
     
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,

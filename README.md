@@ -85,12 +85,12 @@ backlog_delete id="TASK-0001"             # Permanently delete
 Access tasks and resources via MCP resource URIs:
 
 ```
-mcp://backlog/tasks                       # All tasks (JSON)
-mcp://backlog/tasks/TASK-0001             # Single task (JSON)
+mcp://backlog/tasks/TASK-0001.md          # Task markdown file
 mcp://backlog/resources/TASK-0001/adr.md  # Task-attached resource
+mcp://backlog/resources/investigation.md  # Standalone resource
 ```
 
-Create/modify resources via `resource://` write operations.
+Modify resources via `write_resource` tool with operations like `str_replace`, `append`, `insert`.
 
 ## Installation
 

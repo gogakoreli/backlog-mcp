@@ -1,5 +1,5 @@
 // Public exports for resources module
 
-export { writeResource } from './write.js';
-export type { WriteResourceResult } from './types.js';
-export type { Operation } from './types.js';
+export { resourceManager, ResourceManager } from './manager.js';
+export type { ResourceContent } from './manager.js';
+export type { Operation, WriteResourceResult } from './types.js';

@@ -1,7 +1,7 @@
 # 0007. MCP Resource URI Implementation
 
 **Date**: 2026-01-22
-**Status**: Accepted
+**Status**: Superseded by ADR-0031
 **Backlog Item**: TASK-0061
 **Related**: ADR 0006 (MCP Resource URI Architecture)
 

@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 
 /**
  * Runtime environment modes
@@ -99,11 +100,42 @@ export class PathResolver {
   }
   
   /**
-   * Get path to a binary in node_modules/.bin
-   * @example paths.getBinPath('mcp-remote') → '/path/to/package/node_modules/.bin/mcp-remote'
+   * Resolve path to a package binary using Node.js module resolution.
+   * 
+   * Uses require.resolve to find the package wherever npm places it (local node_modules,
+   * hoisted to parent, or pnpm virtual store). Reads the bin field from package.json
+   * instead of assuming .bin/ symlink location.
+   * 
+   * @param binName - Package name (e.g., 'mcp-remote')
+   * @returns Absolute path to the binary file
+   * @throws Error if package not found or has no bin field
+   * @example paths.getBinPath('mcp-remote') // → '/path/to/node_modules/mcp-remote/dist/proxy.js'
    */
   public getBinPath(binName: string): string {
-    return join(this.projectRoot, 'node_modules', '.bin', binName);
+    // Create require function from current module context
+    const require = createRequire(import.meta.url);
+    
+    // Let Node.js find the package (handles hoisting automatically)
+    const packageJsonPath = require.resolve(`${binName}/package.json`);
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+    
+    // Read bin field from package.json (source of truth)
+    if (!packageJson.bin) {
+      throw new Error(`Package '${binName}' has no bin field in package.json`);
+    }
+    
+    const binRelativePath = typeof packageJson.bin === 'string' 
+      ? packageJson.bin 
+      : packageJson.bin[binName];
+    
+    if (!binRelativePath) {
+      const availableBins = Object.keys(packageJson.bin).join(', ');
+      throw new Error(`Package '${binName}' has no bin entry for '${binName}'. Available: ${availableBins}`);
+    }
+    
+    // Resolve absolute path to binary
+    const packageDir = dirname(packageJsonPath);
+    return join(packageDir, binRelativePath);
   }
   
   /**

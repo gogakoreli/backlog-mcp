@@ -50,7 +50,10 @@ class BacklogStorage {
       for (const file of readdirSync(this.tasksPath).filter(f => f.endsWith('.md'))) {
         const filePath = join(this.tasksPath, file);
         try {
-          yield this.markdownToTask(readFileSync(filePath, 'utf-8'));
+          const task = this.markdownToTask(readFileSync(filePath, 'utf-8'));
+          // Skip malformed tasks without valid ID
+          if (!task.id) continue;
+          yield task;
         } catch (error) {
           // Skip files that were deleted between listing and reading
           if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {

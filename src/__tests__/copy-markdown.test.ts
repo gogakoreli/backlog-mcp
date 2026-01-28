@@ -11,7 +11,6 @@ describe('Viewer Routes - Copy Markdown', () => {
       id: testTaskId,
       title: 'Test Copy Markdown',
       description: 'This is a test task for copy markdown functionality',
-      status: 'open'
     });
     storage.add(task);
   });

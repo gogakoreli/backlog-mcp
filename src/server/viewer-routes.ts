@@ -25,7 +25,7 @@ export function registerViewerRoutes(app: FastifyInstance) {
     };
     
     const filterConfig = statusMap[filter || 'active'] || statusMap.active;
-    const tasks = storage.list({ ...filterConfig, limit: limit ? parseInt(limit) : 100 });
+    const tasks = storage.list({ ...filterConfig, limit: limit ? parseInt(limit) : 10000 });
     
     return tasks;
   });

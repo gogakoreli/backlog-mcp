@@ -20,8 +20,7 @@ export function registerViewerRoutes(app: FastifyInstance) {
     
     const statusMap: Record<string, any> = {
       active: { status: ['open', 'in_progress', 'blocked'] },
-      done: { status: ['done'] },
-      cancelled: { status: ['cancelled'] },
+      completed: { status: ['done', 'cancelled'] },
       all: {},
     };
     

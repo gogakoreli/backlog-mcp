@@ -8,6 +8,7 @@ An ADR documents an important architectural decision along with its context and 
 
 ## Active ADRs
 
+- [0034. Fix Status Filter Mapping](./0034-fix-status-filter-mapping.md) - Add 'completed' filter mapping to backend to fix broken Completed filter button - 2026-01-28
 - [0033. Folder-Style Epic Navigation](./0033-folder-style-epic-navigation.md) - Complete folder-style navigation for nested epics with breadcrumbs, URL state, and clean home page - 2026-01-27
 - [0032. Fix Copy Markdown Button](./0032-fix-copy-markdown-button.md) - Add raw field to task API response to restore copy markdown functionality - 2026-01-27
 - [0027. CLI Management Commands](./0027-cli-management-commands.md) - Add version, status, stop commands for better server control and troubleshooting - 2026-01-26

@@ -213,7 +213,7 @@ export class OramaSearchService implements SearchService {
     if (!query.trim()) return [];
 
     const limit = options?.limit ?? 20;
-    const boost = options?.boost ?? { title: 2 };
+    const boost = options?.boost ?? { id: 10, title: 2 };
 
     // Determine if we can use hybrid search
     const canUseHybrid = this.hasEmbeddingsInIndex && (await this.ensureEmbeddings());
@@ -230,6 +230,10 @@ export class OramaSearchService implements SearchService {
           value: queryVector,
           property: 'embeddings',
         },
+        // Prioritize BM25 (exact/fuzzy matches) over vector (semantic)
+        // This ensures exact matches rank highest while semantic matches are still found
+        hybridWeights: { text: 0.8, vector: 0.2 },
+        similarity: 0.2, // Low threshold to catch semantic matches
         limit,
         boost,
         tolerance: 1,

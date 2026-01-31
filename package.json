@@ -65,6 +65,7 @@
   "dependencies": {
     "@fastify/cors": "^11.2.0",
     "@fastify/static": "^9.0.0",
+    "@huggingface/transformers": "^3.8.1",
     "@modelcontextprotocol/sdk": "^1.25.1",
     "@orama/highlight": "^0.1.9",
     "@orama/orama": "^3.1.18",

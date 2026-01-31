@@ -201,44 +201,38 @@ describe('Search Golden Benchmark', () => {
    */
   describe('⚠️ Known Limitations', () => {
     describe('hyphenated words', () => {
-      it.fails('LIMITATION: "first" should match "keyboard-first"', async () => {
-        // Current tokenizer keeps hyphens, so "keyboard-first" is one token
-        // Searching "first" alone won't find it
+      it('"first" matches "keyboard-first"', async () => {
+        // Custom tokenizer expands hyphenated words: "keyboard-first" → ["keyboard-first", "keyboard", "first"]
         const results = await service.search('first');
         expect(results.some(r => r.task.id === 'TASK-0001')).toBe(true);
       });
 
-      it('WORKAROUND: full hyphenated term matches', async () => {
+      it('full hyphenated term matches', async () => {
         const results = await service.search('keyboard-first');
         expect(results.some(r => r.task.id === 'TASK-0001')).toBe(true);
       });
 
-      it('WORKAROUND: first word of hyphenated term matches', async () => {
+      it('first word of hyphenated term matches', async () => {
         const results = await service.search('keyboard');
         expect(results.some(r => r.task.id === 'TASK-0001')).toBe(true);
       });
     });
 
     describe('numeric-only queries', () => {
-      it.fails('LIMITATION: numeric query "0001" should find TASK-0001', async () => {
-        // Numbers alone don't match well
+      it('numeric query "0001" finds TASK-0001', async () => {
+        // Custom tokenizer splits "TASK-0001" → ["task-0001", "task", "0001"]
         const results = await service.search('0001');
         expect(results.length).toBeGreaterThan(0);
       });
     });
 
     describe('short word fuzzy matching', () => {
-      it.fails('LIMITATION: typo in short word should still match', async () => {
-        // "Spotlght" (8 chars, missing 1) doesn't match "Spotlight" (9 chars)
-        // Fuzzy tolerance=1 may not be enough for all cases
+      it('typo in short word still matches', async () => {
+        // "Spotlght" (8 chars, missing 1) matches "Spotlight" (9 chars) with tolerance=1
         const results = await service.search('Spotlght');
         expect(results.some(r => r.task.id === 'TASK-0001')).toBe(true);
       });
     });
-
-    // Note: "first" matches "first-time" (hyphen at end of first word)
-    // but does NOT match "keyboard-first" (hyphen at start of second word)
-    // This asymmetry is tested in the hyphenated words section above
   });
 
   /**

@@ -8,6 +8,8 @@ An ADR documents an important architectural decision along with its context and 
 
 ## Active ADRs
 
+- [0042. Hybrid Search with Local Embeddings](./0042-hybrid-search-local-embeddings.md) - Semantic search via transformers.js with graceful BM25 fallback - 2026-01-31
+- [0041. Hyphen-Aware Custom Tokenizer](./0041-hyphen-aware-tokenizer.md) - Custom tokenizer that expands hyphenated words for consistent search - 2026-01-31
 - [0040. Search Storage Decoupling](./0040-search-storage-decoupling.md) - Decouple SearchService from BacklogStorage via composition layer - 2026-01-31
 - [0039. Spotlight-Style Search UI](./0039-spotlight-search-ui.md) - Cmd+J keyboard-driven search modal with highlighted match snippets - 2026-01-31
 - [0038. Comprehensive Search Capability](./0038-comprehensive-search-capability.md) - Text search across all task fields with future RAG path - 2026-01-31

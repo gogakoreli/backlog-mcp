@@ -1,8 +1,9 @@
-import { create, insert, remove, search, save, load, type Orama, type Results } from '@orama/orama';
+import { create, insert, remove, search, save, load, type Orama, type Results, type Tokenizer } from '@orama/orama';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Task } from '@/storage/schema.js';
 import type { SearchService, SearchOptions, SearchResult } from './types.js';
+import { EmbeddingService, EMBEDDING_DIMENSIONS } from './embedding-service.js';
 
 type OramaDoc = {
   id: string;
@@ -14,6 +15,10 @@ type OramaDoc = {
   evidence: string;
   blocked_reason: string;
   references: string;
+};
+
+type OramaDocWithEmbeddings = OramaDoc & {
+  embeddings: number[];
 };
 
 const schema = {
@@ -28,28 +33,93 @@ const schema = {
   references: 'string',
 } as const;
 
+const schemaWithEmbeddings = {
+  ...schema,
+  embeddings: `vector[${EMBEDDING_DIMENSIONS}]`,
+} as const;
+
 type OramaInstance = Orama<typeof schema>;
+type OramaInstanceWithEmbeddings = Orama<typeof schemaWithEmbeddings>;
 
 export interface OramaSearchOptions {
   cachePath: string;
+  /** Enable hybrid search with local embeddings. Default: true */
+  hybridSearch?: boolean;
 }
 
 /**
- * Orama-backed search service implementation with disk persistence.
- * Configured via options - no hardcoded paths.
+ * Custom tokenizer that expands hyphenated words while preserving originals.
+ */
+const hyphenAwareTokenizer: Tokenizer = {
+  language: 'english',
+  normalizationCache: new Map(),
+  tokenize(input: string): string[] {
+    if (typeof input !== 'string') return [];
+    const tokens = input.toLowerCase().split(/[^a-z0-9'-]+/gi).filter(Boolean);
+    const expanded: string[] = [];
+    for (const token of tokens) {
+      expanded.push(token);
+      if (token.includes('-')) {
+        expanded.push(...token.split(/-+/).filter(Boolean));
+      }
+    }
+    return [...new Set(expanded)];
+  },
+};
+
+/**
+ * Orama-backed search service with optional hybrid search (BM25 + vector).
+ * Gracefully falls back to BM25-only if embeddings fail to load.
  */
 export class OramaSearchService implements SearchService {
-  private db: OramaInstance | null = null;
+  private db: OramaInstance | OramaInstanceWithEmbeddings | null = null;
   private taskCache = new Map<string, Task>();
   private saveTimeout: ReturnType<typeof setTimeout> | null = null;
   private readonly cachePath: string;
 
+  // Embedding state
+  private readonly hybridEnabled: boolean;
+  private embedder: EmbeddingService | null = null;
+  private embeddingsReady = false;
+  private embeddingsInitPromise: Promise<boolean> | null = null;
+  private hasEmbeddingsInIndex = false;
+
   constructor(options: OramaSearchOptions) {
     this.cachePath = options.cachePath;
+    this.hybridEnabled = options.hybridSearch ?? true;
   }
 
   private get indexPath(): string {
     return this.cachePath;
+  }
+
+  /**
+   * Lazy-load embedding service. Returns true if embeddings are available.
+   */
+  private async ensureEmbeddings(): Promise<boolean> {
+    if (!this.hybridEnabled) return false;
+    if (this.embeddingsReady) return true;
+    if (this.embeddingsInitPromise) return this.embeddingsInitPromise;
+
+    this.embeddingsInitPromise = (async () => {
+      try {
+        this.embedder = new EmbeddingService();
+        await this.embedder.init();
+        this.embeddingsReady = true;
+        return true;
+      } catch (e) {
+        // Graceful fallback - embeddings unavailable, use BM25 only
+        this.embedder = null;
+        this.embeddingsReady = false;
+        return false;
+      }
+    })();
+
+    return this.embeddingsInitPromise;
+  }
+
+  private getTextForEmbedding(task: Task): string {
+    return `${task.title} ${task.description || ''}`.trim();
   }
 
   private taskToDoc(task: Task): OramaDoc {
@@ -66,6 +136,13 @@ export class OramaSearchService implements SearchService {
     };
   }
 
+  private async taskToDocWithEmbeddings(task: Task): Promise<OramaDocWithEmbeddings> {
+    const doc = this.taskToDoc(task);
+    const text = this.getTextForEmbedding(task);
+    const embeddings = await this.embedder!.embed(text);
+    return { ...doc, embeddings };
+  }
+
   private scheduleSave(): void {
     if (this.saveTimeout) clearTimeout(this.saveTimeout);
     this.saveTimeout = setTimeout(() => this.persistToDisk(), 1000);
@@ -77,7 +154,11 @@ export class OramaSearchService implements SearchService {
       const dir = dirname(this.indexPath);
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
       const data = save(this.db);
-      const serialized = JSON.stringify({ index: data, tasks: Object.fromEntries(this.taskCache) });
+      const serialized = JSON.stringify({
+        index: data,
+        tasks: Object.fromEntries(this.taskCache),
+        hasEmbeddings: this.hasEmbeddingsInIndex,
+      });
       writeFileSync(this.indexPath, serialized);
     } catch {
       // Ignore persistence errors - index will rebuild on next start
@@ -88,7 +169,12 @@ export class OramaSearchService implements SearchService {
     try {
       if (!existsSync(this.indexPath)) return false;
       const raw = JSON.parse(readFileSync(this.indexPath, 'utf-8'));
-      this.db = await create({ schema });
+
+      // Check if cached index has embeddings
+      this.hasEmbeddingsInIndex = raw.hasEmbeddings ?? false;
+
+      const schemaToUse = this.hasEmbeddingsInIndex ? schemaWithEmbeddings : schema;
+      this.db = await create({ schema: schemaToUse, components: { tokenizer: hyphenAwareTokenizer } });
       load(this.db, raw.index);
       this.taskCache = new Map(Object.entries(raw.tasks as Record<string, Task>));
       return true;
@@ -101,12 +187,23 @@ export class OramaSearchService implements SearchService {
     // Try loading from disk first
     if (await this.loadFromDisk()) return;
 
+    // Check if embeddings are available for fresh index
+    const useEmbeddings = await this.ensureEmbeddings();
+
     // Build fresh index
-    this.db = await create({ schema });
+    const schemaToUse = useEmbeddings ? schemaWithEmbeddings : schema;
+    this.db = await create({ schema: schemaToUse, components: { tokenizer: hyphenAwareTokenizer } });
     this.taskCache.clear();
+    this.hasEmbeddingsInIndex = useEmbeddings;
+
     for (const task of tasks) {
       this.taskCache.set(task.id, task);
-      await insert(this.db, this.taskToDoc(task));
+      if (useEmbeddings) {
+        const doc = await this.taskToDocWithEmbeddings(task);
+        await insert(this.db as OramaInstanceWithEmbeddings, doc);
+      } else {
+        await insert(this.db as OramaInstance, this.taskToDoc(task));
+      }
     }
     this.persistToDisk();
   }
@@ -118,12 +215,34 @@ export class OramaSearchService implements SearchService {
     const limit = options?.limit ?? 20;
     const boost = options?.boost ?? { title: 2 };
 
-    const results: Results<OramaDoc> = await search(this.db, {
-      term: query,
-      limit,
-      boost,
-      tolerance: 1,
-    });
+    // Determine if we can use hybrid search
+    const canUseHybrid = this.hasEmbeddingsInIndex && (await this.ensureEmbeddings());
+
+    let results: Results<OramaDoc | OramaDocWithEmbeddings>;
+
+    if (canUseHybrid) {
+      // Hybrid search: BM25 + vector
+      const queryVector = await this.embedder!.embed(query);
+      results = await search(this.db as OramaInstanceWithEmbeddings, {
+        term: query,
+        mode: 'hybrid',
+        vector: {
+          value: queryVector,
+          property: 'embeddings',
+        },
+        limit,
+        boost,
+        tolerance: 1,
+      });
+    } else {
+      // BM25 only
+      results = await search(this.db, {
+        term: query,
+        limit,
+        boost,
+        tolerance: 1,
+      });
+    }
 
     let hits = results.hits.map(hit => ({
       id: hit.document.id,
@@ -131,7 +250,7 @@ export class OramaSearchService implements SearchService {
       task: this.taskCache.get(hit.document.id)!,
     }));
 
-    // Apply filters post-search (Orama filters are for exact match, we need flexible filtering)
+    // Apply filters post-search
     const filters = options?.filters;
     if (filters) {
       if (filters.status?.length) {
@@ -151,8 +270,14 @@ export class OramaSearchService implements SearchService {
   async addDocument(task: Task): Promise<void> {
     if (!this.db) return;
     this.taskCache.set(task.id, task);
+
     try {
-      await insert(this.db, this.taskToDoc(task));
+      if (this.hasEmbeddingsInIndex && this.embeddingsReady) {
+        const doc = await this.taskToDocWithEmbeddings(task);
+        await insert(this.db as OramaInstanceWithEmbeddings, doc);
+      } else {
+        await insert(this.db as OramaInstance, this.taskToDoc(task));
+      }
     } catch (e: any) {
       if (e?.code === 'DOCUMENT_ALREADY_EXISTS') {
         await this.updateDocument(task);
@@ -177,7 +302,20 @@ export class OramaSearchService implements SearchService {
   async updateDocument(task: Task): Promise<void> {
     await this.removeDocument(task.id);
     this.taskCache.set(task.id, task);
-    await insert(this.db!, this.taskToDoc(task));
+
+    if (this.hasEmbeddingsInIndex && this.embeddingsReady) {
+      const doc = await this.taskToDocWithEmbeddings(task);
+      await insert(this.db as OramaInstanceWithEmbeddings, doc);
+    } else {
+      await insert(this.db as OramaInstance, this.taskToDoc(task));
+    }
     this.scheduleSave();
+  }
+
+  /**
+   * Check if hybrid search is currently active.
+   */
+  isHybridSearchActive(): boolean {
+    return this.hasEmbeddingsInIndex && this.embeddingsReady;
   }
 }

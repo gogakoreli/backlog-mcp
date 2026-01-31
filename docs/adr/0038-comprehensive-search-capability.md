@@ -2,6 +2,7 @@
 
 **Date**: 2026-01-31
 **Status**: Accepted
+**Master Epic**: EPIC-0019 (Search & RAG: Intelligent Context for Agents)
 **Backlog Items**: TASK-0104, TASK-0141, TASK-0142, TASK-0145, TASK-0146, TASK-0147, EPIC-0018
 
 ## Context

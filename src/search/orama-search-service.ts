@@ -1,6 +1,9 @@
-import { create, insert, remove, search, type Orama, type Results } from '@orama/orama';
+import { create, insert, remove, search, save, load, type Orama, type Results } from '@orama/orama';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import type { Task } from '@/storage/schema.js';
 import type { SearchService, SearchOptions, SearchResult } from './types.js';
+import { paths } from '@/utils/paths.js';
 
 type OramaDoc = {
   id: string;
@@ -29,18 +32,23 @@ const schema = {
 type OramaInstance = Orama<typeof schema>;
 
 /**
- * Orama-backed search service implementation.
+ * Orama-backed search service implementation with disk persistence.
  */
 export class OramaSearchService implements SearchService {
   private static instance: OramaSearchService;
   private db: OramaInstance | null = null;
   private taskCache = new Map<string, Task>();
+  private saveTimeout: ReturnType<typeof setTimeout> | null = null;
 
   static getInstance(): OramaSearchService {
     if (!OramaSearchService.instance) {
       OramaSearchService.instance = new OramaSearchService();
     }
     return OramaSearchService.instance;
+  }
+
+  private get indexPath(): string {
+    return join(paths.backlogDataDir, '.cache', 'search-index.json');
   }
 
   private taskToDoc(task: Task): OramaDoc {
@@ -57,14 +65,49 @@ export class OramaSearchService implements SearchService {
     };
   }
 
+  private scheduleSave(): void {
+    if (this.saveTimeout) clearTimeout(this.saveTimeout);
+    this.saveTimeout = setTimeout(() => this.persistToDisk(), 1000);
+  }
+
+  private persistToDisk(): void {
+    if (!this.db) return;
+    try {
+      const dir = dirname(this.indexPath);
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      const data = save(this.db);
+      const serialized = JSON.stringify({ index: data, tasks: Object.fromEntries(this.taskCache) });
+      writeFileSync(this.indexPath, serialized);
+    } catch {
+      // Ignore persistence errors - index will rebuild on next start
+    }
+  }
+
+  private async loadFromDisk(): Promise<boolean> {
+    try {
+      if (!existsSync(this.indexPath)) return false;
+      const raw = JSON.parse(readFileSync(this.indexPath, 'utf-8'));
+      this.db = await create({ schema });
+      load(this.db, raw.index);
+      this.taskCache = new Map(Object.entries(raw.tasks as Record<string, Task>));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async index(tasks: Task[]): Promise<void> {
+    // Try loading from disk first
+    if (await this.loadFromDisk()) return;
+
+    // Build fresh index
     this.db = await create({ schema });
     this.taskCache.clear();
-
     for (const task of tasks) {
       this.taskCache.set(task.id, task);
       await insert(this.db, this.taskToDoc(task));
     }
+    this.persistToDisk();
   }
 
   async search(query: string, options?: SearchOptions): Promise<SearchResult[]> {
@@ -112,10 +155,11 @@ export class OramaSearchService implements SearchService {
     } catch (e: any) {
       if (e?.code === 'DOCUMENT_ALREADY_EXISTS') {
         await this.updateDocument(task);
-      } else {
-        throw e;
+        return;
       }
+      throw e;
     }
+    this.scheduleSave();
   }
 
   async removeDocument(id: string): Promise<void> {
@@ -123,6 +167,7 @@ export class OramaSearchService implements SearchService {
     this.taskCache.delete(id);
     try {
       await remove(this.db, id);
+      this.scheduleSave();
     } catch {
       // Ignore if document doesn't exist
     }
@@ -132,5 +177,6 @@ export class OramaSearchService implements SearchService {
     await this.removeDocument(task.id);
     this.taskCache.set(task.id, task);
     await insert(this.db!, this.taskToDoc(task));
+    this.scheduleSave();
   }
 }

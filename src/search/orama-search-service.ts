@@ -1,9 +1,8 @@
 import { create, insert, remove, search, save, load, type Orama, type Results } from '@orama/orama';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { dirname } from 'node:path';
 import type { Task } from '@/storage/schema.js';
 import type { SearchService, SearchOptions, SearchResult } from './types.js';
-import { paths } from '@/utils/paths.js';
 
 type OramaDoc = {
   id: string;
@@ -31,24 +30,26 @@ const schema = {
 
 type OramaInstance = Orama<typeof schema>;
 
+export interface OramaSearchOptions {
+  cachePath: string;
+}
+
 /**
  * Orama-backed search service implementation with disk persistence.
+ * Configured via options - no hardcoded paths.
  */
 export class OramaSearchService implements SearchService {
-  private static instance: OramaSearchService;
   private db: OramaInstance | null = null;
   private taskCache = new Map<string, Task>();
   private saveTimeout: ReturnType<typeof setTimeout> | null = null;
+  private readonly cachePath: string;
 
-  static getInstance(): OramaSearchService {
-    if (!OramaSearchService.instance) {
-      OramaSearchService.instance = new OramaSearchService();
-    }
-    return OramaSearchService.instance;
+  constructor(options: OramaSearchOptions) {
+    this.cachePath = options.cachePath;
   }
 
   private get indexPath(): string {
-    return join(paths.backlogDataDir, '.cache', 'search-index.json');
+    return this.cachePath;
   }
 
   private taskToDoc(task: Task): OramaDoc {

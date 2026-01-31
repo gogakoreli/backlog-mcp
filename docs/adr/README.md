@@ -8,6 +8,7 @@ An ADR documents an important architectural decision along with its context and 
 
 ## Active ADRs
 
+- [0040. Search Storage Decoupling](./0040-search-storage-decoupling.md) - Decouple SearchService from BacklogStorage via composition layer - 2026-01-31
 - [0039. Spotlight-Style Search UI](./0039-spotlight-search-ui.md) - Cmd+J keyboard-driven search modal with highlighted match snippets - 2026-01-31
 - [0038. Comprehensive Search Capability](./0038-comprehensive-search-capability.md) - Text search across all task fields with future RAG path - 2026-01-31
 - [0037. Partial Array Updates with add_/remove_ Convention](./0037-partial-array-updates-convention.md) - add_references/remove_references for partial updates without data loss - 2026-01-29

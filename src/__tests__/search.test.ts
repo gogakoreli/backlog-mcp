@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { join } from 'node:path';
 import { OramaSearchService } from '../search/orama-search-service.js';
 import type { Task } from '../storage/schema.js';
 
@@ -10,6 +11,8 @@ function makeTask(overrides: Partial<Task> & { id: string; title: string }): Tas
     ...overrides,
   };
 }
+
+const TEST_CACHE_PATH = join(process.cwd(), 'test-data', '.cache', 'search-index.json');
 
 describe('OramaSearchService', () => {
   let service: OramaSearchService;
@@ -23,7 +26,7 @@ describe('OramaSearchService', () => {
   ];
 
   beforeEach(async () => {
-    service = new OramaSearchService();
+    service = new OramaSearchService({ cachePath: TEST_CACHE_PATH });
     await service.index(tasks);
   });
 
@@ -122,7 +125,7 @@ describe('OramaSearchService', () => {
 
   describe('edge cases', () => {
     it('handles search before index', async () => {
-      const freshService = new OramaSearchService();
+      const freshService = new OramaSearchService({ cachePath: TEST_CACHE_PATH });
       const results = await freshService.search('test');
       expect(results).toEqual([]);
     });

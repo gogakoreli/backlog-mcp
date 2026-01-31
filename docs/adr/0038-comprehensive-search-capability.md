@@ -2,145 +2,155 @@
 
 **Date**: 2026-01-31
 **Status**: Accepted
-**Backlog Item**: TASK-0104
+**Backlog Item**: TASK-0104, TASK-0142
 
 ## Context
 
-As the backlog grows, finding specific tasks becomes difficult. Users need to search across all task content (not just titles), including descriptions, evidence, references, and other metadata.
+As the backlog grows, finding specific tasks becomes difficult. Users need to search across all task content with fuzzy matching, typo tolerance, and relevance ranking.
 
-### Current State
+### Requirements
 
-- `BacklogStorage.list()` supports filtering by: status, type, epic_id, limit
-- No text search capability exists
-- Viewer has filter buttons for status and type, but no search input
-- MCP tool `backlog_list` mirrors storage filters
+1. Full-text search across all task fields
+2. Fuzzy matching (typo tolerance)
+3. Relevance ranking (title matches > description matches)
+4. Filter compatibility (search + status/type/epic filters)
+5. Future RAG/vector search path without library swaps
+6. Zero vendor lock-in via abstraction layer
 
 ### Research Findings
 
-1. **Existing filter pattern**: Storage iterates tasks, applies filters sequentially, sorts, slices
-2. **Viewer architecture**: URL state → components → API → storage (unidirectional)
-3. **Event pattern**: Components dispatch events → main.ts → urlState.set() → notify
-4. **Task description recommends**: `matchesQuery(task, query)` helper method in BacklogStorage
-
-## Proposed Solutions
-
-### Option 1: Private Method in BacklogStorage
-
-**Description**: Add `matchesQuery()` as a private method in BacklogStorage class. Add `query` to the filter object.
-
-**Pros**:
-- Follows task's explicit suggestion
-- Single source of truth for MCP and HTTP
-- Easy to extract to separate module in Phase 2
-- Consistent with existing filter pattern
-
-**Cons**:
-- Method is private, can't be reused elsewhere directly
-- Storage class grows slightly (~15 lines)
-
-**Implementation Complexity**: Low
-
-### Option 2: Separate search.ts Module
-
-**Description**: Create `src/storage/search.ts` with exported `matchesQuery()`. Import in BacklogStorage.
-
-**Pros**:
-- Immediately reusable
-- Easier to test in isolation
-- Cleaner separation of concerns
-
-**Cons**:
-- Extra file for one function
-- Slightly over-engineered for MVP
-- YAGNI - don't add abstraction until needed
-
-**Implementation Complexity**: Low-Medium
-
-### Option 3: Consumer-Side Search (HTTP/MCP Layer)
-
-**Description**: Keep storage unchanged. Implement search in MCP tool and HTTP route separately.
-
-**Pros**:
-- Storage layer stays simple
-- Each consumer can customize behavior
-
-**Cons**:
-- Duplicated search logic in two places
-- Inconsistent behavior risk
-- Must fetch all tasks then filter (inefficient)
-- Maintenance nightmare
-
-**Implementation Complexity**: Medium (due to duplication)
+Evaluated 6 JS search libraries (see research artifact):
+- **MiniSearch**: Good but no RAG path
+- **Orama**: Full-text + vector + RAG, native TypeScript, zero deps
+- **FlexSearch**: TypeScript issues, stale maintenance
+- **Fuse.js**: Fuzzy-only, no indexing
+- **Lunr.js**: Dated, no active development
+- **DIY**: 1500+ lines, weeks of work
 
 ## Decision
 
-**Selected**: Option 1 - Private Method in BacklogStorage
+**Selected**: SearchService abstraction with Orama backend
 
-**Rationale**:
-1. Explicitly recommended by task description
-2. Balances simplicity with future extraction capability
-3. Consistent with existing filter pattern (status, type, epic_id are all filters)
-4. Single source of truth - MCP and HTTP use identical logic
-5. Easy to extract to separate module in Phase 2 if SearchService abstraction is needed
+### Architecture
 
-**Trade-offs Accepted**:
-- Method is private (can extract later when needed)
-- Storage class grows by ~15 lines (acceptable)
+```
+┌─────────────────────────────────────────────────┐
+│                  Consumers                       │
+│  (BacklogStorage, MCP tools, HTTP routes)       │
+└─────────────────────┬───────────────────────────┘
+                      │
+┌─────────────────────▼───────────────────────────┐
+│              SearchService Interface             │
+│  index(), search(), add/remove/updateDocument() │
+└─────────────────────┬───────────────────────────┘
+                      │
+┌─────────────────────▼───────────────────────────┐
+│            OramaSearchService                    │
+│  (can swap to MiniSearch, Meilisearch, etc.)    │
+└─────────────────────────────────────────────────┘
+```
+
+### SearchService Interface
+
+```typescript
+interface SearchService {
+  index(tasks: Task[]): Promise<void>;
+  search(query: string, options?: SearchOptions): Promise<SearchResult[]>;
+  addDocument(task: Task): Promise<void>;
+  removeDocument(id: string): Promise<void>;
+  updateDocument(task: Task): Promise<void>;
+}
+
+interface SearchOptions {
+  filters?: { status?: Status[]; type?: TaskType; epic_id?: string };
+  limit?: number;
+  boost?: Record<string, number>;
+}
+
+interface SearchResult {
+  id: string;
+  score: number;
+  task: Task;
+}
+```
+
+### Why Orama
+
+| Requirement | Orama Capability |
+|-------------|------------------|
+| Fuzzy search | ✅ Built-in typo tolerance |
+| Prefix search | ✅ "auth" → "authentication" |
+| Field boosting | ✅ title: 2x weight |
+| Relevance ranking | ✅ BM25 algorithm |
+| TypeScript | ✅ Native (written in TS) |
+| Zero dependencies | ✅ |
+| Bundle size | ~2KB |
+| Vector search (future) | ✅ Built-in |
+| RAG pipeline (future) | ✅ Built-in |
+| License | Apache 2.0 |
+
+### Production Proof
+
+- Deno Documentation: 5,856 docs indexed
+- Framework plugins: Docusaurus, VitePress, Astro
+- GitHub: 10.1k stars, 106 contributors
+
+## Implementation
+
+### Phase 1: SearchService Foundation (Complete)
+
+```
+src/search/
+├── types.ts              # Interface + types
+├── orama-search-service.ts  # Orama implementation
+└── index.ts              # Barrel export
+```
+
+Indexed fields with boosting:
+- `title` (boost: 2.0)
+- `description` (boost: 1.0)
+- `evidence` (boost: 1.0)
+- `blocked_reason` (boost: 1.0)
+- `references` (boost: 0.5)
+- `epic_id` (boost: 1.0)
+
+### Phase 2: Integration (In Progress)
+
+- Wire SearchService into BacklogStorage
+- Replace simple `matchesQuery` with Orama search
+- Maintain backward compatibility (empty query = no search)
+
+### Phase 3: Vector Search (Future)
+
+- Add `@orama/plugin-embeddings` for local vectors
+- Enable hybrid search (BM25 + semantic)
+- Schema addition: `embedding: 'vector[512]'`
+
+### Phase 4: RAG / Context Hydration (Future)
+
+- Add HydrationService abstraction
+- Implement AnswerSession for conversational RAG
+- Token budgeting, prompt templates
 
 ## Consequences
 
 **Positive**:
-- Users can find tasks by searching ANY field content
-- Consistent search behavior across MCP tool and web viewer
-- Foundation for future semantic/RAG search (Phase 2+)
-- Backward compatible - query parameter is optional
+- Fuzzy search finds tasks despite typos
+- Relevance ranking surfaces best matches first
+- Abstraction allows backend swap without code changes
+- Clear path to RAG without library replacement
 
 **Negative**:
-- Linear search performance O(n) - acceptable for ~1000 tasks
-- Simple substring matching may miss semantic matches
+- Additional dependency (@orama/orama ~2KB)
+- Index must be rebuilt on startup
+- Memory overhead for index (~100KB for 1k tasks)
 
-**Risks**:
-- Performance with 10,000+ tasks → Mitigate: defer indexing until needed
-- Search quality with substring matching → Mitigate: document as MVP, plan Phase 2
+**Trade-offs Accepted**:
+- In-memory index (acceptable for <10k tasks)
+- Post-search filtering (simpler than Orama's enum filters)
 
-## Implementation Notes
+## References
 
-### Search Algorithm
-
-Case-insensitive substring matching across concatenated searchable fields:
-
-```typescript
-private matchesQuery(task: Task, query: string): boolean {
-  const q = query.toLowerCase();
-  const searchable = [
-    task.title,
-    task.description || '',
-    ...(task.evidence || []),
-    task.blocked_reason || '',
-    ...(task.references || []).map(r => `${r.url} ${r.title || ''}`),
-    task.epic_id || ''
-  ].join(' ').toLowerCase();
-  return searchable.includes(q);
-}
-```
-
-### API Changes
-
-- **MCP Tool**: Add `query?: string` parameter to `backlog_list`
-- **HTTP API**: Add `q` query parameter to `/tasks` endpoint
-- **Viewer API**: Add `q` parameter to `fetchTasks()`
-
-### UI Changes
-
-- Add search input to `TaskFilterBar` component
-- Debounce input (300ms)
-- Persist query in URL (`?q=query`)
-- Show result count when searching
-
-### Future Architecture (Phase 2+)
-
-When semantic search is needed:
-1. Extract `matchesQuery()` to `SearchService` interface
-2. Implement `TextSearchService` (current logic)
-3. Implement `VectorSearchService` (embeddings + similarity)
-4. Configure via environment or runtime option
+- Research artifact: `mcp://backlog/backlog-mcp-engineer/search-research-2026-01-31/artifact.md`
+- Orama docs: https://docs.orama.com/
+- Orama GitHub: https://github.com/oramasearch/orama

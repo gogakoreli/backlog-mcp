@@ -13,7 +13,7 @@ export function registerBacklogCreateTool(server: McpServer) {
         description: z.string().optional().describe('Task description in markdown'),
         type: z.enum(TASK_TYPES).optional().describe('Type: task (default) or epic'),
         epic_id: z.string().optional().describe('Parent epic ID to link this task to'),
-        references: z.array(z.object({ url: z.string(), title: z.string().optional() })).optional().describe('Reference links. Formats: external URLs (https://...), task refs (mcp://backlog/tasks/TASK-XXXX.md), resources (mcp://backlog/{path}), local files (file:///path/to/file)'),
+        references: z.array(z.object({ url: z.string(), title: z.string().optional() })).optional().describe('Reference links. Formats: external URLs (https://...), task refs (mcp://backlog/tasks/TASK-XXXX.md), resources (mcp://backlog/resources/{path}). Local files must include extension (file:///path/to/file.md)'),
       }),
     },
     async ({ title, description, type, epic_id, references }) => {

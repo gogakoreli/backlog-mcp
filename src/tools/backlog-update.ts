@@ -16,7 +16,7 @@ export function registerBacklogUpdateTool(server: McpServer) {
         epic_id: z.union([z.string(), z.null()]).optional().describe('Parent epic ID (null to unlink)'),
         blocked_reason: z.array(z.string()).optional().describe('Reason if status is blocked'),
         evidence: z.array(z.string()).optional().describe('Proof of completion when marking done - links to PRs, docs, or notes'),
-        references: z.array(z.object({ url: z.string(), title: z.string().optional() })).optional().describe('Reference links. Formats: external URLs (https://...), task refs (mcp://backlog/tasks/TASK-XXXX.md), resources (mcp://backlog/{path}), local files (file:///path/to/file)'),
+        references: z.array(z.object({ url: z.string(), title: z.string().optional() })).optional().describe('Reference links. Formats: external URLs (https://...), task refs (mcp://backlog/tasks/TASK-XXXX.md), resources (mcp://backlog/resources/{path}). Local files must include extension (file:///path/to/file.md)'),
       }),
     },
     async ({ id, ...updates }) => {

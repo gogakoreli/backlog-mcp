@@ -129,5 +129,32 @@ describe('Viewer Routes - /tasks endpoint', () => {
         })
       );
     });
+
+    it('should pass query parameter to storage.list', async () => {
+      const mockTasks: Task[] = [{
+        id: 'TASK-0001',
+        title: 'Fix authentication bug',
+        status: 'open',
+        type: 'task',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }];
+
+      vi.mocked(storage.list).mockReturnValue(mockTasks);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tasks?filter=all&q=authentication',
+      });
+
+      expect(response.statusCode).toBe(200);
+      
+      // Verify query is passed to storage.list
+      expect(storage.list).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: 'authentication',
+        })
+      );
+    });
   });
 });

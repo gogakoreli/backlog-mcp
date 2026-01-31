@@ -63,6 +63,7 @@ backlog_list                              # List active tasks (open, in_progress
 backlog_list status=["done"]              # Show completed tasks
 backlog_list type="epic"                  # List only epics
 backlog_list epic_id="EPIC-0002"          # Tasks in specific epic
+backlog_list query="authentication"       # Search across all fields
 backlog_list counts=true                  # Get counts by status
 backlog_list limit=10                     # Limit results
 
@@ -80,17 +81,45 @@ backlog_update id="TASK-0001" evidence=["Fixed in CR-12345"]   # Add completion 
 backlog_delete id="TASK-0001"             # Permanently delete
 ```
 
+### Search
+
+Search across all task fields (title, description, evidence, references, blocked_reason, epic_id):
+
+```
+backlog_list query="oauth"                # Find tasks mentioning OAuth
+backlog_list query="bug" status=["open"]  # Search within open tasks
+```
+
+Search is case-insensitive substring matching. Works with all other filters.
+
 ### Resources (MCP Resources Protocol)
 
 Access tasks and resources via MCP resource URIs:
 
 ```
 mcp://backlog/tasks/TASK-0001.md          # Task markdown file
-mcp://backlog/resources/TASK-0001/adr.md  # Task-attached resource
-mcp://backlog/resources/investigation.md  # Standalone resource
+mcp://backlog/resources/path/to/file.md   # Standalone resource
 ```
 
-Modify resources via `write_resource` tool with operations like `str_replace`, `append`, `insert`.
+### write_resource Tool
+
+Create and edit files on the MCP server. Operations mirror `fs_write`:
+
+```
+write_resource uri="mcp://backlog/resources/notes.md" operation={type: "create", file_text: "# Notes\n\nContent here"}
+
+write_resource uri="mcp://backlog/resources/notes.md" operation={type: "str_replace", old_str: "old text", new_str: "new text"}
+
+write_resource uri="mcp://backlog/resources/notes.md" operation={type: "insert", insert_line: 5, new_str: "inserted line"}
+
+write_resource uri="mcp://backlog/resources/notes.md" operation={type: "append", new_str: "appended content"}
+```
+
+**Operations:**
+- `create` - Create file or override existing (file_text required)
+- `str_replace` - Replace exact string match (must be unique in file)
+- `insert` - Insert after specified line number
+- `append` - Add to end of file (auto-adds newline if needed)
 
 ## Installation
 
@@ -122,7 +151,7 @@ pnpm start
 backlog-mcp              # Run as stdio MCP server (default)
 backlog-mcp serve        # Run HTTP server with viewer
 backlog-mcp version      # Show version
-backlog-mcp status       # Check if server is running
+backlog-mcp status       # Check server status (port, version, task count, uptime)
 backlog-mcp stop         # Stop the server
 backlog-mcp --help       # Show help
 ```

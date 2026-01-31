@@ -16,7 +16,7 @@ export function registerViewerRoutes(app: FastifyInstance) {
 
   // List tasks
   app.get('/tasks', async (request) => {
-    const { filter, limit } = request.query as { filter?: string; limit?: string };
+    const { filter, limit, q } = request.query as { filter?: string; limit?: string; q?: string };
     
     const statusMap: Record<string, any> = {
       active: { status: ['open', 'in_progress', 'blocked'] },
@@ -25,7 +25,11 @@ export function registerViewerRoutes(app: FastifyInstance) {
     };
     
     const filterConfig = statusMap[filter || 'active'] || statusMap.active;
-    const tasks = storage.list({ ...filterConfig, limit: limit ? parseInt(limit) : 10000 });
+    const tasks = storage.list({ 
+      ...filterConfig, 
+      query: q || undefined,
+      limit: limit ? parseInt(limit) : 10000 
+    });
     
     return tasks;
   });

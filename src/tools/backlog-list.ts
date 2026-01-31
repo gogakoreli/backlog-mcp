@@ -12,12 +12,13 @@ export function registerBacklogListTool(server: McpServer) {
         status: z.array(z.enum(STATUSES)).optional().describe('Filter by status. Options: open, in_progress, blocked, done, cancelled. Default: [open, in_progress, blocked]. Pass ["done"] to see completed work.'),
         type: z.enum(TASK_TYPES).optional().describe('Filter by type. Options: task, epic. Default: returns both. Use type="epic" to list only epics.'),
         epic_id: z.string().optional().describe('Filter tasks belonging to a specific epic. Example: epic_id="EPIC-0001"'),
+        query: z.string().optional().describe('Search across all task fields (title, description, evidence, references, etc.). Case-insensitive substring matching.'),
         counts: z.boolean().optional().describe('Include global counts { total_tasks, total_epics, by_status } alongside results. Use this to detect if more items exist beyond the limit. Default: false'),
         limit: z.number().optional().describe('Max items to return. Default: 20. Increase if you need to see more items (e.g., limit=100 to list all epics).'),
       }),
     },
-    async ({ status, type, epic_id, counts, limit }) => {
-      const tasks = storage.list({ status, type, epic_id, limit });
+    async ({ status, type, epic_id, query, counts, limit }) => {
+      const tasks = storage.list({ status, type, epic_id, query, limit });
       const list = tasks.map((t) => ({ id: t.id, title: t.title, status: t.status, type: t.type ?? 'task', epic_id: t.epic_id }));
       const result: any = { tasks: list };
       if (counts) result.counts = storage.counts();

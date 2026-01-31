@@ -26,8 +26,9 @@ export interface TaskResponse extends Task {
   epicTitle?: string;
 }
 
-export async function fetchTasks(filter: 'active' | 'completed' | 'all' = 'active'): Promise<Task[]> {
-  const url = `${API_URL}/tasks?filter=${filter}`;
+export async function fetchTasks(filter: 'active' | 'completed' | 'all' = 'active', query?: string): Promise<Task[]> {
+  let url = `${API_URL}/tasks?filter=${filter}`;
+  if (query) url += `&q=${encodeURIComponent(query)}`;
   const response = await fetch(url);
   return response.json();
 }

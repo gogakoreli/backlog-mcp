@@ -158,6 +158,31 @@
       border: 1px solid #3e3e42;
     }
     
+    /* Search Bar */
+    .search-bar {
+      margin-bottom: 12px;
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #3e3e42;
+      background: #2d2d30;
+      color: #d4d4d4;
+      border-radius: 4px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .search-input:focus {
+      border-color: #007acc;
+    }
+
+    .search-input::placeholder {
+      color: #888;
+    }
+
     /* Filter Bar */
     .filter-bar {
       display: flex;

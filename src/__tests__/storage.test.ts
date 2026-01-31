@@ -94,6 +94,63 @@ describe('Storage', () => {
       const limited = storage.list({ status: ['done'], limit: 3 });
       expect(limited).toHaveLength(3);
     });
+
+    it('should filter by query across all fields', () => {
+      const task1 = createTask({ 
+        id: 'TASK-0001', 
+        title: 'Fix authentication bug',
+        description: 'Users cannot login with OAuth'
+      });
+      const task2 = createTask({ 
+        id: 'TASK-0002', 
+        title: 'Add search feature',
+        description: 'Implement full-text search'
+      });
+      const task3 = createTask({ 
+        id: 'TASK-0003', 
+        title: 'Update docs'
+      });
+      
+      storage.add(task1);
+      storage.add(task2);
+      storage.add(task3);
+      // Add evidence via save (createTask doesn't support evidence)
+      storage.save({ ...task3, evidence: ['Fixed OAuth documentation'] });
+
+      // Search in title
+      const authTasks = storage.list({ query: 'authentication' });
+      expect(authTasks).toHaveLength(1);
+      expect(authTasks[0].id).toBe('TASK-0001');
+
+      // Search in description
+      const oauthDescTasks = storage.list({ query: 'login' });
+      expect(oauthDescTasks).toHaveLength(1);
+      expect(oauthDescTasks[0].id).toBe('TASK-0001');
+
+      // Search in evidence
+      const evidenceTasks = storage.list({ query: 'documentation' });
+      expect(evidenceTasks).toHaveLength(1);
+      expect(evidenceTasks[0].id).toBe('TASK-0003');
+
+      // Search is case-insensitive
+      const searchTasks = storage.list({ query: 'SEARCH' });
+      expect(searchTasks).toHaveLength(1);
+      expect(searchTasks[0].id).toBe('TASK-0002');
+    });
+
+    it('should combine query with other filters', () => {
+      const task1 = createTask({ id: 'TASK-0001', title: 'Fix bug' });
+      const task2 = createTask({ id: 'TASK-0002', title: 'Fix another bug' });
+      
+      storage.add(task1);
+      storage.add(task2);
+      storage.save({ ...task2, status: 'done' });
+
+      // Query + status filter
+      const openBugs = storage.list({ query: 'bug', status: ['open'] });
+      expect(openBugs).toHaveLength(1);
+      expect(openBugs[0].id).toBe('TASK-0001');
+    });
   });
 
   describe('delete', () => {

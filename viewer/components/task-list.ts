@@ -12,12 +12,14 @@ export class TaskList extends HTMLElement {
   private currentType: string = 'all';
   private currentEpicId: string | null = null;
   private selectedTaskId: string | null = null;
+  private currentQuery: string | null = null;
   private allTasks: Task[] = [];
   
   connectedCallback() {
     const params = new URLSearchParams(window.location.search);
     this.selectedTaskId = params.get('task');
     this.currentEpicId = params.get('epic');
+    this.currentQuery = params.get('q');
     
     this.loadTasks();
     setInterval(() => this.loadTasks(), 5000);
@@ -25,6 +27,11 @@ export class TaskList extends HTMLElement {
     document.addEventListener('filter-change', ((e: CustomEvent) => {
       this.currentFilter = e.detail.filter;
       this.currentType = e.detail.type ?? 'all';
+      this.loadTasks();
+    }) as EventListener);
+    
+    document.addEventListener('search-change', ((e: CustomEvent) => {
+      this.currentQuery = e.detail.query || null;
       this.loadTasks();
     }) as EventListener);
     
@@ -51,17 +58,18 @@ export class TaskList extends HTMLElement {
     });
   }
   
-  setState(filter: string, type: string, epicId: string | null, taskId: string | null) {
+  setState(filter: string, type: string, epicId: string | null, taskId: string | null, query: string | null) {
     this.currentFilter = filter;
     this.currentType = type;
     this.currentEpicId = epicId;
     this.selectedTaskId = taskId;
+    this.currentQuery = query;
     this.loadTasks();
   }
   
   async loadTasks() {
     try {
-      let tasks = await fetchTasks(this.currentFilter as any);
+      let tasks = await fetchTasks(this.currentFilter as any, this.currentQuery || undefined);
       this.allTasks = tasks;
       
       // Type filter

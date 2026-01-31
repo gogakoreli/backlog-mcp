@@ -83,11 +83,12 @@ class BacklogStorage {
     return null;
   }
 
-  list(filter?: { status?: Status[]; type?: TaskType; epic_id?: string; limit?: number }): Task[] {
-    const { status, type, epic_id, limit = 20 } = filter ?? {};
+  list(filter?: { status?: Status[]; type?: TaskType; epic_id?: string; query?: string; limit?: number }): Task[] {
+    const { status, type, epic_id, query, limit = 20 } = filter ?? {};
 
     let tasks = Array.from(this.iterateTasks());
     
+    if (query) tasks = tasks.filter(t => this.matchesQuery(t, query));
     if (status) tasks = tasks.filter(t => status.includes(t.status));
     if (type) tasks = tasks.filter(t => (t.type ?? 'task') === type);
     if (epic_id) tasks = tasks.filter(t => t.epic_id === epic_id);
@@ -95,6 +96,19 @@ class BacklogStorage {
     return tasks
       .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
       .slice(0, limit);
+  }
+
+  private matchesQuery(task: Task, query: string): boolean {
+    const q = query.toLowerCase();
+    const searchable = [
+      task.title,
+      task.description || '',
+      ...(task.evidence || []),
+      task.blocked_reason || '',
+      ...(task.references || []).map(r => `${r.url} ${r.title || ''}`),
+      task.epic_id || ''
+    ].join(' ').toLowerCase();
+    return searchable.includes(q);
   }
 
   add(task: Task): void {

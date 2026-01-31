@@ -19,10 +19,10 @@ import { layoutService } from './utils/layout.js';
 // Subscribe components to URL state changes - single source of truth
 urlState.subscribe((state) => {
   const filterBar = document.querySelector('task-filter-bar') as any;
-  filterBar?.setState?.(state.filter, state.type);
+  filterBar?.setState?.(state.filter, state.type, state.q);
   
   const taskList = document.querySelector('task-list') as any;
-  taskList?.setState?.(state.filter, state.type, state.epic, state.task);
+  taskList?.setState?.(state.filter, state.type, state.epic, state.task, state.q);
   
   if (state.task) {
     const detail = document.querySelector('task-detail') as any;
@@ -66,6 +66,10 @@ document.addEventListener('DOMContentLoaded', () => {
 // Component events -> URL updates
 document.addEventListener('filter-change', ((e: CustomEvent) => {
   urlState.set({ filter: e.detail.filter, type: e.detail.type });
+}) as EventListener);
+
+document.addEventListener('search-change', ((e: CustomEvent) => {
+  urlState.set({ q: e.detail.query || null });
 }) as EventListener);
 
 document.addEventListener('task-selected', ((e: CustomEvent) => {

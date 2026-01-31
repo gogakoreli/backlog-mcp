@@ -72,9 +72,8 @@ Analyzed TASK-0058 (representative completed task):
 ### Backend Changes (~80 lines)
 
 1. **Register MCP Resources** (`src/server.ts`)
-   - `mcp://backlog/tasks/{taskId}/description`
-   - `mcp://backlog/tasks/{taskId}/title`
-   - `mcp://backlog/tasks/{taskId}/file`
+   - `mcp://backlog/tasks/TASK-XXXX.md` - Task files
+   - `mcp://backlog/resources/TASK-XXXX/adr.md` - Task-attached resources
 
 2. **Add Resource Read Endpoint** (`src/viewer.ts`)
    - `GET /resource?path=/path/to/file`

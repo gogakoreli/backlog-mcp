@@ -8,6 +8,8 @@ An ADR documents an important architectural decision along with its context and 
 
 ## Active ADRs
 
+- [0037. Partial Array Updates with add_/remove_ Convention](./0037-partial-array-updates-convention.md) - add_references/remove_references for partial updates without data loss - 2026-01-29
+- [0036. Ruthless Pruning System](./0036-ruthless-pruning-system.md) - Hybrid decay + grooming + warnings to combat over-commitment - 2026-01-28
 - [0035. Logging Infrastructure](./0035-logging-infrastructure.md) - File-based structured logging for debugging and visibility - 2026-01-28
 - [0034. Fix Status Filter Mapping](./0034-fix-status-filter-mapping.md) - Add 'completed' filter mapping to backend to fix broken Completed filter button - 2026-01-28
 - [0033. Folder-Style Epic Navigation](./0033-folder-style-epic-navigation.md) - Complete folder-style navigation for nested epics with breadcrumbs, URL state, and clean home page - 2026-01-27

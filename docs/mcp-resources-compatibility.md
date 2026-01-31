@@ -2,42 +2,23 @@
 
 ## Current Status
 
-backlog-mcp correctly implements the MCP resources protocol via `registerResource()`. Resources are exposed at:
+backlog-mcp implements the MCP resources protocol via `registerResource()`. Resources are exposed at:
 
-- `mcp://backlog/tasks/{taskId}/file` - Task markdown files
-- `mcp://backlog/resources/{taskId}/{filename}` - Task-attached resources (ADRs, design docs)
-- `mcp://backlog/resources/{path}` - Repository resources
+- `mcp://backlog/tasks/TASK-0001.md` - Task markdown files
+- `mcp://backlog/resources/TASK-0001/adr.md` - Task-attached resources
+- `mcp://backlog/resources/investigation.md` - Standalone resources
 
-## MCP Client Compatibility
+## URI Design
 
-### ✅ Fully Supported
-- **Claude Desktop** - Can read resources via MCP protocol
-- **MCP Inspector** - Can list and read resources
-- **Any MCP client implementing resources/read**
+Pure catch-all: `mcp://backlog/{path}` → `{dataDir}/{path}`
 
-### ❌ Not Supported
-- **Kiro CLI** - Only supports MCP tools protocol, not resources protocol (as of 2026-01-23)
+No special suffixes like `/description` or `/file` - just direct path mapping.
 
-## Workarounds for Kiro CLI
+## Modifying Resources
 
-Since Kiro CLI doesn't support the MCP resources protocol, use direct file access:
-
-```bash
-# Instead of reading via MCP protocol
-# Use fs_read tool with the actual file path
-fs_read path="/Users/username/.backlog/resources/TASK-0001/adr-001.md"
-```
-
-## Future
-
-When Kiro CLI adds MCP resources protocol support, agents will be able to:
-- List available resources via `resources/list`
-- Read resources via `resources/read` 
-- Subscribe to resource updates via `resources/subscribe`
-
-No changes needed to backlog-mcp server - it already implements the protocol correctly.
-
-## References
-
-- [MCP Resources Specification](https://modelcontextprotocol.info/docs/concepts/resources/)
-- [Kiro CLI Documentation](https://kiro.dev/docs/cli/)
+Use `write_resource` tool with operations:
+- `str_replace` - Replace exact string match
+- `append` - Add content to end
+- `prepend` - Add content to beginning
+- `insert` - Insert at specific line
+- `delete` - Remove content

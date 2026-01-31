@@ -21,7 +21,7 @@ Execute these tests in order and report findings:
 1. **Create a test task** - Use `backlog_create`
 2. **Create a resource** - Use `write_resource` with URI `mcp://backlog/resources/TASK-XXXX/adr-001.md`
 3. **Verify it worked** - Check that write_resource returned success
-4. **Modify the resource** - Append content using `write_resource` with `insert` command
+4. **Modify the resource** - Append content using `write_resource` with `append` operation
 5. **Create more resources** - Create design.md and notes.md
 6. **Link to task** - Use `backlog_update` to add references
 7. **Verify task has references** - Use `backlog_get` to check
@@ -52,8 +52,8 @@ You have access to TWO tools with nearly identical APIs:
 ```
 fs_write
   path="/path/to/file.txt"
-  command="strReplace"
-  oldStr="old" newStr="new"
+  command="str_replace"
+  old_str="old" new_str="new"
 ```
 - Works on **local filesystem**
 - Path is a regular file path
@@ -62,15 +62,14 @@ fs_write
 ### @backlog/write_resource - For MCP Resources
 ```
 write_resource
-  uri="mcp://backlog/tasks/TASK-0039/description"
-  command="strReplace"
-  oldStr="old" newStr="new"
+  uri="mcp://backlog/resources/TASK-0039/notes.md"
+  operation={ type: "str_replace", old_str: "old", new_str: "new" }
 ```
-- Works on **MCP resources** (task descriptions, metadata, etc.)
-- URI starts with `mcp://`
+- Works on **MCP resources** (task-attached files, ADRs, etc.)
+- URI starts with `mcp://backlog/`
 - Operates through MCP protocol
 
-**Key Insight**: The APIs are intentionally similar (both use `strReplace`, `insert`, `insertLine`, etc.) so developers have a seamless experience. But you MUST use the right tool for the right domain!
+**Key Insight**: The APIs are intentionally similar (both use `str_replace`, `insert`, `append`, etc.) so developers have a seamless experience. But you MUST use the right tool for the right domain!
 
 ## The Innovation You're Testing
 
@@ -82,8 +81,8 @@ backlog_update id="TASK-0039" description="<5000 chars>"
 
 Writable resources are efficient:
 ```
-write_resource uri="mcp://backlog/tasks/TASK-0039/description"
-  command="strReplace" oldStr="old" newStr="new"
+write_resource uri="mcp://backlog/resources/TASK-0039/notes.md"
+  operation={ type: "str_replace", old_str: "old", new_str: "new" }
 → ~100 tokens (only the delta)
 ```
 
@@ -99,30 +98,32 @@ backlog_create
 
 ### 2. Test MCP Resource Operations (write_resource)
 
-**Append (insert without insertLine)**
+**Create resource**
 ```
 write_resource
-  uri="mcp://backlog/tasks/TASK-XXXX/description"
-  command="insert"
-  content="\n## MCP Resource Test\n\nThis uses write_resource for MCP data!"
+  uri="mcp://backlog/resources/TASK-XXXX/notes.md"
+  operation={ type: "create", file_text: "# Notes\n\nThis uses write_resource for MCP data!" }
+```
+
+**Append to resource**
+```
+write_resource
+  uri="mcp://backlog/resources/TASK-XXXX/notes.md"
+  operation={ type: "append", new_str: "\n## MCP Resource Test\n\nAppended content." }
 ```
 
 **String Replace**
 ```
 write_resource
-  uri="mcp://backlog/tasks/TASK-XXXX/description"
-  command="strReplace"
-  oldStr="MCP Resource Test"
-  newStr="MCP Resource Test ✓"
+  uri="mcp://backlog/resources/TASK-XXXX/notes.md"
+  operation={ type: "str_replace", old_str: "MCP Resource Test", new_str: "MCP Resource Test ✓" }
 ```
 
 **Insert at Line**
 ```
 write_resource
-  uri="mcp://backlog/tasks/TASK-XXXX/description"
-  command="insert"
-  insertLine=0
-  content="⚠️ **MCP RESOURCE VALIDATION**\n\n"
+  uri="mcp://backlog/resources/TASK-XXXX/notes.md"
+  operation={ type: "insert", insert_line: 0, new_str: "⚠️ **MCP RESOURCE VALIDATION**\n\n" }
 ```
 
 ### 3. Test Local File Operations (fs_write)
@@ -134,32 +135,32 @@ Create a temporary test file and demonstrate fs_write:
 fs_write
   path="/tmp/mcp-test.txt"
   command="create"
-  content="Local file test"
+  file_text="Local file test"
 ```
 
 **Append to File**
 ```
 fs_write
   path="/tmp/mcp-test.txt"
-  command="insert"
-  content="\nAppended via fs_write"
+  command="append"
+  new_str="\nAppended via fs_write"
 ```
 
 **String Replace in File**
 ```
 fs_write
   path="/tmp/mcp-test.txt"
-  command="strReplace"
-  oldStr="Local file test"
-  newStr="Local file test ✓"
+  command="str_replace"
+  old_str="Local file test"
+  new_str="Local file test ✓"
 ```
 
 ### 4. Verify Distinction
 
 After testing both tools, verify:
-- ✅ write_resource modified the MCP task description
+- ✅ write_resource modified the MCP resource
 - ✅ fs_write modified the local file
-- ✅ Both use similar API (strReplace, insert, insertLine)
+- ✅ Both use similar API (str_replace, insert, append)
 - ✅ Clear domain separation (mcp:// URIs vs file paths)
 
 ### 5. Verify MCP Resource Results
@@ -185,22 +186,16 @@ Check:
 
 **Invalid MCP URI**
 ```
-write_resource uri="invalid://uri" command="insert" content="test"
+write_resource uri="invalid://uri" operation={ type: "append", new_str: "test" }
 ```
 Expect: Clear error about URI format
 
-**Task Not Found**
-```
-write_resource uri="mcp://backlog/tasks/TASK-9999/description" command="insert" content="test"
-```
-Expect: "Task not found" error
-
 **String Not Found in MCP Resource**
 ```
-write_resource uri="mcp://backlog/tasks/TASK-XXXX/description"
-  command="strReplace" oldStr="NONEXISTENT" newStr="test"
+write_resource uri="mcp://backlog/resources/TASK-XXXX/notes.md"
+  operation={ type: "str_replace", old_str: "NONEXISTENT", new_str: "test" }
 ```
-Expect: "old_str not found" error
+Expect: "old_str not found" or "not unique" error
 
 ### 8. Test Task-Attached Resources (NEW FEATURE)
 
@@ -218,8 +213,7 @@ Use the returned task ID (TASK-XXXX) for all subsequent operations.
 ```
 write_resource
   uri="mcp://backlog/resources/TASK-XXXX/adr-001.md"
-  command="insert"
-  content="# ADR 001: Test Decision\n\n## Context\nTesting task-attached resources.\n\n## Decision\nUse separate resources directory."
+  operation={ type: "create", file_text: "# ADR 001: Test Decision\n\n## Context\nTesting task-attached resources.\n\n## Decision\nUse separate resources directory." }
 ```
 
 **Verify via MCP resources protocol**
@@ -238,8 +232,7 @@ Discover where the file was actually created:
 ```
 write_resource
   uri="mcp://backlog/resources/TASK-XXXX/adr-001.md"
-  command="insert"
-  content="\n\n## Consequences\nResources are permanently attached to tasks."
+  operation={ type: "append", new_str: "\n\n## Consequences\nResources are permanently attached to tasks." }
 ```
 
 Verify the modification worked (via both MCP and file access).
@@ -248,13 +241,11 @@ Verify the modification worked (via both MCP and file access).
 ```
 write_resource
   uri="mcp://backlog/resources/TASK-XXXX/design.md"
-  command="insert"
-  content="# Design Document\n\nDesign details here."
+  operation={ type: "create", file_text: "# Design Document\n\nDesign details here." }
 
 write_resource
   uri="mcp://backlog/resources/TASK-XXXX/notes.md"
-  command="insert"
-  content="# Notes\n\nImplementation notes."
+  operation={ type: "create", file_text: "# Notes\n\nImplementation notes." }
 ```
 
 **Link resources to task**
@@ -314,8 +305,8 @@ Compare token usage for MCP operations:
 Provide comprehensive validation:
 
 **API Similarity**:
-- ✅ Both tools use same commands (strReplace, insert)
-- ✅ Both use same parameters (oldStr, newStr, insertLine)
+- ✅ Both tools use same operations (str_replace, insert, append)
+- ✅ Both use same parameters (old_str, new_str, insert_line)
 - ✅ Seamless developer experience
 
 **Domain Distinction**:

@@ -271,6 +271,101 @@ src/
     └── search-hybrid.test.ts    # Semantic search tests
 ```
 
+## Technical Specifications
+
+### Orama Schema
+
+```typescript
+// BM25-only schema
+const schema = {
+  id: 'string',
+  title: 'string',
+  description: 'string',
+  status: 'string',      // Note: string, not enum (post-search filtering)
+  type: 'string',        // Note: string, not enum (post-search filtering)
+  epic_id: 'string',
+  evidence: 'string',    // Array joined with space
+  blocked_reason: 'string', // Array joined with space
+  references: 'string',  // Flattened: "{title} {url}" joined
+};
+
+// With embeddings (hybrid mode)
+const schemaWithEmbeddings = {
+  ...schema,
+  embeddings: 'vector[384]',  // 384 dimensions, not 512
+};
+```
+
+### Search Configuration
+
+| Setting | Value | Rationale |
+|---------|-------|-----------|
+| `boost.id` | 10 | Task ID searches rank highest |
+| `boost.title` | 2 | Title matches more relevant than body |
+| `tolerance` | 1 | Typo tolerance (1 edit distance) |
+| `hybridWeights.text` | 0.8 | Prioritize exact/fuzzy matches |
+| `hybridWeights.vector` | 0.2 | Semantic as secondary signal |
+| `similarity` | 0.2 | Low threshold to catch semantic matches |
+| `limit` | 20 | Default result limit |
+
+### Embedding Model
+
+| Property | Value |
+|----------|-------|
+| Model ID | `Xenova/all-MiniLM-L6-v2` |
+| Dimensions | 384 |
+| Size | ~23MB |
+| Cache location | `~/.cache/huggingface` |
+| Pooling | mean |
+| Normalization | true |
+
+### Persistence Format
+
+Index persisted to `.cache/search-index.json`:
+```json
+{
+  "index": { /* Orama serialized index */ },
+  "tasks": { "TASK-0001": { /* Task object */ }, ... },
+  "hasEmbeddings": true
+}
+```
+
+- Debounced save: 1000ms after last change
+- Auto-rebuild if cache missing or corrupted
+
+### Graceful Degradation
+
+```
+Startup:
+  1. Try load from disk cache
+  2. If cache has embeddings → use hybrid mode
+  3. If no cache → check if embeddings available
+     - Success → build hybrid index
+     - Failure → build BM25-only index
+
+Search:
+  - If hasEmbeddingsInIndex && embeddingsReady → hybrid search
+  - Otherwise → BM25 only (never fails)
+```
+
+`isHybridSearchActive()` method available to check current mode.
+
+## Audit Notes
+
+### Inconsistencies Found During Triage
+
+1. **Vector dimensions**: Research artifact mentions 512-dim (from Orama plugin-embeddings), but implementation uses 384-dim (from all-MiniLM-L6-v2). **384 is correct.**
+
+2. **Package naming**: Research mentions `@xenova/transformers`, implementation uses `@huggingface/transformers`. **Same package, renamed.** HuggingFace acquired Xenova's work.
+
+3. **Schema types**: Research shows `status: 'enum'`, implementation uses `status: 'string'`. **String is intentional** - enables post-search filtering without Orama enum complexity.
+
+4. **Test counts in artifacts**: TASK-0145 (113), TASK-0147 (146), TASK-0146 (156). These reflect point-in-time counts as tests were added. **Current: 156 tests.**
+
+### Research Artifact Note
+
+The research artifact (`search-research-2026-01-31/artifact.md`) contains a "REVISED RECOMMENDATION" section that supersedes the initial MiniSearch recommendation. The final decision was Orama, which is correctly reflected in this ADR.
+
 ## Related ADRs
 
 - **0038** (this): Comprehensive search capability (master ADR)

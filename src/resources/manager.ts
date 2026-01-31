@@ -1,5 +1,5 @@
-import { readFileSync, existsSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import matter from 'gray-matter';
 import { z } from 'zod';
 import { paths } from '@/utils/paths.js';
@@ -103,21 +103,21 @@ export class ResourceManager {
   write(uri: string, operation: Operation): WriteResourceResult {
     try {
       const filePath = this.resolve(uri);
+      const canCreate = ['create', 'append', 'insert'].includes(operation.type);
       
       if (!existsSync(filePath)) {
-        // Helpful error for common mistake: extension-less task URIs
-        if (/^mcp:\/\/backlog\/tasks\/(TASK|EPIC)-\d+$/.test(uri)) {
+        if (canCreate) {
+          // Auto-create file and parent directories
+          mkdirSync(dirname(filePath), { recursive: true });
+          writeFileSync(filePath, '', 'utf-8');
+        } else {
+          // str_replace/delete need existing content
           return {
             success: false,
-            message: 'Task URIs must include .md extension',
-            error: `Did you mean: ${uri}.md?`,
+            message: 'File not found',
+            error: `Resource not found: ${uri} (${operation.type} requires existing file)`,
           };
         }
-        return {
-          success: false,
-          message: 'File not found',
-          error: `Resource not found: ${uri}`,
-        };
       }
 
       const fileContent = readFileSync(filePath, 'utf-8');
@@ -186,33 +186,39 @@ export class ResourceManager {
     server.registerTool(
       'write_resource',
       {
-        description: 'Write/modify resource content with operations like str_replace, append, insert',
+        description: `A tool for creating and editing files on the MCP server
+ * The \`create\` command will override the file at \`uri\` if it already exists as a file, and otherwise create a new file
+ * The \`append\` command will add content to the end of a file, automatically adding a newline if the file doesn't end with one. Creates the file if it doesn't exist.
+ Notes for using the \`str_replace\` command:
+ * The \`old_str\` parameter should match EXACTLY one or more consecutive lines from the original file. Be mindful of whitespaces!
+ * If the \`old_str\` parameter is not unique in the file, the replacement will not be performed. Make sure to include enough context in \`old_str\` to make it unique
+ * The \`new_str\` parameter should contain the edited lines that should replace the \`old_str\``,
         inputSchema: z.object({
-          uri: z.string().describe('MCP URI (mcp://backlog/path/file.md)'),
-          operation: z.discriminatedUnion('type', [
+          uri: z.string().describe('MCP resource URI, e.g. mcp://backlog/path/to/file.md'),
+          operation: z.preprocess(
+            // Workaround: MCP clients stringify object params with $ref/oneOf schemas
+            // https://github.com/anthropics/claude-code/issues/18260
+            (val) => typeof val === 'string' ? JSON.parse(val) : val,
+            z.discriminatedUnion('type', [
+            z.object({
+              type: z.literal('create'),
+              file_text: z.string().describe('Content of the file to be created'),
+            }),
             z.object({
               type: z.literal('str_replace'),
-              old_str: z.string().describe('String to find and replace'),
-              new_str: z.string().describe('Replacement string'),
-            }),
-            z.object({
-              type: z.literal('append'),
-              content: z.string().describe('Content to append'),
-            }),
-            z.object({
-              type: z.literal('prepend'),
-              content: z.string().describe('Content to prepend'),
+              old_str: z.string().describe('String in file to replace (must match exactly)'),
+              new_str: z.string().describe('New string to replace old_str with'),
             }),
             z.object({
               type: z.literal('insert'),
-              line: z.number().describe('Line number to insert at (0-based)'),
-              content: z.string().describe('Content to insert'),
+              insert_line: z.number().describe('Line number after which new_str will be inserted'),
+              new_str: z.string().describe('String to insert'),
             }),
             z.object({
-              type: z.literal('delete'),
-              content: z.string().describe('Content to delete'),
+              type: z.literal('append'),
+              new_str: z.string().describe('Content to append to the file'),
             }),
-          ]).describe('Operation to apply'),
+          ])).describe('Operation to apply'),
         }),
       },
       async ({ uri, operation }) => {

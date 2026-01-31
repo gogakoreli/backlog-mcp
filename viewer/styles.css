@@ -1033,3 +1033,145 @@ copy-button {
   font-family: monospace;
   font-weight: 600;
 }
+
+/* Spotlight Search */
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.spotlight-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 1000;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 15vh;
+}
+
+.spotlight-modal {
+  background: #2d2d30;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 600px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.spotlight-input-wrapper {
+  display: flex;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #3e3e42;
+  gap: 12px;
+}
+
+.spotlight-icon {
+  width: 20px;
+  height: 20px;
+  color: #8b949e;
+  flex-shrink: 0;
+}
+
+.spotlight-input {
+  flex: 1;
+  background: none;
+  border: none;
+  color: #d4d4d4;
+  font-size: 18px;
+  outline: none;
+}
+
+.spotlight-input::placeholder {
+  color: #6e7681;
+}
+
+.spotlight-hint {
+  font-size: 12px;
+  color: #6e7681;
+  background: #3e3e42;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.spotlight-results {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.spotlight-result {
+  display: flex;
+  align-items: flex-start;
+  padding: 12px 20px;
+  gap: 12px;
+  cursor: pointer;
+  border-bottom: 1px solid #3e3e42;
+}
+
+.spotlight-result:last-child {
+  border-bottom: none;
+}
+
+.spotlight-result:hover,
+.spotlight-result.selected {
+  background: #37373d;
+}
+
+.spotlight-result-icon {
+  width: 20px;
+  height: 20px;
+  color: #8b949e;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.spotlight-result-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.spotlight-result-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.spotlight-result-title {
+  font-weight: 500;
+  color: #d4d4d4;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spotlight-result-snippet {
+  font-size: 13px;
+  color: #8b949e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spotlight-result-field {
+  color: #6e7681;
+  font-style: italic;
+}
+
+.spotlight-match {
+  background: rgba(255, 213, 0, 0.3);
+  color: #ffd500;
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+.spotlight-empty,
+.spotlight-loading {
+  padding: 24px;
+  text-align: center;
+  color: #8b949e;
+}

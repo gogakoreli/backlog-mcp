@@ -8,6 +8,7 @@ An ADR documents an important architectural decision along with its context and 
 
 ## Active ADRs
 
+- [0039. Spotlight-Style Search UI](./0039-spotlight-search-ui.md) - Cmd+J keyboard-driven search modal with highlighted match snippets - 2026-01-31
 - [0038. Comprehensive Search Capability](./0038-comprehensive-search-capability.md) - Text search across all task fields with future RAG path - 2026-01-31
 - [0037. Partial Array Updates with add_/remove_ Convention](./0037-partial-array-updates-convention.md) - add_references/remove_references for partial updates without data loss - 2026-01-29
 - [0036. Ruthless Pruning System](./0036-ruthless-pruning-system.md) - Hybrid decay + grooming + warnings to combat over-commitment - 2026-01-28

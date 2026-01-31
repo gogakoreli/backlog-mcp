@@ -10,6 +10,7 @@ import './components/task-badge.js';
 import './components/resource-viewer.js';
 import './components/system-info-modal.js';
 import './components/copy-button.js';
+import './components/spotlight-search.js';
 import { settingsIcon } from './icons/index.js';
 import { urlState } from './utils/url-state.js';
 import { splitPane } from './utils/split-pane.js';
@@ -61,6 +62,18 @@ document.addEventListener('DOMContentLoaded', () => {
       splitPane.open(savedResource);
     }
   }
+  
+  // Spotlight search keyboard shortcut (Cmd+J / Ctrl+J)
+  const spotlight = document.querySelector('spotlight-search') as any;
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'j') {
+      e.preventDefault();
+      spotlight?.open();
+    }
+  });
+  
+  // Wire up spotlight button
+  document.getElementById('spotlight-btn')?.addEventListener('click', () => spotlight?.open());
 });
 
 // Component events -> URL updates

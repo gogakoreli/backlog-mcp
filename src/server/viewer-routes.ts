@@ -34,6 +34,26 @@ export function registerViewerRoutes(app: FastifyInstance) {
     return tasks;
   });
 
+  // Unified search API - returns proper SearchResult[] with item, score, type
+  app.get('/search', async (request, reply) => {
+    const { q, types, limit } = request.query as { q?: string; types?: string; limit?: string };
+    
+    if (!q) {
+      return reply.code(400).send({ error: 'Missing required query parameter: q' });
+    }
+    
+    const typeFilter = types 
+      ? types.split(',').filter((t): t is 'task' | 'epic' => t === 'task' || t === 'epic')
+      : undefined;
+    
+    const results = await storage.searchUnified(q, {
+      types: typeFilter?.length ? typeFilter : undefined,
+      limit: limit ? parseInt(limit) : 20,
+    });
+    
+    return results;
+  });
+
   // Get single task
   app.get('/tasks/:id', async (request, reply) => {
     const { id } = request.params as { id: string };

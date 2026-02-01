@@ -29,6 +29,16 @@ export interface SearchResult {
 }
 
 /**
+ * Unified search result with proper types for the /search API.
+ * Separates the item from metadata (score, type) for type safety.
+ */
+export interface UnifiedSearchResult {
+  item: Task;
+  score: number;
+  type: 'task' | 'epic';
+}
+
+/**
  * Abstract search service interface.
  * Implementations can use Orama, MiniSearch, Elasticsearch, etc.
  */

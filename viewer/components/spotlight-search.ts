@@ -5,6 +5,12 @@ import { urlState } from '../utils/url-state.js';
 
 const highlighter = new Highlight({ CSSClass: 'spotlight-match' });
 
+interface UnifiedSearchResult {
+  item: Task;
+  score: number;
+  type: 'task' | 'epic';
+}
+
 interface SearchResult {
   task: Task;
   snippet: { field: string; html: string; matchCount: number };
@@ -71,15 +77,15 @@ class SpotlightSearch extends HTMLElement {
     resultsEl.innerHTML = '<div class="spotlight-loading">Searching...</div>';
 
     try {
-      const response = await fetch(`${API_URL}/tasks?q=${encodeURIComponent(this.query)}&filter=all&limit=10`);
-      const tasks: Task[] = await response.json();
+      const response = await fetch(`${API_URL}/search?q=${encodeURIComponent(this.query)}&limit=10`);
+      const apiResults: UnifiedSearchResult[] = await response.json();
       
-      this.results = tasks.map(task => {
-        const snippet = this.generateSnippet(task, this.query);
+      this.results = apiResults.map(r => {
+        const snippet = this.generateSnippet(r.item, this.query);
         return {
-          task,
+          task: r.item,
           snippet,
-          score: (task as any).score ?? 1, // Score from search API if available
+          score: r.score,
         };
       });
       

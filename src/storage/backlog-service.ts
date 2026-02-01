@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import type { Task, Status, TaskType } from './schema.js';
 import { TaskStorage } from './task-storage.js';
-import { OramaSearchService, type SearchService } from '../search/index.js';
+import { OramaSearchService, type SearchService, type UnifiedSearchResult } from '../search/index.js';
 import { paths } from '../utils/paths.js';
 
 /**
@@ -58,6 +58,36 @@ class BacklogService {
     }
 
     return this.taskStorage.list(storageFilter);
+  }
+
+  /**
+   * Search with proper typed results. Returns UnifiedSearchResult[] with item, score, type.
+   */
+  async searchUnified(query: string, options?: {
+    types?: ('task' | 'epic')[];
+    limit?: number;
+  }): Promise<UnifiedSearchResult[]> {
+    await this.ensureSearchReady();
+    
+    const typeFilter = options?.types?.length === 1 ? options.types[0] : undefined;
+    const results = await this.search.search(query, {
+      filters: { type: typeFilter },
+      limit: options?.limit ?? 20,
+    });
+    
+    // Filter by types if multiple specified (post-search filter)
+    const filtered = options?.types 
+      ? results.filter(r => {
+          const itemType = r.task.type || (r.task.id.startsWith('EPIC-') ? 'epic' : 'task');
+          return options.types!.includes(itemType);
+        })
+      : results;
+    
+    return filtered.map(r => ({
+      item: r.task,
+      score: r.score,
+      type: (r.task.type || (r.task.id.startsWith('EPIC-') ? 'epic' : 'task')) as 'task' | 'epic',
+    }));
   }
 
   add(task: Task): void {

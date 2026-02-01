@@ -11,6 +11,7 @@ vi.mock('../storage/backlog-service.js', () => ({
     get: vi.fn(),
     getMarkdown: vi.fn(),
     getFilePath: vi.fn(),
+    searchUnified: vi.fn(),
   },
 }));
 
@@ -155,6 +156,99 @@ describe('Viewer Routes - /tasks endpoint', () => {
           query: 'authentication',
         })
       );
+    });
+  });
+});
+
+
+describe('Viewer Routes - /search endpoint', () => {
+  let app: ReturnType<typeof Fastify>;
+
+  beforeEach(async () => {
+    app = Fastify();
+    registerViewerRoutes(app);
+    await app.ready();
+    vi.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('should return 400 when q parameter is missing', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/search',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body)).toEqual({ error: 'Missing required query parameter: q' });
+  });
+
+  it('should return UnifiedSearchResult[] with proper types', async () => {
+    const mockResults = [
+      { item: { id: 'TASK-0001', title: 'Test task', status: 'open', type: 'task', created_at: '', updated_at: '' }, score: 0.95, type: 'task' },
+      { item: { id: 'EPIC-0001', title: 'Test epic', status: 'open', type: 'epic', created_at: '', updated_at: '' }, score: 0.85, type: 'epic' },
+    ];
+
+    vi.mocked(storage.searchUnified).mockResolvedValue(mockResults as any);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/search?q=test',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const results = JSON.parse(response.body);
+    
+    expect(results).toHaveLength(2);
+    expect(results[0]).toHaveProperty('item');
+    expect(results[0]).toHaveProperty('score');
+    expect(results[0]).toHaveProperty('type');
+    expect(results[0].item.id).toBe('TASK-0001');
+    expect(results[0].score).toBe(0.95);
+    expect(results[0].type).toBe('task');
+  });
+
+  it('should pass types filter to searchUnified', async () => {
+    vi.mocked(storage.searchUnified).mockResolvedValue([]);
+
+    await app.inject({
+      method: 'GET',
+      url: '/search?q=test&types=task',
+    });
+
+    expect(storage.searchUnified).toHaveBeenCalledWith('test', {
+      types: ['task'],
+      limit: 20,
+    });
+  });
+
+  it('should pass limit parameter to searchUnified', async () => {
+    vi.mocked(storage.searchUnified).mockResolvedValue([]);
+
+    await app.inject({
+      method: 'GET',
+      url: '/search?q=test&limit=5',
+    });
+
+    expect(storage.searchUnified).toHaveBeenCalledWith('test', {
+      types: undefined,
+      limit: 5,
+    });
+  });
+
+  it('should filter invalid types', async () => {
+    vi.mocked(storage.searchUnified).mockResolvedValue([]);
+
+    await app.inject({
+      method: 'GET',
+      url: '/search?q=test&types=task,invalid,epic',
+    });
+
+    expect(storage.searchUnified).toHaveBeenCalledWith('test', {
+      types: ['task', 'epic'],
+      limit: 20,
     });
   });
 });

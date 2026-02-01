@@ -43,7 +43,8 @@ export function registerViewerRoutes(app: FastifyInstance) {
     }
     
     const typeFilter = types 
-      ? types.split(',').filter((t): t is 'task' | 'epic' => t === 'task' || t === 'epic')
+      ? types.split(',').filter((t): t is 'task' | 'epic' | 'resource' => 
+          t === 'task' || t === 'epic' || t === 'resource')
       : undefined;
     
     const results = await storage.searchUnified(q, {

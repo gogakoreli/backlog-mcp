@@ -1,16 +1,26 @@
-import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { join, dirname, relative, basename } from 'node:path';
 import matter from 'gray-matter';
 import { z } from 'zod';
 import { paths } from '@/utils/paths.js';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Operation, WriteResourceResult } from './types.js';
 import { applyOperation } from './operations.js';
+import type { Resource } from '@/search/types.js';
 
 export interface ResourceContent {
   content: string;
   frontmatter?: Record<string, any>;
   mimeType: string;
+}
+
+/**
+ * Extract title from markdown content.
+ * Returns first # heading or filename without extension.
+ */
+function extractTitle(content: string, filename: string): string {
+  const match = content.match(/^#\s+(.+)$/m);
+  return match?.[1]?.trim() || filename.replace(/\.md$/, '');
 }
 
 /**
@@ -21,6 +31,46 @@ export interface ResourceContent {
  */
 export class ResourceManager {
   constructor(private readonly dataDir: string) {}
+
+  /**
+   * List all resources in the resources/ directory.
+   * Returns Resource objects ready for search indexing.
+   */
+  list(): Resource[] {
+    const resourcesDir = join(this.dataDir, 'resources');
+    if (!existsSync(resourcesDir)) return [];
+
+    const resources: Resource[] = [];
+    this.scanDirectory(resourcesDir, resources);
+    return resources;
+  }
+
+  private scanDirectory(dir: string, resources: Resource[]): void {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      
+      if (entry.isDirectory()) {
+        this.scanDirectory(fullPath, resources);
+      } else if (entry.isFile() && entry.name.endsWith('.md')) {
+        try {
+          const content = readFileSync(fullPath, 'utf-8');
+          const relativePath = relative(this.dataDir, fullPath);
+          const uri = `mcp://backlog/${relativePath}`;
+          
+          resources.push({
+            id: uri,
+            path: relativePath,
+            title: extractTitle(content, entry.name),
+            content,
+          });
+        } catch {
+          // Skip files that can't be read
+        }
+      }
+    }
+  }
 
   /**
    * Resolve MCP URI to absolute file path.

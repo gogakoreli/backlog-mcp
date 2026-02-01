@@ -1,17 +1,18 @@
 import { join } from 'node:path';
 import type { Task, Status, TaskType } from './schema.js';
 import { TaskStorage } from './task-storage.js';
-import { OramaSearchService, type SearchService, type UnifiedSearchResult } from '../search/index.js';
+import { OramaSearchService, type UnifiedSearchResult, type SearchableType } from '../search/index.js';
+import { resourceManager } from '../resources/manager.js';
 import { paths } from '../utils/paths.js';
 
 /**
- * Composes TaskStorage + SearchService.
+ * Composes TaskStorage + SearchService + ResourceManager.
  * Orchestrates storage operations and search index updates.
  */
 class BacklogService {
   private static instance: BacklogService;
   private taskStorage = new TaskStorage();
-  private search: SearchService;
+  private search: OramaSearchService;
   private searchReady = false;
 
   private constructor() {
@@ -29,7 +30,13 @@ class BacklogService {
 
   private async ensureSearchReady(): Promise<void> {
     if (this.searchReady) return;
+    // Index tasks first
     await this.search.index(Array.from(this.taskStorage.iterateTasks()));
+    // Then index resources
+    const resources = resourceManager.list();
+    if (resources.length > 0) {
+      await this.search.indexResources(resources);
+    }
     this.searchReady = true;
   }
 
@@ -62,31 +69,23 @@ class BacklogService {
 
   /**
    * Search with proper typed results. Returns UnifiedSearchResult[] with item, score, type.
+   * Supports searching tasks, epics, and resources.
    */
   async searchUnified(query: string, options?: {
-    types?: ('task' | 'epic')[];
+    types?: SearchableType[];
     limit?: number;
   }): Promise<UnifiedSearchResult[]> {
     await this.ensureSearchReady();
     
-    const typeFilter = options?.types?.length === 1 ? options.types[0] : undefined;
-    const results = await this.search.search(query, {
-      filters: { type: typeFilter },
+    const results = await this.search.searchAll(query, {
+      docTypes: options?.types,
       limit: options?.limit ?? 20,
     });
     
-    // Filter by types if multiple specified (post-search filter)
-    const filtered = options?.types 
-      ? results.filter(r => {
-          const itemType = r.task.type || (r.task.id.startsWith('EPIC-') ? 'epic' : 'task');
-          return options.types!.includes(itemType);
-        })
-      : results;
-    
-    return filtered.map(r => ({
-      item: r.task,
+    return results.map(r => ({
+      item: r.item,
       score: r.score,
-      type: (r.task.type || (r.task.id.startsWith('EPIC-') ? 'epic' : 'task')) as 'task' | 'epic',
+      type: r.type,
     }));
   }
 

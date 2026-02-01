@@ -1,6 +1,21 @@
 import type { Task, Status, TaskType } from '@/storage/schema.js';
 
 /**
+ * Resource document for search indexing
+ */
+export interface Resource {
+  id: string;      // MCP URI: mcp://backlog/resources/path/to/file.md
+  path: string;    // Relative path: resources/path/to/file.md
+  title: string;   // First # heading or filename
+  content: string; // Full markdown content
+}
+
+/**
+ * Document types that can be searched
+ */
+export type SearchableType = 'task' | 'epic' | 'resource';
+
+/**
  * Search filter options
  */
 export interface SearchFilters {
@@ -17,6 +32,8 @@ export interface SearchOptions {
   limit?: number;
   /** Field name -> boost factor (e.g., { title: 2 }) */
   boost?: Record<string, number>;
+  /** Filter by document types */
+  docTypes?: SearchableType[];
 }
 
 /**
@@ -29,13 +46,22 @@ export interface SearchResult {
 }
 
 /**
+ * Resource search result
+ */
+export interface ResourceSearchResult {
+  id: string;
+  score: number;
+  resource: Resource;
+}
+
+/**
  * Unified search result with proper types for the /search API.
  * Separates the item from metadata (score, type) for type safety.
  */
 export interface UnifiedSearchResult {
-  item: Task;
+  item: Task | Resource;
   score: number;
-  type: 'task' | 'epic';
+  type: SearchableType;
 }
 
 /**

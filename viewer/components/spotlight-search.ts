@@ -5,16 +5,28 @@ import { urlState } from '../utils/url-state.js';
 
 const highlighter = new Highlight({ CSSClass: 'spotlight-match' });
 
+interface Resource {
+  id: string;
+  path: string;
+  title: string;
+  content: string;
+}
+
 interface UnifiedSearchResult {
-  item: Task;
+  item: Task | Resource;
   score: number;
-  type: 'task' | 'epic';
+  type: 'task' | 'epic' | 'resource';
 }
 
 interface SearchResult {
-  task: Task;
+  item: Task | Resource;
+  type: 'task' | 'epic' | 'resource';
   snippet: { field: string; html: string; matchCount: number };
   score: number;
+}
+
+function isResource(item: Task | Resource): item is Resource {
+  return 'path' in item && 'content' in item;
 }
 
 class SpotlightSearch extends HTMLElement {
@@ -38,7 +50,7 @@ class SpotlightSearch extends HTMLElement {
             <svg class="spotlight-icon" viewBox="0 0 16 16" fill="currentColor">
               <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
             </svg>
-            <input type="text" class="spotlight-input" placeholder="Search tasks and epics..." autocomplete="off" />
+            <input type="text" class="spotlight-input" placeholder="Search tasks, epics, and resources..." autocomplete="off" />
             <span class="spotlight-hint">esc to close</span>
           </div>
           <div class="spotlight-results"></div>
@@ -81,9 +93,12 @@ class SpotlightSearch extends HTMLElement {
       const apiResults: UnifiedSearchResult[] = await response.json();
       
       this.results = apiResults.map(r => {
-        const snippet = this.generateSnippet(r.item, this.query);
+        const snippet = isResource(r.item) 
+          ? this.generateResourceSnippet(r.item, this.query)
+          : this.generateTaskSnippet(r.item, this.query);
         return {
-          task: r.item,
+          item: r.item,
+          type: r.type,
           snippet,
           score: r.score,
         };
@@ -99,7 +114,7 @@ class SpotlightSearch extends HTMLElement {
     }
   }
 
-  private generateSnippet(task: Task, query: string): { field: string; html: string; matchCount: number } {
+  private generateTaskSnippet(task: Task, query: string): { field: string; html: string; matchCount: number } {
     // Check fields in priority order (matches Orama boost order)
     const fields: { name: string; value: string }[] = [
       { name: 'title', value: task.title },
@@ -133,6 +148,32 @@ class SpotlightSearch extends HTMLElement {
     return { field: 'title', html: this.escapeHtml(task.title), matchCount: 0 };
   }
 
+  private generateResourceSnippet(resource: Resource, query: string): { field: string; html: string; matchCount: number } {
+    const fields: { name: string; value: string }[] = [
+      { name: 'title', value: resource.title },
+      { name: 'content', value: resource.content },
+    ];
+
+    let totalMatches = 0;
+    
+    for (const { value } of fields) {
+      if (!value) continue;
+      const result = highlighter.highlight(value, query);
+      totalMatches += result.positions.length;
+    }
+
+    for (const { name, value } of fields) {
+      if (!value) continue;
+      const result = highlighter.highlight(value, query);
+      if (result.positions.length > 0) {
+        const trimmed = result.trim(100);
+        return { field: name, html: trimmed, matchCount: totalMatches };
+      }
+    }
+
+    return { field: 'title', html: this.escapeHtml(resource.title), matchCount: 0 };
+  }
+
   private escapeHtml(text: string): string {
     const div = document.createElement('div');
     div.textContent = text;
@@ -156,16 +197,40 @@ class SpotlightSearch extends HTMLElement {
     }
 
     resultsEl.innerHTML = this.results.map((r, i) => {
-      const type = r.task.type || (r.task.id.startsWith('EPIC-') ? 'epic' : 'task');
       const scorePercent = this.getScorePercent(r.score);
       const matchText = r.snippet.matchCount === 1 ? '1 match' : `${r.snippet.matchCount} matches`;
-      const status = r.task.status || 'open';
+      
+      if (r.type === 'resource') {
+        const resource = r.item as Resource;
+        return `
+          <div class="spotlight-result ${i === this.selectedIndex ? 'selected' : ''}" data-index="${i}">
+            <div class="spotlight-result-header">
+              <span class="spotlight-resource-icon">📄</span>
+              <span class="spotlight-result-title">${highlighter.highlight(resource.title, this.query).HTML}</span>
+              <span class="type-badge type-resource">resource</span>
+              <span class="spotlight-score-badge">${scorePercent}%</span>
+            </div>
+            <div class="spotlight-result-snippet">
+              <span class="snippet-text">${r.snippet.html}</span>
+            </div>
+            <div class="spotlight-result-meta">
+              <span class="spotlight-result-path">${this.escapeHtml(resource.path)}</span>
+              <span class="spotlight-result-matches">${matchText}</span>
+            </div>
+          </div>
+        `;
+      }
+      
+      // Task or Epic
+      const task = r.item as Task;
+      const type = task.type || (task.id.startsWith('EPIC-') ? 'epic' : 'task');
+      const status = task.status || 'open';
       
       return `
         <div class="spotlight-result ${i === this.selectedIndex ? 'selected' : ''}" data-index="${i}">
           <div class="spotlight-result-header">
-            <task-badge task-id="${r.task.id}" type="${type}"></task-badge>
-            <span class="spotlight-result-title">${highlighter.highlight(r.task.title, this.query).HTML}</span>
+            <task-badge task-id="${task.id}" type="${type}"></task-badge>
+            <span class="spotlight-result-title">${highlighter.highlight(task.title, this.query).HTML}</span>
             <span class="status-badge status-${status}">${status.replace('_', ' ')}</span>
             <span class="spotlight-score-badge">${scorePercent}%</span>
           </div>
@@ -231,11 +296,23 @@ class SpotlightSearch extends HTMLElement {
     const result = this.results[index];
     if (!result) return;
     
-    // Set both task and epic for proper navigation
-    urlState.set({ 
-      task: result.task.id,
-      epic: result.task.epic_id || null
-    });
+    if (result.type === 'resource') {
+      // Open resource in resource pane
+      const resource = result.item as Resource;
+      urlState.set({ 
+        resource: resource.id,
+        task: null,
+        epic: null
+      });
+    } else {
+      // Task or Epic - navigate to it
+      const task = result.item as Task;
+      urlState.set({ 
+        task: task.id,
+        epic: task.epic_id || null,
+        resource: null
+      });
+    }
     this.close();
   }
 

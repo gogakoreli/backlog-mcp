@@ -8,6 +8,7 @@ An ADR documents an important architectural decision along with its context and 
 
 ## Active ADRs
 
+- [0048. Resource Search Integration in Spotlight](./0048-resource-search-integration.md) - Index resources in search, show in Spotlight alongside tasks/epics - 2026-02-01
 - [0047. Unified Search API with Proper Types](./0047-unified-search-api.md) - New /search endpoint returning UnifiedSearchResult[] for type-safe search - 2026-02-01
 - [0046. Reuse task-badge in Spotlight](./0046-reuse-task-badge-in-spotlight.md) - Replace custom icon+id with task-badge component for consistency - 2026-01-31
 - [0045. Fix Spotlight Snippet Display](./0045-fix-spotlight-snippet-display.md) - Fix snippet not displaying by using innerHTML instead of md-block - 2026-01-31

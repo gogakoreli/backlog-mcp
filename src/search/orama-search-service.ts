@@ -2,7 +2,7 @@ import { create, insert, remove, search, save, load, type Orama, type Results, t
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Task } from '@/storage/schema.js';
-import type { SearchService, SearchOptions, SearchResult } from './types.js';
+import type { SearchService, SearchOptions, SearchResult, Resource, ResourceSearchResult, SearchableType } from './types.js';
 import { EmbeddingService, EMBEDDING_DIMENSIONS } from './embedding-service.js';
 
 type OramaDoc = {
@@ -15,6 +15,7 @@ type OramaDoc = {
   evidence: string;
   blocked_reason: string;
   references: string;
+  path: string;  // For resources: relative path
 };
 
 type OramaDocWithEmbeddings = OramaDoc & {
@@ -31,6 +32,7 @@ const schema = {
   evidence: 'string',
   blocked_reason: 'string',
   references: 'string',
+  path: 'string',
 } as const;
 
 const schemaWithEmbeddings = {
@@ -74,6 +76,7 @@ const hyphenAwareTokenizer: Tokenizer = {
 export class OramaSearchService implements SearchService {
   private db: OramaInstance | OramaInstanceWithEmbeddings | null = null;
   private taskCache = new Map<string, Task>();
+  private resourceCache = new Map<string, Resource>();
   private saveTimeout: ReturnType<typeof setTimeout> | null = null;
   private readonly cachePath: string;
 
@@ -133,7 +136,34 @@ export class OramaSearchService implements SearchService {
       evidence: (task.evidence || []).join(' '),
       blocked_reason: (task.blocked_reason || []).join(' '),
       references: (task.references || []).map(r => `${r.title || ''} ${r.url}`).join(' '),
+      path: '',  // Tasks don't have paths
     };
+  }
+
+  private resourceToDoc(resource: Resource): OramaDoc {
+    return {
+      id: resource.id,
+      title: resource.title,
+      description: resource.content,  // Full content for search
+      status: '',
+      type: 'resource',
+      epic_id: '',
+      evidence: '',
+      blocked_reason: '',
+      references: '',
+      path: resource.path,
+    };
+  }
+
+  private getResourceTextForEmbedding(resource: Resource): string {
+    return `${resource.title} ${resource.content}`.trim();
+  }
+
+  private async resourceToDocWithEmbeddings(resource: Resource): Promise<OramaDocWithEmbeddings> {
+    const doc = this.resourceToDoc(resource);
+    const text = this.getResourceTextForEmbedding(resource);
+    const embeddings = await this.embedder!.embed(text);
+    return { ...doc, embeddings };
   }
 
   private async taskToDocWithEmbeddings(task: Task): Promise<OramaDocWithEmbeddings> {
@@ -157,6 +187,7 @@ export class OramaSearchService implements SearchService {
       const serialized = JSON.stringify({
         index: data,
         tasks: Object.fromEntries(this.taskCache),
+        resources: Object.fromEntries(this.resourceCache),
         hasEmbeddings: this.hasEmbeddingsInIndex,
       });
       writeFileSync(this.indexPath, serialized);
@@ -177,6 +208,7 @@ export class OramaSearchService implements SearchService {
       this.db = await create({ schema: schemaToUse, components: { tokenizer: hyphenAwareTokenizer } });
       load(this.db, raw.index);
       this.taskCache = new Map(Object.entries(raw.tasks as Record<string, Task>));
+      this.resourceCache = new Map(Object.entries((raw.resources || {}) as Record<string, Resource>));
       return true;
     } catch {
       return false;
@@ -321,5 +353,196 @@ export class OramaSearchService implements SearchService {
    */
   isHybridSearchActive(): boolean {
     return this.hasEmbeddingsInIndex && this.embeddingsReady;
+  }
+
+  /**
+   * Index resources into the search index.
+   * Should be called after index() to add resources to existing index.
+   */
+  async indexResources(resources: Resource[]): Promise<void> {
+    if (!this.db) return;
+
+    for (const resource of resources) {
+      this.resourceCache.set(resource.id, resource);
+      try {
+        if (this.hasEmbeddingsInIndex && this.embeddingsReady) {
+          const doc = await this.resourceToDocWithEmbeddings(resource);
+          await insert(this.db as OramaInstanceWithEmbeddings, doc);
+        } else {
+          await insert(this.db as OramaInstance, this.resourceToDoc(resource));
+        }
+      } catch (e: any) {
+        if (e?.code === 'DOCUMENT_ALREADY_EXISTS') {
+          // Update existing resource
+          await this.updateResource(resource);
+        }
+        // Ignore other errors - continue indexing
+      }
+    }
+    this.scheduleSave();
+  }
+
+  /**
+   * Search for resources only.
+   */
+  async searchResources(query: string, options?: { limit?: number }): Promise<ResourceSearchResult[]> {
+    if (!this.db) return [];
+    if (!query.trim()) return [];
+
+    const limit = options?.limit ?? 20;
+    const boost = { title: 2, description: 1 };
+
+    const canUseHybrid = this.hasEmbeddingsInIndex && (await this.ensureEmbeddings());
+
+    let results: Results<OramaDoc | OramaDocWithEmbeddings>;
+
+    if (canUseHybrid) {
+      const queryVector = await this.embedder!.embed(query);
+      results = await search(this.db as OramaInstanceWithEmbeddings, {
+        term: query,
+        mode: 'hybrid',
+        vector: { value: queryVector, property: 'embeddings' },
+        hybridWeights: { text: 0.8, vector: 0.2 },
+        similarity: 0.2,
+        limit: limit * 3,  // Fetch more to filter
+        boost,
+        tolerance: 1,
+      });
+    } else {
+      results = await search(this.db, {
+        term: query,
+        limit: limit * 3,
+        boost,
+        tolerance: 1,
+      });
+    }
+
+    // Filter to resources only
+    const resourceHits = results.hits
+      .filter(hit => hit.document.type === 'resource')
+      .map(hit => ({
+        id: hit.document.id,
+        score: hit.score,
+        resource: this.resourceCache.get(hit.document.id)!,
+      }))
+      .filter(h => h.resource);
+
+    return resourceHits.slice(0, limit);
+  }
+
+  /**
+   * Search all document types with optional type filtering.
+   * Returns results sorted by relevance across all types.
+   */
+  async searchAll(query: string, options?: SearchOptions): Promise<Array<{ id: string; score: number; type: SearchableType; item: Task | Resource }>> {
+    if (!this.db) return [];
+    if (!query.trim()) return [];
+
+    const limit = options?.limit ?? 20;
+    const docTypes = options?.docTypes;
+    const boost = options?.boost ?? { id: 10, title: 2 };
+
+    const canUseHybrid = this.hasEmbeddingsInIndex && (await this.ensureEmbeddings());
+
+    let results: Results<OramaDoc | OramaDocWithEmbeddings>;
+
+    if (canUseHybrid) {
+      const queryVector = await this.embedder!.embed(query);
+      results = await search(this.db as OramaInstanceWithEmbeddings, {
+        term: query,
+        mode: 'hybrid',
+        vector: { value: queryVector, property: 'embeddings' },
+        hybridWeights: { text: 0.8, vector: 0.2 },
+        similarity: 0.2,
+        limit: limit * 3,
+        boost,
+        tolerance: 1,
+      });
+    } else {
+      results = await search(this.db, {
+        term: query,
+        limit: limit * 3,
+        boost,
+        tolerance: 1,
+      });
+    }
+
+    let hits = results.hits.map(hit => {
+      const docType = hit.document.type as SearchableType;
+      const isResource = docType === 'resource';
+      return {
+        id: hit.document.id,
+        score: hit.score,
+        type: docType,
+        item: isResource 
+          ? this.resourceCache.get(hit.document.id)! 
+          : this.taskCache.get(hit.document.id)!,
+      };
+    }).filter(h => h.item);
+
+    // Filter by document types if specified
+    if (docTypes?.length) {
+      hits = hits.filter(h => docTypes.includes(h.type));
+    }
+
+    // Apply task-specific filters
+    const filters = options?.filters;
+    if (filters) {
+      hits = hits.filter(h => {
+        if (h.type === 'resource') return true;  // Resources don't have these filters
+        const task = h.item as Task;
+        if (filters.status?.length && !filters.status.includes(task.status)) return false;
+        if (filters.type && (task.type || 'task') !== filters.type) return false;
+        if (filters.epic_id && task.epic_id !== filters.epic_id) return false;
+        return true;
+      });
+    }
+
+    return hits.slice(0, limit);
+  }
+
+  async addResource(resource: Resource): Promise<void> {
+    if (!this.db) return;
+    this.resourceCache.set(resource.id, resource);
+
+    try {
+      if (this.hasEmbeddingsInIndex && this.embeddingsReady) {
+        const doc = await this.resourceToDocWithEmbeddings(resource);
+        await insert(this.db as OramaInstanceWithEmbeddings, doc);
+      } else {
+        await insert(this.db as OramaInstance, this.resourceToDoc(resource));
+      }
+    } catch (e: any) {
+      if (e?.code === 'DOCUMENT_ALREADY_EXISTS') {
+        await this.updateResource(resource);
+        return;
+      }
+      throw e;
+    }
+    this.scheduleSave();
+  }
+
+  async removeResource(id: string): Promise<void> {
+    if (!this.db) return;
+    this.resourceCache.delete(id);
+    try {
+      await remove(this.db, id);
+      this.scheduleSave();
+    } catch {
+      // Ignore if document doesn't exist
+    }
+  }
+
+  async updateResource(resource: Resource): Promise<void> {
+    await this.removeResource(resource.id);
+    this.resourceCache.set(resource.id, resource);
+
+    if (this.hasEmbeddingsInIndex && this.embeddingsReady) {
+      const doc = await this.resourceToDocWithEmbeddings(resource);
+      await insert(this.db as OramaInstanceWithEmbeddings, doc);
+    } else {
+      await insert(this.db as OramaInstance, this.resourceToDoc(resource));
+    }
+    this.scheduleSave();
   }
 }

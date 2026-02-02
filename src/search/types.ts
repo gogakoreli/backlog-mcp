@@ -34,6 +34,8 @@ export interface SearchOptions {
   boost?: Record<string, number>;
   /** Filter by document types */
   docTypes?: SearchableType[];
+  /** Sort mode: 'relevant' (default) or 'recent' */
+  sort?: 'relevant' | 'recent';
 }
 
 /**

@@ -74,12 +74,14 @@ class BacklogService {
   async searchUnified(query: string, options?: {
     types?: SearchableType[];
     limit?: number;
+    sort?: 'relevant' | 'recent';
   }): Promise<UnifiedSearchResult[]> {
     await this.ensureSearchReady();
     
     const results = await this.search.searchAll(query, {
       docTypes: options?.types,
       limit: options?.limit ?? 20,
+      sort: options?.sort,
     });
     
     return results.map(r => ({

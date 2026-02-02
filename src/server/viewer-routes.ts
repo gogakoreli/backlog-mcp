@@ -36,7 +36,7 @@ export function registerViewerRoutes(app: FastifyInstance) {
 
   // Unified search API - returns proper SearchResult[] with item, score, type
   app.get('/search', async (request, reply) => {
-    const { q, types, limit } = request.query as { q?: string; types?: string; limit?: string };
+    const { q, types, limit, sort } = request.query as { q?: string; types?: string; limit?: string; sort?: string };
     
     if (!q) {
       return reply.code(400).send({ error: 'Missing required query parameter: q' });
@@ -47,9 +47,12 @@ export function registerViewerRoutes(app: FastifyInstance) {
           t === 'task' || t === 'epic' || t === 'resource')
       : undefined;
     
+    const sortMode = sort === 'recent' ? 'recent' : 'relevant';
+    
     const results = await storage.searchUnified(q, {
       types: typeFilter?.length ? typeFilter : undefined,
       limit: limit ? parseInt(limit) : 20,
+      sort: sortMode,
     });
     
     return results;

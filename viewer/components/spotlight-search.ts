@@ -21,9 +21,12 @@ interface UnifiedSearchResult {
 interface SearchResult {
   item: Task | Resource;
   type: 'task' | 'epic' | 'resource';
-  snippet: { field: string; html: string; matchCount: number };
+  snippet: { field: string; html: string; matchedFields: string[] };
   score: number;
 }
+
+type SortMode = 'relevant' | 'recent';
+type TypeFilter = 'all' | 'task' | 'epic' | 'resource';
 
 function isResource(item: Task | Resource): item is Resource {
   return 'path' in item && 'content' in item;
@@ -35,7 +38,9 @@ class SpotlightSearch extends HTMLElement {
   private selectedIndex = 0;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private query = '';
-  private maxScore = 0;
+  private sortMode: SortMode = 'relevant';
+  private typeFilter: TypeFilter = 'all';
+  private isLoading = false;
 
   connectedCallback() {
     this.render();
@@ -53,6 +58,22 @@ class SpotlightSearch extends HTMLElement {
             <input type="text" class="spotlight-input" placeholder="Search tasks, epics, and resources..." autocomplete="off" />
             <span class="spotlight-hint">esc to close</span>
           </div>
+          <div class="spotlight-controls">
+            <div class="spotlight-type-filters">
+              <button class="spotlight-filter-btn active" data-type="all">All</button>
+              <button class="spotlight-filter-btn" data-type="task">Tasks</button>
+              <button class="spotlight-filter-btn" data-type="epic">Epics</button>
+              <button class="spotlight-filter-btn" data-type="resource">Resources</button>
+            </div>
+            <div class="spotlight-sort-controls">
+              <button class="spotlight-sort-btn ${this.sortMode === 'relevant' ? 'active' : ''}" data-sort="relevant">Relevant</button>
+              <button class="spotlight-sort-btn ${this.sortMode === 'recent' ? 'active' : ''}" data-sort="recent">Recent</button>
+            </div>
+          </div>
+          <div class="spotlight-status">
+            <span class="spotlight-result-count"></span>
+            <span class="spotlight-loading-indicator"></span>
+          </div>
           <div class="spotlight-results"></div>
         </div>
       </div>
@@ -69,6 +90,38 @@ class SpotlightSearch extends HTMLElement {
 
     input?.addEventListener('input', () => this.handleInput(input.value));
     input?.addEventListener('keydown', (e) => this.handleKeydown(e));
+
+    // Type filter buttons
+    this.querySelectorAll('.spotlight-filter-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const type = (e.target as HTMLElement).dataset.type as TypeFilter;
+        if (type) this.setTypeFilter(type);
+      });
+    });
+
+    // Sort buttons
+    this.querySelectorAll('.spotlight-sort-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const sort = (e.target as HTMLElement).dataset.sort as SortMode;
+        if (sort) this.setSortMode(sort);
+      });
+    });
+  }
+
+  private setTypeFilter(type: TypeFilter) {
+    this.typeFilter = type;
+    this.querySelectorAll('.spotlight-filter-btn').forEach(btn => {
+      btn.classList.toggle('active', (btn as HTMLElement).dataset.type === type);
+    });
+    if (this.query.length >= 2) this.search();
+  }
+
+  private setSortMode(sort: SortMode) {
+    this.sortMode = sort;
+    this.querySelectorAll('.spotlight-sort-btn').forEach(btn => {
+      btn.classList.toggle('active', (btn as HTMLElement).dataset.sort === sort);
+    });
+    if (this.query.length >= 2) this.search();
   }
 
   private handleInput(value: string) {
@@ -78,6 +131,7 @@ class SpotlightSearch extends HTMLElement {
     if (this.query.length < 2) {
       this.results = [];
       this.renderResults();
+      this.updateResultCount();
       return;
     }
 
@@ -85,11 +139,21 @@ class SpotlightSearch extends HTMLElement {
   }
 
   private async search() {
-    const resultsEl = this.querySelector('.spotlight-results') as HTMLElement;
-    resultsEl.innerHTML = '<div class="spotlight-loading">Searching...</div>';
+    this.isLoading = true;
+    this.updateLoadingState();
 
     try {
-      const response = await fetch(`${API_URL}/search?q=${encodeURIComponent(this.query)}&limit=10`);
+      // Build query params
+      const params = new URLSearchParams({
+        q: this.query,
+        limit: '20',
+        sort: this.sortMode,
+      });
+      if (this.typeFilter !== 'all') {
+        params.set('types', this.typeFilter);
+      }
+
+      const response = await fetch(`${API_URL}/search?${params}`);
       const apiResults: UnifiedSearchResult[] = await response.json();
       
       this.results = apiResults.map(r => {
@@ -104,18 +168,41 @@ class SpotlightSearch extends HTMLElement {
         };
       });
       
-      // Calculate max score for normalization
-      this.maxScore = Math.max(...this.results.map(r => r.score), 1);
-      
       this.selectedIndex = 0;
       this.renderResults();
+      this.updateResultCount();
     } catch {
+      const resultsEl = this.querySelector('.spotlight-results') as HTMLElement;
       resultsEl.innerHTML = '<div class="spotlight-empty">Search failed</div>';
+    } finally {
+      this.isLoading = false;
+      this.updateLoadingState();
     }
   }
 
-  private generateTaskSnippet(task: Task, query: string): { field: string; html: string; matchCount: number } {
-    // Check fields in priority order (matches Orama boost order)
+  private updateLoadingState() {
+    const indicator = this.querySelector('.spotlight-loading-indicator') as HTMLElement;
+    if (indicator) {
+      indicator.innerHTML = this.isLoading 
+        ? '<span class="spotlight-spinner"></span>' 
+        : '';
+    }
+  }
+
+  private updateResultCount() {
+    const countEl = this.querySelector('.spotlight-result-count') as HTMLElement;
+    if (countEl) {
+      if (this.query.length < 2) {
+        countEl.textContent = '';
+      } else if (this.results.length === 0) {
+        countEl.textContent = 'No results';
+      } else {
+        countEl.textContent = `${this.results.length} result${this.results.length === 1 ? '' : 's'}`;
+      }
+    }
+  }
+
+  private generateTaskSnippet(task: Task, query: string): { field: string; html: string; matchedFields: string[] } {
     const fields: { name: string; value: string }[] = [
       { name: 'title', value: task.title },
       { name: 'description', value: task.description || '' },
@@ -124,54 +211,58 @@ class SpotlightSearch extends HTMLElement {
       { name: 'references', value: (task.references || []).map(r => `${r.title || ''} ${r.url}`).join(' ') },
     ];
 
-    let totalMatches = 0;
+    const matchedFields: string[] = [];
+    let firstMatchField = '';
+    let firstMatchHtml = '';
     
-    // Count total matches across all fields
-    for (const { value } of fields) {
-      if (!value) continue;
-      const result = highlighter.highlight(value, query);
-      totalMatches += result.positions.length;
-    }
-
-    // Find first matching field for snippet
+    // Find all matching fields
     for (const { name, value } of fields) {
       if (!value) continue;
       const result = highlighter.highlight(value, query);
       if (result.positions.length > 0) {
-        // Get more context - ~200 chars for multi-line display
-        const trimmed = result.trim(100);
-        return { field: name, html: trimmed, matchCount: totalMatches };
+        matchedFields.push(name);
+        if (!firstMatchField) {
+          firstMatchField = name;
+          firstMatchHtml = result.trim(100);
+        }
       }
     }
 
     // Fallback: show title
-    return { field: 'title', html: this.escapeHtml(task.title), matchCount: 0 };
+    if (!firstMatchField) {
+      return { field: 'title', html: this.escapeHtml(task.title), matchedFields: [] };
+    }
+
+    return { field: firstMatchField, html: firstMatchHtml, matchedFields };
   }
 
-  private generateResourceSnippet(resource: Resource, query: string): { field: string; html: string; matchCount: number } {
+  private generateResourceSnippet(resource: Resource, query: string): { field: string; html: string; matchedFields: string[] } {
     const fields: { name: string; value: string }[] = [
       { name: 'title', value: resource.title },
       { name: 'content', value: resource.content },
     ];
 
-    let totalMatches = 0;
-    
-    for (const { value } of fields) {
-      if (!value) continue;
-      const result = highlighter.highlight(value, query);
-      totalMatches += result.positions.length;
-    }
+    const matchedFields: string[] = [];
+    let firstMatchField = '';
+    let firstMatchHtml = '';
 
     for (const { name, value } of fields) {
       if (!value) continue;
       const result = highlighter.highlight(value, query);
       if (result.positions.length > 0) {
-        const trimmed = result.trim(100);
-        return { field: name, html: trimmed, matchCount: totalMatches };
+        matchedFields.push(name);
+        if (!firstMatchField) {
+          firstMatchField = name;
+          firstMatchHtml = result.trim(100);
+        }
       }
     }
 
-    return { field: 'title', html: this.escapeHtml(resource.title), matchCount: 0 };
+    if (!firstMatchField) {
+      return { field: 'title', html: this.escapeHtml(resource.title), matchedFields: [] };
+    }
+
+    return { field: firstMatchField, html: firstMatchHtml, matchedFields };
   }
 
   private escapeHtml(text: string): string {
@@ -180,8 +271,9 @@ class SpotlightSearch extends HTMLElement {
     return div.innerHTML;
   }
 
-  private getScorePercent(score: number): number {
-    return Math.round((score / this.maxScore) * 100);
+  private formatMatchedFields(fields: string[]): string {
+    if (fields.length === 0) return '';
+    return `Matched in: ${fields.join(', ')}`;
   }
 
   private renderResults() {
@@ -197,12 +289,7 @@ class SpotlightSearch extends HTMLElement {
     }
 
     resultsEl.innerHTML = this.results.map((r, i) => {
-      const scorePercent = this.getScorePercent(r.score);
-      // Format field as "Matched in title" instead of just "title" (ADR-0051)
-      const matchLocation = r.snippet.field === 'title' ? 'Matched in title' : 
-                           r.snippet.field === 'description' ? 'Matched in description' :
-                           r.snippet.field === 'content' ? 'Matched in content' :
-                           `Matched in ${r.snippet.field}`;
+      const matchInfo = this.formatMatchedFields(r.snippet.matchedFields);
       
       if (r.type === 'resource') {
         const resource = r.item as Resource;
@@ -212,14 +299,13 @@ class SpotlightSearch extends HTMLElement {
               <span class="spotlight-resource-icon">📄</span>
               <span class="spotlight-result-title">${highlighter.highlight(resource.title, this.query).HTML}</span>
               <span class="type-badge type-resource">resource</span>
-              <span class="spotlight-score-badge">${scorePercent}%</span>
             </div>
             <div class="spotlight-result-snippet">
               <span class="snippet-text">${r.snippet.html}</span>
             </div>
             <div class="spotlight-result-meta">
               <span class="spotlight-result-path">${this.escapeHtml(resource.path)}</span>
-              <span class="spotlight-result-field">${matchLocation}</span>
+              ${matchInfo ? `<span class="spotlight-result-field">${matchInfo}</span>` : ''}
             </div>
           </div>
         `;
@@ -236,13 +322,12 @@ class SpotlightSearch extends HTMLElement {
             <task-badge task-id="${task.id}" type="${type}"></task-badge>
             <span class="spotlight-result-title">${highlighter.highlight(task.title, this.query).HTML}</span>
             <span class="status-badge status-${status}">${status.replace('_', ' ')}</span>
-            <span class="spotlight-score-badge">${scorePercent}%</span>
           </div>
           <div class="spotlight-result-snippet">
             <span class="snippet-text">${r.snippet.html}</span>
           </div>
           <div class="spotlight-result-meta">
-            <span class="spotlight-result-field">${matchLocation}</span>
+            ${matchInfo ? `<span class="spotlight-result-field">${matchInfo}</span>` : ''}
           </div>
         </div>
       `;
@@ -257,15 +342,11 @@ class SpotlightSearch extends HTMLElement {
     });
   }
 
-  private escapeAttr(text: string): string {
-    return text.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  }
-
   private handleKeydown(e: KeyboardEvent) {
     switch (e.key) {
       case 'Escape':
         e.preventDefault();
-        e.stopPropagation(); // Prevent task-list's global Escape handler
+        e.stopPropagation();
         this.close();
         break;
       case 'ArrowDown':
@@ -290,7 +371,6 @@ class SpotlightSearch extends HTMLElement {
     this.selectedIndex = (this.selectedIndex + delta + this.results.length) % this.results.length;
     this.renderResults();
     
-    // Scroll selected into view
     const selected = this.querySelector('.spotlight-result.selected');
     selected?.scrollIntoView({ block: 'nearest' });
   }
@@ -300,7 +380,6 @@ class SpotlightSearch extends HTMLElement {
     if (!result) return;
     
     if (result.type === 'resource') {
-      // Open resource in resource pane
       const resource = result.item as Resource;
       urlState.set({ 
         resource: resource.id,
@@ -308,7 +387,6 @@ class SpotlightSearch extends HTMLElement {
         epic: null
       });
     } else {
-      // Task or Epic - navigate to it
       const task = result.item as Task;
       urlState.set({ 
         task: task.id,
@@ -333,6 +411,7 @@ class SpotlightSearch extends HTMLElement {
     input.focus();
     
     this.renderResults();
+    this.updateResultCount();
   }
 
   close() {

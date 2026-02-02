@@ -221,6 +221,7 @@ describe('Viewer Routes - /search endpoint', () => {
     expect(storage.searchUnified).toHaveBeenCalledWith('test', {
       types: ['task'],
       limit: 20,
+      sort: 'relevant',
     });
   });
 
@@ -235,6 +236,7 @@ describe('Viewer Routes - /search endpoint', () => {
     expect(storage.searchUnified).toHaveBeenCalledWith('test', {
       types: undefined,
       limit: 5,
+      sort: 'relevant',
     });
   });
 
@@ -249,6 +251,22 @@ describe('Viewer Routes - /search endpoint', () => {
     expect(storage.searchUnified).toHaveBeenCalledWith('test', {
       types: ['task', 'epic'],
       limit: 20,
+      sort: 'relevant',
+    });
+  });
+
+  it('should pass sort parameter to searchUnified', async () => {
+    vi.mocked(storage.searchUnified).mockResolvedValue([]);
+
+    await app.inject({
+      method: 'GET',
+      url: '/search?q=test&sort=recent',
+    });
+
+    expect(storage.searchUnified).toHaveBeenCalledWith('test', {
+      types: undefined,
+      limit: 20,
+      sort: 'recent',
     });
   });
 });

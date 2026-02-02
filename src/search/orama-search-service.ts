@@ -570,6 +570,7 @@ export class OramaSearchService implements SearchService {
     const limit = options?.limit ?? 20;
     const docTypes = options?.docTypes;
     const boost = options?.boost ?? { id: 10, title: 2 };
+    const sortMode = options?.sort ?? 'relevant';
 
     const canUseHybrid = this.hasEmbeddingsInIndex && (await this.ensureEmbeddings());
 
@@ -627,8 +628,18 @@ export class OramaSearchService implements SearchService {
       });
     }
 
-    // Re-rank with multiple signals: title match, type importance, recency (ADR-0051)
-    hits = rerankWithSignals(hits, query);
+    // Sort based on mode
+    if (sortMode === 'recent') {
+      // Sort by updated_at descending (most recent first)
+      hits.sort((a, b) => {
+        const aDate = (a.item as Task).updated_at || '';
+        const bDate = (b.item as Task).updated_at || '';
+        return bDate.localeCompare(aDate);
+      });
+    } else {
+      // Re-rank with multiple signals: title match, type importance, recency (ADR-0051)
+      hits = rerankWithSignals(hits, query);
+    }
 
     return hits.slice(0, limit);
   }

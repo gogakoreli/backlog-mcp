@@ -350,5 +350,26 @@ describe('Search Golden Benchmark', () => {
       // Epic with title match should have bonus applied (score > 10)
       expect(epic!.score).toBeGreaterThan(10);
     });
+
+    it('epic with title match ranks above task with same title match (ADR-0051)', async () => {
+      // EPIC-0002 "Search & Discovery" and TASK-0005 "SearchService abstraction layer"
+      // both have "search" in title, but epic should rank higher
+      const results = await service.search('search');
+      const epic = results.find(r => r.task.id === 'EPIC-0002');
+      const task = results.find(r => r.task.id === 'TASK-0005');
+      expect(epic).toBeDefined();
+      expect(task).toBeDefined();
+      // Epic should have higher score due to epic bonus
+      expect(epic!.score).toBeGreaterThan(task!.score);
+    });
+
+    it('title-starts-with-query gets highest bonus (ADR-0051)', async () => {
+      // EPIC-0001 title starts with "backlog": "backlog-mcp 10x"
+      const results = await service.search('backlog');
+      const epic = results.find(r => r.task.id === 'EPIC-0001');
+      expect(epic).toBeDefined();
+      // Should have title-starts-with bonus (20) + epic bonus (5) = 25+ on top of BM25
+      expect(epic!.score).toBeGreaterThan(25);
+    });
   });
 });

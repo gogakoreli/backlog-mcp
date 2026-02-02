@@ -198,7 +198,11 @@ class SpotlightSearch extends HTMLElement {
 
     resultsEl.innerHTML = this.results.map((r, i) => {
       const scorePercent = this.getScorePercent(r.score);
-      const matchText = r.snippet.matchCount === 1 ? '1 match' : `${r.snippet.matchCount} matches`;
+      // Format field as "Matched in title" instead of just "title" (ADR-0051)
+      const matchLocation = r.snippet.field === 'title' ? 'Matched in title' : 
+                           r.snippet.field === 'description' ? 'Matched in description' :
+                           r.snippet.field === 'content' ? 'Matched in content' :
+                           `Matched in ${r.snippet.field}`;
       
       if (r.type === 'resource') {
         const resource = r.item as Resource;
@@ -215,7 +219,7 @@ class SpotlightSearch extends HTMLElement {
             </div>
             <div class="spotlight-result-meta">
               <span class="spotlight-result-path">${this.escapeHtml(resource.path)}</span>
-              <span class="spotlight-result-matches">${matchText}</span>
+              <span class="spotlight-result-field">${matchLocation}</span>
             </div>
           </div>
         `;
@@ -238,8 +242,7 @@ class SpotlightSearch extends HTMLElement {
             <span class="snippet-text">${r.snippet.html}</span>
           </div>
           <div class="spotlight-result-meta">
-            <span class="spotlight-result-field">${r.snippet.field}</span>
-            <span class="spotlight-result-matches">${matchText}</span>
+            <span class="spotlight-result-field">${matchLocation}</span>
           </div>
         </div>
       `;

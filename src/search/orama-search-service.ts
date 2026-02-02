@@ -70,24 +70,54 @@ const hyphenAwareTokenizer: Tokenizer = {
 };
 
 /**
- * Title match bonus values for re-ranking.
- * Exact word match (e.g., "Backlog" in "Backlog MCP") gets higher bonus
- * than partial match (e.g., "backlog" in "BacklogStorage").
+ * Ranking signal bonus values for re-ranking (ADR-0051).
+ * Multiple signals combine additively to determine final ranking.
+ * 
+ * Bonus values are tuned so that:
+ * - Title matches rank above description-only matches
+ * - Title-starts-with-query gets highest priority (strongest signal)
+ * - Matching more query words gives additional bonus
+ * - Epics get a small boost only when they have strong title matches
+ * - Recent items get a boost but don't overwhelm relevance
  */
-const TITLE_BONUS = {
-  EXACT_WORD: 10,   // Query appears as standalone word in title
-  PARTIAL: 3,       // Query appears as substring in title (compound word)
+const RANKING_BONUS = {
+  // Title match bonuses (highest priority)
+  TITLE_STARTS_WITH: 20,  // Title starts with query (strongest signal)
+  TITLE_EXACT_WORD: 10,   // Query appears as standalone word in title
+  TITLE_PARTIAL: 3,       // Query appears as substring in title (compound word)
+  // Multi-word match bonus
+  MULTI_WORD_MATCH: 8,    // Per additional query word matched in title
+  // Type importance bonus - only applied with title match
+  EPIC_WITH_TITLE_MATCH: 5,  // Epics with title match get extra boost
+  // Recency bonuses (decayed by age)
+  RECENCY_TODAY: 5,       // Updated today
+  RECENCY_WEEK: 3,        // Updated this week
+  RECENCY_MONTH: 2,       // Updated this month
+  RECENCY_QUARTER: 1,     // Updated this quarter
 };
 
 /**
- * Re-rank results to prioritize title matches.
- * Adds fixed bonus for title matches to ensure they rank above description-only matches.
+ * Calculate recency bonus based on days since last update.
+ */
+function getRecencyBonus(updatedAt: string | undefined): number {
+  if (!updatedAt) return 0;
+  const daysSinceUpdate = (Date.now() - new Date(updatedAt).getTime()) / (1000 * 60 * 60 * 24);
+  if (daysSinceUpdate < 1) return RANKING_BONUS.RECENCY_TODAY;
+  if (daysSinceUpdate < 7) return RANKING_BONUS.RECENCY_WEEK;
+  if (daysSinceUpdate < 30) return RANKING_BONUS.RECENCY_MONTH;
+  if (daysSinceUpdate < 90) return RANKING_BONUS.RECENCY_QUARTER;
+  return 0;
+}
+
+/**
+ * Re-rank results using multiple signals: title match quality, type importance, recency.
+ * Adds fixed bonuses to ensure important items rank appropriately.
  * 
  * @param results - Search results with score and item (task or resource)
  * @param query - Original search query
  * @returns Re-ranked results sorted by adjusted score
  */
-function rerankWithTitleBonus<T extends { score: number; item: { title?: string } }>(
+function rerankWithSignals<T extends { score: number; item: { title?: string; type?: string; updated_at?: string } }>(
   results: T[],
   query: string
 ): T[] {
@@ -97,16 +127,50 @@ function rerankWithTitleBonus<T extends { score: number; item: { title?: string 
   const queryWords = queryLower.split(/\s+/);
   
   return results.map(r => {
+    let bonus = 0;
+    
+    // Title match bonus - check in order of strength
     const title = r.item.title?.toLowerCase() || '';
     const titleWords = title.split(/\W+/).filter(Boolean);
     
-    // Check for exact word match: any query word appears as standalone word in title
-    const hasExactMatch = queryWords.some(qw => titleWords.includes(qw));
+    // Count how many query words match in title
+    const matchingQueryWords = queryWords.filter(qw => titleWords.includes(qw));
+    const matchCount = matchingQueryWords.length;
     
-    // Check for partial match: query appears as substring (compound word)
+    // Strongest: title starts with query (e.g., "Backlog MCP" for query "backlog")
+    const titleStartsWithQuery = queryWords.some(qw => title.startsWith(qw));
+    
+    // Strong: query word appears as standalone word in title
+    const hasExactMatch = matchCount > 0;
+    
+    // Weak: query appears as substring in title (compound word)
     const hasPartialMatch = !hasExactMatch && queryWords.some(qw => title.includes(qw));
     
-    const bonus = hasExactMatch ? TITLE_BONUS.EXACT_WORD : hasPartialMatch ? TITLE_BONUS.PARTIAL : 0;
+    // Track if we have any title match for epic bonus
+    const hasTitleMatch = titleStartsWithQuery || hasExactMatch || hasPartialMatch;
+    
+    if (titleStartsWithQuery) {
+      bonus += RANKING_BONUS.TITLE_STARTS_WITH;
+    } else if (hasExactMatch) {
+      bonus += RANKING_BONUS.TITLE_EXACT_WORD;
+    } else if (hasPartialMatch) {
+      bonus += RANKING_BONUS.TITLE_PARTIAL;
+    }
+    
+    // Multi-word match bonus: reward matching more query words in title
+    // Only count additional words beyond the first match
+    if (matchCount > 1) {
+      bonus += (matchCount - 1) * RANKING_BONUS.MULTI_WORD_MATCH;
+    }
+    
+    // Type importance bonus - only for epics WITH title match
+    // This prevents epics from ranking above tasks when they only match in description
+    if (r.item.type === 'epic' && hasTitleMatch) {
+      bonus += RANKING_BONUS.EPIC_WITH_TITLE_MATCH;
+    }
+    
+    // Recency bonus
+    bonus += getRecencyBonus(r.item.updated_at);
     
     return { ...r, score: r.score + bonus };
   }).sort((a, b) => b.score - a.score);
@@ -343,8 +407,8 @@ export class OramaSearchService implements SearchService {
       }
     }
 
-    // Re-rank to prioritize title matches (ADR-0050)
-    const reranked = rerankWithTitleBonus(
+    // Re-rank with multiple signals: title match, type importance, recency (ADR-0051)
+    const reranked = rerankWithSignals(
       hits.map(h => ({ score: h.score, item: h.task })),
       query
     );
@@ -481,8 +545,8 @@ export class OramaSearchService implements SearchService {
       }))
       .filter(h => h.resource);
 
-    // Re-rank to prioritize title matches (ADR-0050)
-    const reranked = rerankWithTitleBonus(
+    // Re-rank with multiple signals (ADR-0051) - resources don't have type/recency, just title
+    const reranked = rerankWithSignals(
       resourceHits.map(h => ({ score: h.score, item: h.resource })),
       query
     );
@@ -563,8 +627,8 @@ export class OramaSearchService implements SearchService {
       });
     }
 
-    // Re-rank to prioritize title matches (ADR-0050)
-    hits = rerankWithTitleBonus(hits, query);
+    // Re-rank with multiple signals: title match, type importance, recency (ADR-0051)
+    hits = rerankWithSignals(hits, query);
 
     return hits.slice(0, limit);
   }

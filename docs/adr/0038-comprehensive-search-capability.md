@@ -383,6 +383,36 @@ const RANKING_BONUS = {
 
 **ADR**: 0052-spotlight-search-ux-overhaul.md
 
+### Component Reuse: task-badge in Spotlight (TASK-0151)
+
+**Problem**: Spotlight duplicated task/epic icon rendering with custom inline HTML instead of reusing existing `<task-badge>` component.
+
+**Solution**: Direct replacement - use `<task-badge>` in Spotlight results with CSS cascade for context-specific styling.
+
+**Benefits**:
+- Single source of truth for badge rendering
+- Consistent gradient icons across app
+- Removed duplicate icon imports and CSS rules
+
+**ADR**: 0046-reuse-task-badge-in-spotlight.md
+
+### Technology Decision: Keep Orama Over Algolia (TASK-0163)
+
+**Context**: Evaluated Algolia as alternative to Orama after ranking issues surfaced.
+
+**Decision**: Keep Orama. Fix ranking issues instead of migrating.
+
+**Key Rationale**:
+1. **Local-first is non-negotiable** - Algolia requires uploading task data to cloud, breaking privacy/offline guarantees
+2. **Ranking issues are config problems** - Fixed with multi-signal ranking (Phase 3.95), not library limitations
+3. **Performance** - Local search is 10-20x faster than cloud roundtrip
+4. **Migration cost** - 2-3 weeks vs 1-2 days to fix ranking
+5. **RAG path** - Orama's local RAG aligns with local-first philosophy
+
+**When to reconsider**: Multi-user SaaS, >10K tasks, users accept cloud dependency.
+
+**ADR**: 0049-keep-orama-over-algolia.md
+
 ### Phase 4: RAG / Context Hydration (Future) - TASK-0143
 
 **Vision**: Transform backlog-mcp from task tracker into intelligent context provider for LLM agents.

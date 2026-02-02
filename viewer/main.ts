@@ -11,7 +11,8 @@ import './components/resource-viewer.js';
 import './components/system-info-modal.js';
 import './components/copy-button.js';
 import './components/spotlight-search.js';
-import { settingsIcon } from './icons/index.js';
+import './components/activity-panel.js';
+import { settingsIcon, activityIcon } from './icons/index.js';
 import { urlState } from './utils/url-state.js';
 import { splitPane } from './utils/split-pane.js';
 import { resizeService } from './utils/resize.js';
@@ -42,6 +43,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const systemInfoBtn = document.getElementById('system-info-btn');
   if (systemInfoBtn) {
     systemInfoBtn.innerHTML = `<svg-icon src="${settingsIcon}" size="16px"></svg-icon>`;
+  }
+  
+  // Inject activity icon
+  const activityBtn = document.getElementById('activity-btn');
+  if (activityBtn) {
+    activityBtn.innerHTML = `<svg-icon src="${activityIcon}" size="16px"></svg-icon>`;
+    activityBtn.addEventListener('click', () => splitPane.openActivity());
   }
   
   // Wire up system info button
@@ -114,6 +122,14 @@ document.addEventListener('resource-close', () => {
   localStorage.removeItem('openResource');
   splitPane.close();
 });
+
+document.addEventListener('activity-close', () => {
+  splitPane.close();
+});
+
+document.addEventListener('activity-open', ((e: CustomEvent) => {
+  splitPane.openActivity(e.detail?.taskId);
+}) as EventListener);
 
 document.addEventListener('resource-loaded', ((e: CustomEvent) => {
   const { title, fileUri, mcpUri } = e.detail;

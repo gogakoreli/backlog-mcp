@@ -24,7 +24,8 @@
       "@/resources/*": ["src/resources/*"],
       "@/middleware/*": ["src/middleware/*"],
       "@/cli/*": ["src/cli/*"],
-      "@/search/*": ["src/search/*"]
+      "@/search/*": ["src/search/*"],
+      "@/operations/*": ["src/operations/*"]
     }
   },
   "include": ["src/**/*.ts"],

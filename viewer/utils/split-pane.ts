@@ -1,10 +1,13 @@
 import { resizeService } from './resize.js';
 
+type PaneContent = 'resource' | 'activity';
+
 class SplitPaneService {
   private pane: HTMLElement | null = null;
   private viewer: any = null;
   private rightPane: HTMLElement | null = null;
   private headerContent: HTMLElement | null = null;
+  private currentContent: PaneContent | null = null;
 
   init() {
     this.rightPane = document.getElementById('right-pane');
@@ -121,6 +124,7 @@ class SplitPaneService {
       this.pane = null;
       this.viewer = null;
       this.headerContent = null;
+      this.currentContent = null;
     }
     
     // Keep resize handle - don't remove it
@@ -129,6 +133,61 @@ class SplitPaneService {
 
   isOpen(): boolean {
     return this.pane !== null;
+  }
+
+  /**
+   * Open activity panel, optionally filtered to a specific task.
+   */
+  openActivity(taskId?: string) {
+    if (!this.rightPane) return;
+
+    // If already showing activity for same task, just return
+    if (this.currentContent === 'activity' && this.viewer) {
+      this.viewer.setTaskId(taskId || null);
+      this.setHeaderTitle(taskId ? `Activity: ${taskId}` : 'Recent Activity');
+      return;
+    }
+
+    // Close existing pane if different content type
+    if (this.pane) {
+      this.close();
+    }
+
+    this.rightPane.classList.add('split-active');
+    this.currentContent = 'activity';
+    
+    this.pane = document.createElement('div');
+    this.pane.className = 'resource-pane';
+    
+    const header = document.createElement('div');
+    header.className = 'pane-header';
+    
+    this.headerContent = document.createElement('div');
+    this.headerContent.className = 'pane-header-content';
+    
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'btn-outline resource-close-btn';
+    closeBtn.title = 'Close (Cmd+W)';
+    closeBtn.textContent = '✕';
+    closeBtn.addEventListener('click', () => {
+      document.dispatchEvent(new CustomEvent('activity-close'));
+    });
+    
+    header.appendChild(this.headerContent);
+    header.appendChild(closeBtn);
+    
+    const content = document.createElement('div');
+    content.className = 'pane-content';
+    
+    this.viewer = document.createElement('activity-panel');
+    this.viewer.setTaskId(taskId || null);
+    content.appendChild(this.viewer);
+    
+    this.pane.appendChild(header);
+    this.pane.appendChild(content);
+    this.rightPane.appendChild(this.pane);
+    
+    this.setHeaderTitle(taskId ? `Activity: ${taskId}` : 'Recent Activity');
   }
 
   setHeaderTitle(title: string, subtitle?: string) {

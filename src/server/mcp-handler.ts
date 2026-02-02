@@ -4,13 +4,14 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { registerTools } from '@/tools/index.js';
 import { resourceManager } from '@/resources/manager.js';
 import { paths } from '@/utils/paths.js';
+import { withOperationLogging } from '@/operations/index.js';
 
 export function registerMcpHandler(app: FastifyInstance) {
   app.all('/mcp', async (request, reply) => {
-    const server = new McpServer({ 
+    const server = withOperationLogging(new McpServer({ 
       name: paths.packageJson.name, 
       version: paths.getVersion() 
-    });
+    }));
     
     registerTools(server);
     resourceManager.registerResource(server);

@@ -6,6 +6,7 @@ import matter from 'gray-matter';
 import { storage } from '../storage/backlog-service.js';
 import { resourceManager } from '../resources/manager.js';
 import { paths } from '../utils/paths.js';
+import { operationLogger } from '../operations/index.js';
 
 export function registerViewerRoutes(app: FastifyInstance) {
   // Static files - serve from dist/viewer (built assets)
@@ -184,5 +185,23 @@ export function registerViewerRoutes(app: FastifyInstance) {
     }
     
     return reply.redirect(`/?resource=${encodeURIComponent(uri)}`);
+  });
+
+  // Operations API - recent activity
+  app.get('/operations', async (request) => {
+    const { limit, task } = request.query as { limit?: string; task?: string };
+    
+    const operations = operationLogger.read({
+      limit: limit ? parseInt(limit) : 50,
+      taskId: task || undefined,
+    });
+    
+    return operations;
+  });
+
+  // Operation count for a specific task (for badge)
+  app.get('/operations/count/:taskId', async (request) => {
+    const { taskId } = request.params as { taskId: string };
+    return { count: operationLogger.countForTask(taskId) };
   });
 }

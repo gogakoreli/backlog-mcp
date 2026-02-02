@@ -1,6 +1,6 @@
 import { fetchTask } from '../utils/api.js';
 import type { Reference } from '../utils/api.js';
-import { copyIcon } from '../icons/index.js';
+import { copyIcon, activityIcon } from '../icons/index.js';
 
 function linkify(input: string | Reference): string {
   if (typeof input === 'string') {
@@ -59,7 +59,12 @@ export class TaskDetail extends HTMLElement {
         <copy-button id="copy-task-id" title="Copy ID"><task-badge task-id="${task.id}" type="${task.type || 'task'}"></task-badge></copy-button>
         <span class="status-badge status-${task.status || 'open'}">${(task.status || 'open').replace('_', ' ')}</span>
       </div>
-      <copy-button id="copy-markdown" title="Copy markdown">Copy Markdown</copy-button>
+      <div class="task-header-right">
+        <button id="task-activity-btn" class="btn-outline" title="View activity for this task">
+          <svg-icon src="${activityIcon}" size="14px"></svg-icon>
+        </button>
+        <copy-button id="copy-markdown" title="Copy markdown">Copy Markdown</copy-button>
+      </div>
     `;
     
     const paneHeader = document.getElementById('task-pane-header');
@@ -72,6 +77,11 @@ export class TaskDetail extends HTMLElement {
       
       (document.getElementById('copy-task-id') as any).text = task.id;
       (document.getElementById('copy-markdown') as any).text = task.raw || '';
+      
+      // Activity button handler
+      document.getElementById('task-activity-btn')?.addEventListener('click', () => {
+        document.dispatchEvent(new CustomEvent('activity-open', { detail: { taskId: task.id } }));
+      });
     }
   }
 

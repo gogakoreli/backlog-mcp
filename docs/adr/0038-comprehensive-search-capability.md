@@ -752,8 +752,10 @@ The research artifact (`search-research-2026-01-31/artifact.md`) contains a "REV
 - **0043**: Spotlight search UX improvements
 - **0044**: Search API relevance scores
 - **0045**: Fix spotlight snippet display
+- **0046**: Reuse task-badge in spotlight
 - **0047**: Unified search API
 - **0048**: Resource search integration
+- **0049**: Keep Orama over Algolia
 - **0050**: Search ranking title bonus (superseded by 0051)
 - **0051**: Multi-signal search ranking (current ranking algorithm)
 - **0052**: Spotlight search UX overhaul (current UX)

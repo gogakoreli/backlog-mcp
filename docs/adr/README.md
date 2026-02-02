@@ -8,6 +8,7 @@ An ADR documents an important architectural decision along with its context and 
 
 ## Active ADRs
 
+- [0053. Remove description field from backlog_update](./0053-remove-description-from-backlog-update.md) - Enforce safer incremental editing via write_resource - 2026-02-02
 - [0052. Spotlight Search UX Overhaul](./0052-spotlight-search-ux-overhaul.md) - Remove confusing scores, add type filters, sort toggle, result count, loading spinner - 2026-02-02
 - [0051. Multi-Signal Search Ranking](./0051-multi-signal-search-ranking.md) - Add recency and type importance signals to search ranking - 2026-02-02
 - [0050. Search Ranking: Title Match Bonus](./0050-search-ranking-title-bonus.md) - Post-search re-ranking to prioritize title matches over description-only matches - 2026-02-02

@@ -78,6 +78,9 @@ backlog_update id="TASK-0001" status="done"                    # Mark done
 backlog_update id="TASK-0001" status="blocked" blocked_reason="Waiting on API"
 backlog_update id="TASK-0001" evidence=["Fixed in CR-12345"]   # Add completion proof
 
+# To update task content, use write_resource:
+write_resource uri="mcp://backlog/tasks/TASK-0001.md" operation={type: "str_replace", old_str: "old text", new_str: "new text"}
+
 backlog_delete id="TASK-0001"             # Permanently delete
 ```
 

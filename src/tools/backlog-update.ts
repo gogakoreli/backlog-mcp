@@ -7,11 +7,10 @@ export function registerBacklogUpdateTool(server: McpServer) {
   server.registerTool(
     'backlog_update',
     {
-      description: 'Update an existing task.',
+      description: 'Update an existing task. For updating task content, use write_resource with `mcp://backlog/tasks/TASK-XXXX.md`.',
       inputSchema: z.object({
         id: z.string().describe('Task ID to update'),
         title: z.string().optional().describe('New title'),
-        description: z.string().optional().describe('New description (replaces entire content). For appending/editing sections, use write_resource tool instead'),
         status: z.enum(STATUSES).optional().describe('New status'),
         epic_id: z.union([z.string(), z.null()]).optional().describe('Parent epic ID (null to unlink)'),
         blocked_reason: z.array(z.string()).optional().describe('Reason if status is blocked'),

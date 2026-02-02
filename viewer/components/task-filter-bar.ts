@@ -13,8 +13,7 @@ const TYPE_FILTERS = [
 export class TaskFilterBar extends HTMLElement {
   private currentFilter = 'active';
   private currentType = 'all';
-  private currentQuery = '';
-  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
 
   connectedCallback() {
     this.render();
@@ -22,6 +21,7 @@ export class TaskFilterBar extends HTMLElement {
   }
 
   render() {
+    const shortcut = this.isMac ? '⌘J' : 'Ctrl+J';
     const statusButtons = FILTERS.map(f => 
       `<button class="filter-btn ${this.currentFilter === f.key ? 'active' : ''}" data-filter="${f.key}">${f.label}</button>`
     ).join('');
@@ -29,16 +29,16 @@ export class TaskFilterBar extends HTMLElement {
       `<button class="filter-btn ${this.currentType === f.key ? 'active' : ''}" data-type="${f.key}">${f.label}</button>`
     ).join('');
     this.innerHTML = `
-      <div class="search-bar">
-        <input type="search" class="search-input" placeholder="Search tasks..." value="${this.escapeAttr(this.currentQuery)}">
-      </div>
+      <button class="search-trigger" aria-label="Search tasks">
+        <svg class="search-icon" viewBox="0 0 16 16" fill="currentColor" width="14" height="14">
+          <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+        </svg>
+        <span class="search-label">Search</span>
+        <kbd class="search-shortcut">${shortcut}</kbd>
+      </button>
       <div class="filter-bar"><span class="filter-label">Status</span>${statusButtons}</div>
       <div class="filter-bar type-filter"><span class="filter-label">Type</span>${typeButtons}</div>
     `;
-  }
-
-  private escapeAttr(text: string): string {
-    return text.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   attachListeners() {
@@ -54,21 +54,9 @@ export class TaskFilterBar extends HTMLElement {
         if (type) this.setType(type);
       });
     });
-    const searchInput = this.querySelector('.search-input') as HTMLInputElement;
-    if (searchInput) {
-      searchInput.addEventListener('input', (e) => {
-        const query = (e.target as HTMLInputElement).value;
-        this.debouncedSearch(query);
-      });
-    }
-  }
-
-  private debouncedSearch(query: string) {
-    if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    this.debounceTimer = setTimeout(() => {
-      this.currentQuery = query;
-      document.dispatchEvent(new CustomEvent('search-change', { detail: { query } }));
-    }, 300);
+    this.querySelector('.search-trigger')?.addEventListener('click', () => {
+      document.dispatchEvent(new CustomEvent('open-spotlight'));
+    });
   }
 
   setFilter(filter: string) {
@@ -79,20 +67,15 @@ export class TaskFilterBar extends HTMLElement {
     document.dispatchEvent(new CustomEvent('filter-change', { detail: { filter: this.currentFilter, type } }));
   }
 
-  setState(filter: string, type: string, query: string | null) {
+  setState(filter: string, type: string, _query: string | null) {
     this.currentFilter = filter;
     this.currentType = type;
-    this.currentQuery = query || '';
     this.querySelectorAll('[data-filter]').forEach(btn => {
       btn.classList.toggle('active', (btn as HTMLElement).dataset.filter === filter);
     });
     this.querySelectorAll('[data-type]').forEach(btn => {
       btn.classList.toggle('active', (btn as HTMLElement).dataset.type === type);
     });
-    const searchInput = this.querySelector('.search-input') as HTMLInputElement;
-    if (searchInput && searchInput.value !== this.currentQuery) {
-      searchInput.value = this.currentQuery;
-    }
   }
 }
 

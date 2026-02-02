@@ -72,8 +72,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
   
-  // Wire up spotlight button
+  // Wire up spotlight button and open-spotlight event
   document.getElementById('spotlight-btn')?.addEventListener('click', () => spotlight?.open());
+  document.addEventListener('open-spotlight', () => spotlight?.open());
 });
 
 // Component events -> URL updates

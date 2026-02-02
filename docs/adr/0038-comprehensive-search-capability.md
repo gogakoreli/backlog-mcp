@@ -187,30 +187,31 @@ src/search/
 
 **ADR**: 0041-hyphen-aware-tokenizer.md
 
-### UI Layer Architecture (Complete) - TASK-0144, TASK-0148
+### UI Layer Architecture (Complete) - TASK-0144, TASK-0148, TASK-0161
 
-The search capability is exposed through two complementary UIs serving different workflows:
+The search capability is exposed through a single unified UI:
 
-#### Filter Bar Search (Inline)
-
-- **Component**: `task-filter-bar.ts`
-- **Use case**: Filtering visible tasks (narrow down current view)
-- **Behavior**: Always visible, searches while filtering
-- **Results**: Shown in main task list
-- **API**: `/tasks?q=query&status=...&type=...`
-
-#### Spotlight Search (Modal)
+#### Spotlight Search (Primary Search UI)
 
 - **Component**: `spotlight-search.ts`
 - **Use case**: Discovery (find any task quickly, keyboard-driven)
-- **Trigger**: `Cmd+J` (macOS) / `Ctrl+J` (Windows/Linux)
+- **Trigger**: `Cmd+J` (macOS) / `Ctrl+J` (Windows/Linux), or click search button in filter bar
 - **Behavior**: Modal overlay with rich result previews
-- **Results**: Direct navigation to selected task/epic
-- **API**: `/tasks?q=query&limit=10&filter=all`
+- **Results**: Direct navigation to selected task/epic/resource
+- **API**: `/search?q=query&limit=10`
 
-**Design Rationale**: Two UIs serve different workflows:
-- **Filter bar**: Refine what you're already looking at
-- **Spotlight**: Jump to anything from anywhere
+#### Filter Bar (Status/Type Filtering Only)
+
+- **Component**: `task-filter-bar.ts`
+- **Use case**: Filter visible tasks by status (Active/Completed/All) and type (Tasks/Epics/All)
+- **Search**: Removed in TASK-0161 - replaced with button that opens Spotlight
+- **Design**: Search button shows platform-aware shortcut (⌘J on Mac, Ctrl+J on Windows/Linux)
+
+**Design Rationale** (Updated TASK-0161):
+- **Single search entry point**: Spotlight is the only search UI
+- **Filter bar focuses on filtering**: Status and type filters, not search
+- **Reduced confusion**: Users no longer wonder which search to use
+- **Richer UX**: Spotlight provides previews, keyboard nav, cross-type search
 
 #### Spotlight Implementation Details
 

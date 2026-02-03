@@ -1396,10 +1396,15 @@ copy-button {
   justify-content: space-between;
   padding: 12px;
   cursor: pointer;
+  border-radius: 6px;
 }
 
 .activity-item-header:hover {
   background: #2d2d30;
+}
+
+.activity-item.expanded .activity-item-header {
+  border-radius: 6px 6px 0 0;
 }
 
 .activity-item-left {

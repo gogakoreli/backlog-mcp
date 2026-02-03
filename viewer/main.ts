@@ -63,12 +63,15 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   
   // Restore resource from localStorage
-  const savedResource = localStorage.getItem('openResource');
-  if (savedResource) {
-    if (savedResource.startsWith('mcp://')) {
-      splitPane.openMcp(savedResource);
+  const savedPane = localStorage.getItem('openPane');
+  if (savedPane) {
+    if (savedPane.startsWith('activity:')) {
+      const taskId = savedPane.slice(9) || undefined;
+      splitPane.openActivity(taskId);
+    } else if (savedPane.startsWith('mcp://')) {
+      splitPane.openMcp(savedPane);
     } else {
-      splitPane.open(savedResource);
+      splitPane.open(savedPane);
     }
   }
   
@@ -110,25 +113,28 @@ document.addEventListener('epic-pin', ((e: CustomEvent) => {
 document.addEventListener('resource-open', ((e: CustomEvent) => {
   if (e.detail.uri) {
     // MCP URI
-    localStorage.setItem('openResource', e.detail.uri);
+    localStorage.setItem('openPane', e.detail.uri);
     splitPane.openMcp(e.detail.uri);
   } else if (e.detail.path) {
     // File path
-    localStorage.setItem('openResource', e.detail.path);
+    localStorage.setItem('openPane', e.detail.path);
     splitPane.open(e.detail.path);
   }
 }) as EventListener);
 
 document.addEventListener('resource-close', () => {
-  localStorage.removeItem('openResource');
+  localStorage.removeItem('openPane');
   splitPane.close();
 });
 
 document.addEventListener('activity-close', () => {
+  localStorage.removeItem('openPane');
   splitPane.close();
 });
 
 document.addEventListener('activity-open', ((e: CustomEvent) => {
+  const taskId = e.detail?.taskId || '';
+  localStorage.setItem('openPane', `activity:${taskId}`);
   splitPane.openActivity(e.detail?.taskId);
 }) as EventListener);
 

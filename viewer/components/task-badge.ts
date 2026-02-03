@@ -15,7 +15,8 @@ export class TaskBadge extends HTMLElement {
 
   render() {
     const id = this.getAttribute('task-id') || '';
-    const type = this.getAttribute('type') || 'task';
+    // Auto-detect type from ID prefix, fallback to attribute, then default to 'task'
+    const type = id.startsWith('EPIC-') ? 'epic' : (this.getAttribute('type') || 'task');
     const iconSrc = type === 'epic' ? epicIcon : taskIcon;
     
     this.className = `task-badge type-${type}`;

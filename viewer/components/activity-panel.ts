@@ -76,7 +76,7 @@ function formatActorDisplay(actor?: Actor): string {
  * Generate unified diff string from old and new content using diff library.
  */
 function createUnifiedDiff(oldStr: string, newStr: string, filename: string = 'file'): string {
-  return createTwoFilesPatch(filename, filename, oldStr, newStr, '', '', { context: 3 });
+  return createTwoFilesPatch(filename, filename, oldStr, newStr, '', '', { context: 5 });
 }
 
 const POLL_INTERVAL = 30000; // 30 seconds

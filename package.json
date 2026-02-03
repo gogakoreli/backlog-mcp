@@ -69,6 +69,7 @@
     "@modelcontextprotocol/sdk": "^1.25.1",
     "@orama/highlight": "^0.1.9",
     "@orama/orama": "^3.1.18",
+    "diff": "^8.0.3",
     "diff2html": "^3.4.56",
     "dompurify": "^3.3.1",
     "fastify": "^5.7.1",

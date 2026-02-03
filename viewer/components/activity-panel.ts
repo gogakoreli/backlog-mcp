@@ -1,4 +1,5 @@
 import * as Diff2Html from 'diff2html';
+import { createTwoFilesPatch } from 'diff';
 
 interface Actor {
   type: 'user' | 'agent';
@@ -72,23 +73,10 @@ function formatActorDisplay(actor?: Actor): string {
 }
 
 /**
- * Generate unified diff string from old and new content.
+ * Generate unified diff string from old and new content using diff library.
  */
 function createUnifiedDiff(oldStr: string, newStr: string, filename: string = 'file'): string {
-  const oldLines = oldStr.split('\n');
-  const newLines = newStr.split('\n');
-  
-  let diff = `--- a/${filename}\n+++ b/${filename}\n`;
-  diff += `@@ -1,${oldLines.length} +1,${newLines.length} @@\n`;
-  
-  for (const line of oldLines) {
-    diff += `-${line}\n`;
-  }
-  for (const line of newLines) {
-    diff += `+${line}\n`;
-  }
-  
-  return diff;
+  return createTwoFilesPatch(filename, filename, oldStr, newStr, '', '', { context: 3 });
 }
 
 const POLL_INTERVAL = 30000; // 30 seconds

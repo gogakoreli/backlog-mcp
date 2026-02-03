@@ -187,7 +187,7 @@ export class ActivityPanel extends HTMLElement {
   private renderOperation(op: OperationEntry, index: number): string {
     const isExpanded = this.expandedIndex === index;
     const resourceDisplay = op.resourceId 
-      ? `<a class="activity-task-link" data-task-id="${op.resourceId}">${op.resourceId}</a>`
+      ? `<task-badge class="activity-task-link" task-id="${op.resourceId}" data-task-id="${op.resourceId}"></task-badge>`
       : this.getResourceFromParams(op);
     const actorDisplay = formatActorDisplay(op.actor);
 

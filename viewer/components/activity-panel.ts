@@ -161,13 +161,7 @@ export class ActivityPanel extends HTMLElement {
       return;
     }
 
-    const title = this.taskId ? `Activity for ${this.taskId}` : 'Recent Activity';
-    
     this.innerHTML = `
-      <div class="activity-header">
-        <span class="activity-title">${title}</span>
-        <span class="activity-count">${this.operations.length} operations</span>
-      </div>
       <div class="activity-list">
         ${this.operations.map((op, i) => this.renderOperation(op, i)).join('')}
       </div>

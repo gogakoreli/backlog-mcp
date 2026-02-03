@@ -292,6 +292,7 @@ export class ActivityPanel extends HTMLElement {
               matching: 'lines',
               outputFormat: 'line-by-line',
               diffStyle: 'word',
+              colorScheme: 'dark',
             })}
           </div>
         `;

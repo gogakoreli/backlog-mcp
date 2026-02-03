@@ -53,9 +53,26 @@ class SplitPaneService {
     }
   }
 
+  private closePane() {
+    if (this.pane) {
+      this.pane.remove();
+      this.pane = null;
+      this.viewer = null;
+      this.headerContent = null;
+      this.currentContent = null;
+    }
+  }
+
   open(path: string) {
     if (!this.rightPane) return;
     this.persist(path);
+
+    // Close if different content type
+    if (this.currentContent === 'activity') {
+      this.closePane();
+    }
+
+    this.currentContent = 'resource';
 
     if (this.viewer) {
       this.viewer.loadResource(path);
@@ -104,6 +121,13 @@ class SplitPaneService {
     if (!this.rightPane) return;
     this.persist(uri);
 
+    // Close if different content type
+    if (this.currentContent === 'activity') {
+      this.closePane();
+    }
+
+    this.currentContent = 'resource';
+
     if (this.viewer) {
       this.viewer.loadMcpResource(uri);
       this.setHeaderTitle(uri.split('/').pop() || uri, uri);
@@ -148,15 +172,7 @@ class SplitPaneService {
 
   close() {
     this.persist(null);
-    if (this.pane) {
-      this.pane.remove();
-      this.pane = null;
-      this.viewer = null;
-      this.headerContent = null;
-      this.currentContent = null;
-    }
-    
-    // Keep resize handle - don't remove it
+    this.closePane();
     this.rightPane?.classList.remove('split-active');
   }
 
@@ -171,7 +187,7 @@ class SplitPaneService {
     if (!this.rightPane) return;
     this.persist(`activity:${taskId || ''}`);
 
-    // If already showing activity for same task, just return
+    // If already showing activity, just update task
     if (this.currentContent === 'activity' && this.viewer) {
       this.viewer.setTaskId(taskId || null);
       this.setHeaderTitle(taskId ? `Activity: ${taskId}` : 'Recent Activity');
@@ -179,8 +195,8 @@ class SplitPaneService {
     }
 
     // Close existing pane if different content type
-    if (this.pane) {
-      this.close();
+    if (this.currentContent === 'resource') {
+      this.closePane();
     }
 
     this.rightPane.classList.add('split-active');

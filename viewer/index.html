@@ -13,49 +13,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/json.min.js"></script>
 </head>
 <body>
-  <div class="app-container" id="app-container">
-    <!-- System Info Modal -->
-    <system-info-modal></system-info-modal>
-    
-    <!-- Spotlight Search Modal -->
-    <spotlight-search></spotlight-search>
-    
-    <!-- Left Pane: Task List -->
-    <div class="left-pane" id="left-pane">
-      <div class="pane-header">
-        <div class="pane-title" id="home-button" style="cursor: pointer;" title="Go to All Tasks">
-          <img src="./logo.svg" class="logo" alt="">
-          Backlog
-        </div>
-        <div class="header-actions">
-          <button class="btn-outline" id="spotlight-btn" title="Search (⌘J)">
-            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
-              <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
-            </svg>
-          </button>
-          <button class="btn-outline" id="activity-btn" title="Recent Activity"></button>
-          <button class="btn-outline" id="system-info-btn" title="System Info"></button>
-        </div>
-      </div>
-      <div class="pane-content">
-        <task-filter-bar></task-filter-bar>
-        <task-list></task-list>
-      </div>
-    </div>
-    
-    <!-- Right Pane: Task Detail -->
-    <div class="right-pane" id="right-pane">
-      <div class="task-pane">
-        <div class="pane-header" id="task-pane-header">
-          <div class="pane-title">Task Detail</div>
-        </div>
-        <div class="pane-content">
-          <task-detail></task-detail>
-        </div>
-      </div>
-    </div>
-  </div>
-
+  <backlog-app></backlog-app>
   <script type="module" src="./main.js"></script>
 </body>
 </html>

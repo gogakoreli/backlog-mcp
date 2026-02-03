@@ -158,45 +158,18 @@
       border: 1px solid #3e3e42;
     }
     
-    /* Search Trigger Button */
-    .search-trigger {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      width: 100%;
-      padding: 8px 12px;
-      margin-bottom: 12px;
-      border: 1px solid #3e3e42;
-      background: #2d2d30;
-      color: #888;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 13px;
-      transition: all 0.2s;
+    /* Spotlight Button with Shortcut */
+    .spotlight-btn {
+      gap: 6px;
     }
     
-    .search-trigger:hover {
-      background: #3e3e42;
-      color: #d4d4d4;
-      border-color: #4e4e52;
-    }
-    
-    .search-trigger .search-icon {
-      opacity: 0.7;
-    }
-    
-    .search-trigger .search-label {
-      flex: 1;
-      text-align: left;
-    }
-    
-    .search-trigger .search-shortcut {
+    .spotlight-btn kbd {
       font-size: 11px;
-      padding: 2px 6px;
-      background: #1e1e1e;
-      border: 1px solid #3e3e42;
+      padding: 2px 5px;
+      background: #3e3e42;
       border-radius: 4px;
-      font-family: inherit;
+      font-family: system-ui, -apple-system, sans-serif;
+      color: #ccc;
     }
 
     /* Filter Bar */

@@ -381,17 +381,15 @@ class SpotlightSearch extends HTMLElement {
     
     if (result.type === 'resource') {
       const resource = result.item as Resource;
-      urlState.set({ 
-        resource: resource.id,
-        task: null,
-        epic: null
-      });
+      document.dispatchEvent(new CustomEvent('resource-open', { 
+        detail: { uri: resource.id } 
+      }));
     } else {
       const task = result.item as Task;
+      const isEpic = task.type === 'epic';
       urlState.set({ 
         task: task.id,
-        epic: task.epic_id || null,
-        resource: null
+        epic: isEpic ? task.id : (task.epic_id || null),
       });
     }
     this.close();

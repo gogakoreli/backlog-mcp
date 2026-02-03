@@ -41,21 +41,11 @@ export class TaskList extends HTMLElement {
     
     document.addEventListener('epic-navigate', ((e: CustomEvent) => {
       this.currentEpicId = e.detail.epicId;
-      // Auto-select epic when navigating into it
       if (e.detail.epicId) {
         this.selectedTaskId = e.detail.epicId;
-        document.dispatchEvent(new CustomEvent('task-selected', { detail: { taskId: e.detail.epicId } }));
       }
       this.loadTasks();
     }) as EventListener);
-
-    document.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && this.currentEpicId) {
-        const currentEpic = this.allTasks.find(t => t.id === this.currentEpicId);
-        const parentEpicId = currentEpic?.epic_id || null;
-        document.dispatchEvent(new CustomEvent('epic-navigate', { detail: { epicId: parentEpicId } }));
-      }
-    });
   }
   
   setState(filter: string, type: string, epicId: string | null, taskId: string | null, query: string | null) {

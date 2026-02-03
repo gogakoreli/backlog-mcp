@@ -13,68 +13,9 @@ import './components/system-info-modal.js';
 import './components/copy-button.js';
 import './components/spotlight-search.js';
 import './components/activity-panel.js';
-import { settingsIcon, activityIcon } from './icons/index.js';
+import './components/backlog-app.js';
 import { urlState } from './utils/url-state.js';
 import { splitPane } from './utils/split-pane.js';
-import { resizeService } from './utils/resize.js';
-import { layoutService } from './utils/layout.js';
-
-// Subscribe components to URL state changes - single source of truth
-urlState.subscribe((state) => {
-  const filterBar = document.querySelector('task-filter-bar') as any;
-  filterBar?.setState?.(state.filter, state.type, state.q);
-  
-  const taskList = document.querySelector('task-list') as any;
-  taskList?.setState?.(state.filter, state.type, state.epic, state.task, state.q);
-  
-  if (state.task) {
-    const detail = document.querySelector('task-detail') as any;
-    detail?.loadTask?.(state.task);
-  }
-});
-
-// Initialize on load
-document.addEventListener('DOMContentLoaded', () => {
-  urlState.init();
-  resizeService.init();
-  layoutService.init();
-  splitPane.init();
-  
-  // Inject settings icon
-  const systemInfoBtn = document.getElementById('system-info-btn');
-  if (systemInfoBtn) {
-    systemInfoBtn.innerHTML = `<svg-icon src="${settingsIcon}" size="16px"></svg-icon>`;
-  }
-  
-  // Inject activity icon
-  const activityBtn = document.getElementById('activity-btn');
-  if (activityBtn) {
-    activityBtn.innerHTML = `<svg-icon src="${activityIcon}" size="16px"></svg-icon>`;
-    activityBtn.addEventListener('click', () => splitPane.openActivity());
-  }
-  
-  // Wire up system info button
-  const modal = document.querySelector('system-info-modal') as any;
-  systemInfoBtn?.addEventListener('click', () => modal?.open());
-  
-  // Wire up home button
-  document.getElementById('home-button')?.addEventListener('click', () => {
-    urlState.set({ epic: null, task: null });
-  });
-  
-  // Spotlight search keyboard shortcut (Cmd+J / Ctrl+J)
-  const spotlight = document.querySelector('spotlight-search') as any;
-  document.addEventListener('keydown', (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'j') {
-      e.preventDefault();
-      spotlight?.open();
-    }
-  });
-  
-  // Wire up spotlight button and open-spotlight event
-  document.getElementById('spotlight-btn')?.addEventListener('click', () => spotlight?.open());
-  document.addEventListener('open-spotlight', () => spotlight?.open());
-});
 
 // Component events -> URL updates
 document.addEventListener('filter-change', ((e: CustomEvent) => {
@@ -90,7 +31,8 @@ document.addEventListener('task-selected', ((e: CustomEvent) => {
 }) as EventListener);
 
 document.addEventListener('epic-navigate', ((e: CustomEvent) => {
-  urlState.set({ epic: e.detail.epicId });
+  const epicId = e.detail.epicId;
+  urlState.set({ epic: epicId, task: epicId });
 }) as EventListener);
 
 document.addEventListener('epic-pin', ((e: CustomEvent) => {

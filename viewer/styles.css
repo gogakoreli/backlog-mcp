@@ -1483,6 +1483,7 @@ copy-button {
   padding: 12px;
   border-top: 1px solid #30363d;
   background: #1e1e1e;
+  cursor: default;
 }
 
 .activity-detail-row {

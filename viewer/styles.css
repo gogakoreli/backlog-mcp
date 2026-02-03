@@ -1624,10 +1624,6 @@ copy-button {
   display: none;
 }
 
-.activity-diff .d2h-code-linenumber {
-  display: none;
-}
-
 .activity-diff .d2h-diff-table {
   font-size: 12px;
 }

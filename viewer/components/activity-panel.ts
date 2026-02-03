@@ -167,18 +167,16 @@ export class ActivityPanel extends HTMLElement {
       </div>
     `;
 
-    // Bind click handlers for expansion - only on header, not on badges
+    // Bind click handlers for expansion - only on header
     this.querySelectorAll('.activity-item-header').forEach((header) => {
-      header.addEventListener('click', (e) => {
-        // Don't toggle if clicking on a task badge
-        if ((e.target as HTMLElement).closest('task-badge')) return;
-        const item = (e.currentTarget as HTMLElement).closest('.activity-item');
+      header.addEventListener('click', () => {
+        const item = header.closest('.activity-item');
         const index = parseInt(item?.getAttribute('data-index') || '0');
         this.toggleExpand(index);
       });
     });
 
-    // Bind task badge clicks for navigation
+    // Bind task badge clicks for navigation (in expanded content)
     this.querySelectorAll('.activity-task-link').forEach(badge => {
       badge.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -192,9 +190,6 @@ export class ActivityPanel extends HTMLElement {
 
   private renderOperation(op: OperationEntry, index: number): string {
     const isExpanded = this.expandedIndex === index;
-    const resourceBadge = op.resourceId 
-      ? `<task-badge class="activity-task-link" task-id="${op.resourceId}"></task-badge>`
-      : '';
     const time = new Date(op.ts);
     const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const dateStr = time.toLocaleDateString([], { month: 'short', day: 'numeric' });
@@ -206,7 +201,7 @@ export class ActivityPanel extends HTMLElement {
             <span class="activity-icon">${getToolIcon(op.tool)}</span>
             <div class="activity-item-info">
               <span class="activity-label">${getToolLabel(op.tool)}</span>
-              ${resourceBadge}
+              ${op.resourceId ? `<span class="activity-resource-id">${op.resourceId}</span>` : ''}
               ${this.renderActorInline(op.actor)}
             </div>
           </div>
@@ -233,18 +228,23 @@ export class ActivityPanel extends HTMLElement {
   private renderExpandedContent(op: OperationEntry): string {
     let content = '';
     
+    // Add clickable task badge at top if we have a resourceId
+    if (op.resourceId) {
+      content += `
+        <div class="activity-detail-row">
+          <span class="activity-detail-label">Task:</span>
+          <task-badge class="activity-task-link" task-id="${op.resourceId}"></task-badge>
+        </div>
+      `;
+    }
+    
     if (op.tool === 'backlog_create') {
       const title = op.params.title as string;
-      const type = op.params.type || 'task';
       const epicId = op.params.epic_id as string | undefined;
-      content = `
+      content += `
         <div class="activity-detail-row">
           <span class="activity-detail-label">Title:</span>
           <span class="activity-detail-value">${this.escapeHtml(title)}</span>
-        </div>
-        <div class="activity-detail-row">
-          <span class="activity-detail-label">Type:</span>
-          <span class="activity-detail-value">${type}</span>
         </div>
         ${epicId ? `
           <div class="activity-detail-row">
@@ -255,7 +255,7 @@ export class ActivityPanel extends HTMLElement {
       `;
     } else if (op.tool === 'backlog_update') {
       const fields = Object.entries(op.params).filter(([k]) => k !== 'id');
-      content = fields.map(([key, value]) => {
+      content += fields.map(([key, value]) => {
         let displayValue: string;
         if (Array.isArray(value)) {
           displayValue = value.length > 0 ? `${value.length} items` : 'cleared';

@@ -1562,56 +1562,69 @@ copy-button {
 }
 
 /* diff2html overrides for dark theme */
-.activity-diff-content {
-  overflow-x: auto;
+.activity-diff {
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #30363d;
 }
 
-.activity-diff-content .d2h-wrapper {
-  background: transparent;
+.activity-diff .d2h-wrapper {
+  background: #161b22;
 }
 
-.activity-diff-content .d2h-file-wrapper {
+.activity-diff .d2h-file-wrapper {
   border: none;
   margin: 0;
 }
 
-.activity-diff-content .d2h-file-header {
+.activity-diff .d2h-file-header {
   display: none;
 }
 
-.activity-diff-content .d2h-diff-table {
-  font-size: 11px;
+.activity-diff .d2h-diff-table {
+  font-size: 12px;
+  font-family: 'SF Mono', Consolas, monospace;
 }
 
-.activity-diff-content .d2h-code-line-ctn {
-  background: #1e1e1e;
+.activity-diff .d2h-code-line-ctn {
+  background: #161b22;
+  color: #c9d1d9;
 }
 
-.activity-diff-content .d2h-del {
-  background-color: rgba(248, 81, 73, 0.15);
+.activity-diff .d2h-del {
+  background-color: rgba(248, 81, 73, 0.1);
+  border-left: 3px solid #f85149;
 }
 
-.activity-diff-content .d2h-ins {
-  background-color: rgba(63, 185, 80, 0.15);
+.activity-diff .d2h-ins {
+  background-color: rgba(63, 185, 80, 0.1);
+  border-left: 3px solid #3fb950;
 }
 
-.activity-diff-content .d2h-code-line del {
-  background-color: rgba(248, 81, 73, 0.4);
+.activity-diff .d2h-code-line del {
+  background-color: rgba(248, 81, 73, 0.3);
   text-decoration: none;
+  color: #ffa198;
 }
 
-.activity-diff-content .d2h-code-line ins {
-  background-color: rgba(63, 185, 80, 0.4);
+.activity-diff .d2h-code-line ins {
+  background-color: rgba(63, 185, 80, 0.3);
   text-decoration: none;
+  color: #7ee787;
 }
 
-.activity-diff-content .d2h-code-linenumber {
-  background: #252526;
-  color: #6e7681;
+.activity-diff .d2h-code-linenumber {
+  background: #0d1117;
+  color: #484f58;
   border-right: 1px solid #30363d;
 }
 
-.activity-diff-content .d2h-info {
-  background: #252526;
+.activity-diff .d2h-info {
+  background: #161b22;
   color: #8b949e;
+  border-bottom: 1px solid #30363d;
+}
+
+.activity-diff .d2h-emptyplaceholder {
+  background: #0d1117;
 }

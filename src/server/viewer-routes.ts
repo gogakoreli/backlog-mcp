@@ -187,7 +187,7 @@ export function registerViewerRoutes(app: FastifyInstance) {
     return reply.redirect(`/?resource=${encodeURIComponent(uri)}`);
   });
 
-  // Operations API - recent activity (enriched with task titles)
+  // Operations API - recent activity (enriched with task titles and epic info)
   app.get('/operations', async (request) => {
     const { limit, task } = request.query as { limit?: string; task?: string };
     
@@ -196,11 +196,33 @@ export function registerViewerRoutes(app: FastifyInstance) {
       taskId: task || undefined,
     });
     
-    // Enrich operations with task titles
+    // Enrich operations with task titles and epic info
+    // Use in-request cache to avoid duplicate storage lookups
+    const taskCache = new Map<string, { title?: string; epicId?: string }>();
+    const epicCache = new Map<string, string | undefined>();
+    
     const enriched = operations.map(op => {
       if (op.resourceId) {
-        const taskData = storage.get(op.resourceId);
-        return { ...op, resourceTitle: taskData?.title };
+        if (!taskCache.has(op.resourceId)) {
+          const taskData = storage.get(op.resourceId);
+          taskCache.set(op.resourceId, {
+            title: taskData?.title,
+            epicId: taskData?.epic_id,
+          });
+        }
+        const cached = taskCache.get(op.resourceId)!;
+        
+        // Resolve epic title if task has an epic
+        let epicTitle: string | undefined;
+        if (cached.epicId) {
+          if (!epicCache.has(cached.epicId)) {
+            const epicData = storage.get(cached.epicId);
+            epicCache.set(cached.epicId, epicData?.title);
+          }
+          epicTitle = epicCache.get(cached.epicId);
+        }
+        
+        return { ...op, resourceTitle: cached.title, epicId: cached.epicId, epicTitle };
       }
       return op;
     });

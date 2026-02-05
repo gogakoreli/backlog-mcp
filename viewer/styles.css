@@ -1620,27 +1620,34 @@ copy-button {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 12px 8px;
-  margin-top: 4px;
+  padding: 16px 12px 10px;
+  margin-top: 8px;
+  position: sticky;
+  top: 0;
+  background: linear-gradient(180deg, #1e1e1e 0%, #1e1e1e 85%, transparent 100%);
+  z-index: 10;
+  border-bottom: 1px solid #30363d;
 }
 
 .activity-day-separator:first-child {
   margin-top: 0;
-  padding-top: 8px;
+  padding-top: 12px;
 }
 
 .activity-day-label {
-  font-weight: 600;
-  color: #d4d4d4;
-  font-size: 13px;
+  font-weight: 700;
+  color: #e6edf3;
+  font-size: 14px;
+  letter-spacing: -0.01em;
 }
 
 .activity-day-count {
   font-size: 11px;
-  color: #6e7681;
+  color: #8b949e;
   background: #30363d;
-  padding: 2px 6px;
+  padding: 2px 8px;
   border-radius: 10px;
+  font-weight: 500;
 }
 
 /* Task grouping in timeline */
@@ -1658,6 +1665,7 @@ copy-button {
   padding: 10px 12px;
   background: #30363d;
   border-bottom: 1px solid #3d444d;
+  flex-wrap: wrap;
 }
 
 .activity-task-title {
@@ -1667,6 +1675,37 @@ copy-button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.activity-task-recent {
+  color: #6e7681;
+  font-size: 11px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.activity-epic-link {
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.activity-toggle-btn {
+  width: 100%;
+  padding: 8px 12px;
+  background: #21262d;
+  border: none;
+  border-top: 1px solid #30363d;
+  color: #58a6ff;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s;
+}
+
+.activity-toggle-btn:hover {
+  background: #2d333b;
 }
 
 .activity-task-group .activity-item {
@@ -1676,6 +1715,10 @@ copy-button {
 }
 
 .activity-task-group .activity-item:last-child {
+  border-bottom: none;
+}
+
+.activity-task-group .activity-item:last-child:has(+ .activity-toggle-btn) {
   border-bottom: none;
 }
 

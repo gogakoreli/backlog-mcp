@@ -8,6 +8,8 @@ An ADR documents an important architectural decision along with its context and 
 
 ## Active ADRs
 
+- [0059. Journal View Epic Grouping and UX Overhaul](./0059-journal-epic-grouping-and-ux-overhaul.md) - Group completed tasks by epic, show epic titles, adjacent proposals - 2026-02-05
+- [0058. Activity Panel Production Quality Refactor](./0058-activity-panel-production-quality.md) - Extract date utilities, add tests, UX improvements, server optimization - 2026-02-05
 - [0057. Activity Panel Timezone Fix, Mode Persistence, and Task Titles](./0057-activity-panel-timezone-persistence-titles.md) - Fix timezone bug, persist mode, show task titles, group by task - 2026-02-05
 - [0056. Activity Day Grouping and Daily Work Journal View](./0056-activity-day-grouping-and-journal-view.md) - Day separators in timeline, changelog-style journal view with navigation - 2026-02-04
 - [0055. Activity Panel Phase 2](./0055-activity-panel-phase-2.md) - Actor attribution, diff2html, count badge, polling, logger refactor - 2026-02-02

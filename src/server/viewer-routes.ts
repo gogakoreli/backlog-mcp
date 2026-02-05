@@ -187,7 +187,7 @@ export function registerViewerRoutes(app: FastifyInstance) {
     return reply.redirect(`/?resource=${encodeURIComponent(uri)}`);
   });
 
-  // Operations API - recent activity
+  // Operations API - recent activity (enriched with task titles)
   app.get('/operations', async (request) => {
     const { limit, task } = request.query as { limit?: string; task?: string };
     
@@ -196,7 +196,16 @@ export function registerViewerRoutes(app: FastifyInstance) {
       taskId: task || undefined,
     });
     
-    return operations;
+    // Enrich operations with task titles
+    const enriched = operations.map(op => {
+      if (op.resourceId) {
+        const taskData = storage.get(op.resourceId);
+        return { ...op, resourceTitle: taskData?.title };
+      }
+      return op;
+    });
+    
+    return enriched;
   });
 
   // Operation count for a specific task (for badge)

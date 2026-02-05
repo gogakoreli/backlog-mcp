@@ -14,6 +14,7 @@ interface OperationEntry {
   params: Record<string, unknown>;
   result: unknown;
   resourceId?: string;
+  resourceTitle?: string;
   actor?: Actor;
 }
 
@@ -23,6 +24,13 @@ interface DayGroup {
   dateKey: string;
   label: string;
   operations: OperationEntry[];
+}
+
+interface TaskGroup {
+  resourceId: string;
+  title: string;
+  operations: OperationEntry[];
+  mostRecentTs: string;
 }
 
 interface JournalEntry {
@@ -37,18 +45,21 @@ interface JournalData {
   updated: JournalEntry[];
 }
 
-// Date utilities
-function getDateKey(date: Date): string {
-  return date.toISOString().split('T')[0];
+// Date utilities - use local time, not UTC
+function getLocalDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function getTodayKey(): string {
-  return getDateKey(new Date());
+  return getLocalDateKey(new Date());
 }
 
 function formatDayLabel(dateKey: string): string {
   const today = getTodayKey();
-  const yesterday = getDateKey(new Date(Date.now() - 86400000));
+  const yesterday = getLocalDateKey(new Date(Date.now() - 86400000));
   
   if (dateKey === today) return 'Today';
   if (dateKey === yesterday) return 'Yesterday';
@@ -64,7 +75,7 @@ function formatDayLabel(dateKey: string): string {
 
 function formatDateForNav(dateKey: string): string {
   const today = getTodayKey();
-  const yesterday = getDateKey(new Date(Date.now() - 86400000));
+  const yesterday = getLocalDateKey(new Date(Date.now() - 86400000));
   
   if (dateKey === today) return 'Today';
   if (dateKey === yesterday) return 'Yesterday';
@@ -76,13 +87,13 @@ function formatDateForNav(dateKey: string): string {
 function getPrevDay(dateKey: string): string {
   const date = new Date(dateKey + 'T12:00:00');
   date.setDate(date.getDate() - 1);
-  return getDateKey(date);
+  return getLocalDateKey(date);
 }
 
 function getNextDay(dateKey: string): string {
   const date = new Date(dateKey + 'T12:00:00');
   date.setDate(date.getDate() + 1);
-  return getDateKey(date);
+  return getLocalDateKey(date);
 }
 
 // Group operations by day
@@ -90,7 +101,7 @@ function groupByDay(operations: OperationEntry[]): DayGroup[] {
   const groups = new Map<string, OperationEntry[]>();
   
   for (const op of operations) {
-    const dateKey = getDateKey(new Date(op.ts));
+    const dateKey = getLocalDateKey(new Date(op.ts));
     if (!groups.has(dateKey)) {
       groups.set(dateKey, []);
     }
@@ -105,6 +116,36 @@ function groupByDay(operations: OperationEntry[]): DayGroup[] {
     label: formatDayLabel(dateKey),
     operations: groups.get(dateKey)!,
   }));
+}
+
+// Group operations by task within a day, ordered by most recent operation
+function groupByTask(operations: OperationEntry[]): TaskGroup[] {
+  const groups = new Map<string, TaskGroup>();
+  
+  for (const op of operations) {
+    const resourceId = op.resourceId || '_no_task_';
+    const title = op.resourceTitle || (op.params.title as string) || resourceId;
+    
+    if (!groups.has(resourceId)) {
+      groups.set(resourceId, {
+        resourceId,
+        title,
+        operations: [],
+        mostRecentTs: op.ts,
+      });
+    }
+    
+    const group = groups.get(resourceId)!;
+    group.operations.push(op);
+    // Update most recent timestamp if this operation is newer
+    if (op.ts > group.mostRecentTs) {
+      group.mostRecentTs = op.ts;
+    }
+  }
+  
+  // Sort groups by most recent operation (descending)
+  return Array.from(groups.values())
+    .sort((a, b) => b.mostRecentTs.localeCompare(a.mostRecentTs));
 }
 
 // Aggregate operations for journal view
@@ -123,25 +164,25 @@ function aggregateForJournal(operations: OperationEntry[]): JournalData {
     const resourceId = op.resourceId;
     if (!resourceId) continue;
     
+    // Use resourceTitle from server enrichment, fall back to params.title or resourceId
+    const title = op.resourceTitle || (op.params.title as string) || resourceId;
+    
     if (op.tool === 'backlog_create') {
       if (!seenCreated.has(resourceId)) {
         seenCreated.add(resourceId);
-        created.push({ 
-          resourceId, 
-          title: (op.params.title as string) || resourceId 
-        });
+        created.push({ resourceId, title });
       }
     } else if (op.tool === 'backlog_update') {
       const status = op.params.status as string | undefined;
       if (status === 'done' && !seenCompleted.has(resourceId)) {
         seenCompleted.add(resourceId);
-        completed.push({ resourceId, title: resourceId });
+        completed.push({ resourceId, title });
       } else if (status === 'in_progress' && !seenInProgress.has(resourceId)) {
         seenInProgress.add(resourceId);
-        inProgress.push({ resourceId, title: resourceId });
+        inProgress.push({ resourceId, title });
       } else if (!seenUpdated.has(resourceId) && !seenCompleted.has(resourceId) && !seenInProgress.has(resourceId)) {
         seenUpdated.add(resourceId);
-        updated.push({ resourceId, title: resourceId });
+        updated.push({ resourceId, title });
       }
     }
   }
@@ -174,6 +215,7 @@ function createUnifiedDiff(oldStr: string, newStr: string, filename: string = 'f
 }
 
 const POLL_INTERVAL = 30000;
+const MODE_STORAGE_KEY = 'backlog:activity-mode';
 
 export class ActivityPanel extends HTMLElement {
   private taskId: string | null = null;
@@ -186,6 +228,11 @@ export class ActivityPanel extends HTMLElement {
 
   connectedCallback() {
     this.className = 'activity-panel';
+    // Restore mode from localStorage
+    const savedMode = localStorage.getItem(MODE_STORAGE_KEY) as ViewMode | null;
+    if (savedMode === 'timeline' || savedMode === 'journal') {
+      this.mode = savedMode;
+    }
     this.render();
     this.startPolling();
   }
@@ -228,6 +275,8 @@ export class ActivityPanel extends HTMLElement {
   setMode(mode: ViewMode) {
     this.mode = mode;
     this.expandedIndex = null;
+    // Persist mode to localStorage
+    localStorage.setItem(MODE_STORAGE_KEY, mode);
     this.render();
   }
 
@@ -286,15 +335,25 @@ export class ActivityPanel extends HTMLElement {
     
     return `
       <div class="activity-list">
-        ${dayGroups.map(group => `
+        ${dayGroups.map(dayGroup => `
           <div class="activity-day-separator">
-            <span class="activity-day-label">${group.label}</span>
-            <span class="activity-day-count">${group.operations.length}</span>
+            <span class="activity-day-label">${dayGroup.label}</span>
+            <span class="activity-day-count">${dayGroup.operations.length}</span>
           </div>
-          ${group.operations.map((op, i) => {
-            const globalIndex = this.operations.indexOf(op);
-            return this.renderOperation(op, globalIndex);
-          }).join('')}
+          ${groupByTask(dayGroup.operations).map(taskGroup => `
+            <div class="activity-task-group">
+              <div class="activity-task-header">
+                <a href="#" class="activity-task-link" data-task-id="${taskGroup.resourceId}">
+                  <task-badge task-id="${taskGroup.resourceId}"></task-badge>
+                </a>
+                ${taskGroup.title !== taskGroup.resourceId ? `<span class="activity-task-title">${this.escapeHtml(taskGroup.title)}</span>` : ''}
+              </div>
+              ${taskGroup.operations.map(op => {
+                const globalIndex = this.operations.indexOf(op);
+                return this.renderOperation(op, globalIndex);
+              }).join('')}
+            </div>
+          `).join('')}
         `).join('')}
       </div>
     `;
@@ -303,7 +362,7 @@ export class ActivityPanel extends HTMLElement {
   private renderJournal(): string {
     // Filter operations for selected date
     const dayOps = this.operations.filter(op => 
-      getDateKey(new Date(op.ts)) === this.selectedDate
+      getLocalDateKey(new Date(op.ts)) === this.selectedDate
     );
     
     const journal = aggregateForJournal(dayOps);
@@ -371,7 +430,6 @@ export class ActivityPanel extends HTMLElement {
             <span class="activity-icon">${getToolIcon(op.tool)}</span>
             <div class="activity-item-info">
               <span class="activity-label">${getToolLabel(op.tool)}</span>
-              ${op.resourceId ? `<span class="activity-resource-id">${op.resourceId}</span>` : ''}
               ${this.renderActorInline(op.actor)}
             </div>
           </div>

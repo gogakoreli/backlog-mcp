@@ -214,6 +214,38 @@
       color: white;
     }
     
+    /* Sort dropdown */
+    .filter-sort {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: auto;
+    }
+    
+    .filter-sort-label {
+      font-size: 12px;
+      color: #8b949e;
+    }
+    
+    .filter-sort-select {
+      padding: 5px 8px;
+      border: 1px solid #3e3e42;
+      background: #2d2d30;
+      color: #d4d4d4;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    
+    .filter-sort-select:hover {
+      background: #3e3e42;
+    }
+    
+    .filter-sort-select:focus {
+      outline: none;
+      border-color: #007acc;
+    }
+    
     /* Breadcrumb */
     .breadcrumb {
       display: flex;
@@ -1322,6 +1354,39 @@ copy-button {
   opacity: 0.5;
 }
 
+/* Task-scoped filter header */
+.activity-filter-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #21262d;
+  border-bottom: 1px solid #30363d;
+  flex-shrink: 0;
+}
+
+.activity-filter-label {
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.activity-filter-clear {
+  margin-left: auto;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  color: #8b949e;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s;
+}
+
+.activity-filter-clear:hover {
+  background: #30363d;
+  color: #d4d4d4;
+}
+
 .activity-header {
   display: flex;
   justify-content: space-between;
@@ -1567,8 +1632,8 @@ copy-button {
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  background: #f85149;
-  color: white;
+  background: #30363d;
+  color: #8b949e;
   font-size: 10px;
   font-weight: 600;
   border-radius: 8px;
@@ -1620,13 +1685,14 @@ copy-button {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 16px 12px 10px;
-  margin-top: 8px;
+  padding: 12px 12px 10px;
+  margin-top: 16px;
   position: sticky;
   top: 0;
-  background: linear-gradient(180deg, #1e1e1e 0%, #1e1e1e 85%, transparent 100%);
+  background: #252526;
   z-index: 10;
-  border-bottom: 1px solid #30363d;
+  border-bottom: 2px solid #3d444d;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .activity-day-separator:first-child {
@@ -1689,6 +1755,11 @@ copy-button {
 .activity-epic-link {
   text-decoration: none;
   flex-shrink: 0;
+  color: #8b949e;
+}
+
+.activity-epic-link:hover {
+  opacity: 0.8;
 }
 
 .activity-toggle-btn {
@@ -1887,14 +1958,6 @@ copy-button {
   font-weight: 500;
   color: #d4d4d4;
   font-size: 13px;
-}
-
-.activity-epic-link {
-  text-decoration: none;
-}
-
-.activity-epic-link:hover task-badge {
-  opacity: 0.8;
 }
 
 .activity-journal-epic-group .activity-journal-list {

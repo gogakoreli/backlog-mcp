@@ -59,6 +59,10 @@ document.addEventListener('activity-open', ((e: CustomEvent) => {
   splitPane.openActivity(e.detail?.taskId);
 }) as EventListener);
 
+document.addEventListener('activity-clear-filter', () => {
+  splitPane.openActivity(); // Re-open without taskId filter
+});
+
 document.addEventListener('resource-loaded', ((e: CustomEvent) => {
   const { title, fileUri, mcpUri } = e.detail;
   if (fileUri && mcpUri) {

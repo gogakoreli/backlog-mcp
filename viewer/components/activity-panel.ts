@@ -31,7 +31,7 @@ function createUnifiedDiff(oldStr: string, newStr: string, filename: string = 'f
 
 const POLL_INTERVAL = 30000;
 const MODE_STORAGE_KEY = 'backlog:activity-mode';
-const DEFAULT_VISIBLE_ITEMS = 5;
+const DEFAULT_VISIBLE_ITEMS = 2;
 
 export class ActivityPanel extends HTMLElement {
   private taskId: string | null = null;
@@ -123,11 +123,13 @@ export class ActivityPanel extends HTMLElement {
   private render() {
     if (this.operations.length === 0) {
       this.innerHTML = `
+        ${this.renderFilterHeader()}
         <div class="activity-empty">
           <div class="activity-empty-icon">📋</div>
           <div>No activity${this.taskId ? ` for ${this.taskId}` : ''}</div>
         </div>
       `;
+      this.bindEventHandlers();
       return;
     }
 
@@ -139,12 +141,24 @@ export class ActivityPanel extends HTMLElement {
     `;
 
     if (this.mode === 'journal' && !this.taskId) {
-      this.innerHTML = `${modeToggle}${this.renderJournal()}`;
+      this.innerHTML = `${this.renderFilterHeader()}${modeToggle}${this.renderJournal()}`;
     } else {
-      this.innerHTML = `${modeToggle}${this.renderTimeline()}`;
+      this.innerHTML = `${this.renderFilterHeader()}${modeToggle}${this.renderTimeline()}`;
     }
 
     this.bindEventHandlers();
+  }
+
+  private renderFilterHeader(): string {
+    if (!this.taskId) return '';
+    
+    return `
+      <div class="activity-filter-header">
+        <span class="activity-filter-label">Showing activity for</span>
+        <task-badge task-id="${this.taskId}"></task-badge>
+        <button class="activity-filter-clear" title="Show all activity">✕</button>
+      </div>
+    `;
   }
 
   private renderTimeline(): string {
@@ -232,7 +246,7 @@ export class ActivityPanel extends HTMLElement {
           </div>
         ` : `
           <div class="activity-journal-content">
-            ${this.renderCompletedSection(journal.completed)}
+            ${this.renderJournalSection('✅ Completed', journal.completed)}
             ${this.renderJournalSection('🚧 In Progress', journal.inProgress)}
             ${this.renderJournalSection('➕ Created', journal.created)}
             ${this.renderJournalSection('✏️ Updated', journal.updated)}
@@ -242,14 +256,14 @@ export class ActivityPanel extends HTMLElement {
     `;
   }
 
-  private renderCompletedSection(entries: JournalEntry[]): string {
+  private renderJournalSection(title: string, entries: JournalEntry[]): string {
     if (entries.length === 0) return '';
     
     const epicGroups = groupByEpic(entries);
     
     return `
       <div class="activity-journal-section">
-        <div class="activity-journal-section-title">✅ Completed</div>
+        <div class="activity-journal-section-title">${title}</div>
         ${epicGroups.map(group => `
           <div class="activity-journal-epic-group">
             <div class="activity-journal-epic-header">
@@ -272,26 +286,6 @@ export class ActivityPanel extends HTMLElement {
             </ul>
           </div>
         `).join('')}
-      </div>
-    `;
-  }
-
-  private renderJournalSection(title: string, entries: JournalEntry[]): string {
-    if (entries.length === 0) return '';
-    
-    return `
-      <div class="activity-journal-section">
-        <div class="activity-journal-section-title">${title}</div>
-        <ul class="activity-journal-list">
-          ${entries.map(e => `
-            <li class="activity-journal-item">
-              <a href="#" class="activity-task-link" data-task-id="${e.resourceId}">
-                <task-badge task-id="${e.resourceId}"></task-badge>
-              </a>
-              ${e.title !== e.resourceId ? `<span class="activity-journal-title">${this.escapeHtml(e.title)}</span>` : ''}
-            </li>
-          `).join('')}
-        </ul>
       </div>
     `;
   }
@@ -419,6 +413,11 @@ export class ActivityPanel extends HTMLElement {
   }
 
   private bindEventHandlers() {
+    // Filter clear button
+    this.querySelector('.activity-filter-clear')?.addEventListener('click', () => {
+      document.dispatchEvent(new CustomEvent('activity-clear-filter'));
+    });
+
     // Mode toggle
     this.querySelectorAll('.activity-mode-btn').forEach(btn => {
       btn.addEventListener('click', () => {

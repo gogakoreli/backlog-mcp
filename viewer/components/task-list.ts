@@ -7,9 +7,12 @@ function escapeAttr(text: string | undefined): string {
   return text.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+const SORT_STORAGE_KEY = 'backlog:sort';
+
 export class TaskList extends HTMLElement {
   private currentFilter: string = 'active';
   private currentType: string = 'all';
+  private currentSort: string = 'updated';
   private currentEpicId: string | null = null;
   private selectedTaskId: string | null = null;
   private currentQuery: string | null = null;
@@ -21,12 +24,23 @@ export class TaskList extends HTMLElement {
     this.currentEpicId = params.get('epic');
     this.currentQuery = params.get('q');
     
+    // Restore sort from localStorage
+    const savedSort = localStorage.getItem(SORT_STORAGE_KEY);
+    if (savedSort) {
+      this.currentSort = savedSort;
+    }
+    
     this.loadTasks();
     setInterval(() => this.loadTasks(), 5000);
     
     document.addEventListener('filter-change', ((e: CustomEvent) => {
       this.currentFilter = e.detail.filter;
       this.currentType = e.detail.type ?? 'all';
+      this.loadTasks();
+    }) as EventListener);
+    
+    document.addEventListener('sort-change', ((e: CustomEvent) => {
+      this.currentSort = e.detail.sort;
       this.loadTasks();
     }) as EventListener);
     
@@ -57,6 +71,19 @@ export class TaskList extends HTMLElement {
     this.loadTasks();
   }
   
+  private sortTasks(tasks: Task[]): Task[] {
+    const sorted = [...tasks];
+    switch (this.currentSort) {
+      case 'created_desc':
+        return sorted.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      case 'created_asc':
+        return sorted.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      case 'updated':
+      default:
+        return sorted.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+    }
+  }
+  
   async loadTasks() {
     try {
       let tasks = await fetchTasks(this.currentFilter as any, this.currentQuery || undefined);
@@ -66,6 +93,9 @@ export class TaskList extends HTMLElement {
       if (this.currentType !== 'all') {
         tasks = tasks.filter(t => (t.type ?? 'task') === this.currentType);
       }
+      
+      // Apply sort
+      tasks = this.sortTasks(tasks);
       
       // Epic navigation filter
       if (this.currentEpicId) {

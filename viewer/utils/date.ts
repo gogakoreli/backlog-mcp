@@ -25,16 +25,18 @@ export function getLocalDateKey(date: Date): string | null {
 
 /**
  * Get today's date key in local timezone.
+ * Returns empty string if date formatting fails (should never happen).
  */
 export function getTodayKey(): string {
-  return getLocalDateKey(new Date())!;
+  return getLocalDateKey(new Date()) ?? '';
 }
 
 /**
  * Get yesterday's date key in local timezone.
+ * Returns empty string if date formatting fails (should never happen).
  */
 export function getYesterdayKey(): string {
-  return getLocalDateKey(new Date(Date.now() - MS_PER_DAY))!;
+  return getLocalDateKey(new Date(Date.now() - MS_PER_DAY)) ?? '';
 }
 
 /**

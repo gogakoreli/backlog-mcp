@@ -8,6 +8,8 @@ An ADR documents an important architectural decision along with its context and 
 
 ## Active ADRs
 
+- [0061. Activity Panel Polish and Code Quality](./0061-activity-panel-polish.md) - Non-null assertion fixes, sort dropdown, task-scoped filter UX, write_resource timestamp fix - 2026-02-05
+- [0060. Activity Summary System](./0060-activity-summary-system.md) - MCP tool for activity data, summary resources, UI integration - 2026-02-04
 - [0059. Journal View Epic Grouping and UX Overhaul](./0059-journal-epic-grouping-and-ux-overhaul.md) - Group completed tasks by epic, show epic titles, adjacent proposals - 2026-02-05
 - [0058. Activity Panel Production Quality Refactor](./0058-activity-panel-production-quality.md) - Extract date utilities, add tests, UX improvements, server optimization - 2026-02-05
 - [0057. Activity Panel Timezone Fix, Mode Persistence, and Task Titles](./0057-activity-panel-timezone-persistence-titles.md) - Fix timezone bug, persist mode, show task titles, group by task - 2026-02-05

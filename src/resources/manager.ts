@@ -143,8 +143,28 @@ export class ResourceManager {
   }
 
   /**
+   * Check if a URI points to a task file.
+   */
+  private isTaskUri(uri: string): boolean {
+    return /^mcp:\/\/backlog\/tasks\/(TASK|EPIC)-\d+\.md$/.test(uri);
+  }
+
+  /**
+   * Update the updated_at timestamp in task frontmatter.
+   */
+  private updateTaskTimestamp(content: string): string {
+    const parsed = matter(content);
+    if (parsed.data && typeof parsed.data === 'object') {
+      parsed.data.updated_at = new Date().toISOString();
+      return matter.stringify(parsed.content, parsed.data);
+    }
+    return content;
+  }
+
+  /**
    * Write/modify resource content.
    * Applies operations like str_replace, append, insert, etc.
+   * For task files, automatically updates the updated_at timestamp.
    * 
    * @param uri MCP URI
    * @param operation Operation to apply
@@ -154,6 +174,7 @@ export class ResourceManager {
     try {
       const filePath = this.resolve(uri);
       const canCreate = ['create', 'append', 'insert'].includes(operation.type);
+      const isTask = this.isTaskUri(uri);
       
       if (!existsSync(filePath)) {
         if (canCreate) {
@@ -171,7 +192,13 @@ export class ResourceManager {
       }
 
       const fileContent = readFileSync(filePath, 'utf-8');
-      const newContent = applyOperation(fileContent, operation);
+      let newContent = applyOperation(fileContent, operation);
+      
+      // Update timestamp for task files
+      if (isTask) {
+        newContent = this.updateTaskTimestamp(newContent);
+      }
+      
       writeFileSync(filePath, newContent, 'utf-8');
 
       return {

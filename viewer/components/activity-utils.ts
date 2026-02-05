@@ -34,6 +34,7 @@ export interface TaskGroup {
   resourceId: string;
   title: string;
   epicId?: string;
+  epicTitle?: string;
   operations: OperationEntry[];
   mostRecentTs: string;
 }
@@ -73,7 +74,10 @@ export function groupByDay(operations: OperationEntry[]): DayGroup[] {
     if (!groups.has(dateKey)) {
       groups.set(dateKey, []);
     }
-    groups.get(dateKey)!.push(op);
+    const group = groups.get(dateKey);
+    if (group) {
+      group.push(op);
+    }
   }
   
   // Sort by date descending (most recent first)
@@ -82,7 +86,7 @@ export function groupByDay(operations: OperationEntry[]): DayGroup[] {
   return sortedKeys.map(dateKey => ({
     dateKey,
     label: formatRelativeDay(dateKey),
-    operations: groups.get(dateKey)!,
+    operations: groups.get(dateKey) ?? [],
   }));
 }
 
@@ -102,20 +106,24 @@ export function groupByTask(operations: OperationEntry[]): TaskGroup[] {
         resourceId,
         title,
         epicId: op.epicId,
+        epicTitle: op.epicTitle,
         operations: [],
         mostRecentTs: op.ts,
       });
     }
     
-    const group = groups.get(resourceId)!;
-    group.operations.push(op);
-    // Update most recent timestamp if this operation is newer
-    if (op.ts > group.mostRecentTs) {
-      group.mostRecentTs = op.ts;
-    }
-    // Update epicId if not set
-    if (!group.epicId && op.epicId) {
-      group.epicId = op.epicId;
+    const group = groups.get(resourceId);
+    if (group) {
+      group.operations.push(op);
+      // Update most recent timestamp if this operation is newer
+      if (op.ts > group.mostRecentTs) {
+        group.mostRecentTs = op.ts;
+      }
+      // Update epicId/epicTitle if not set
+      if (!group.epicId && op.epicId) {
+        group.epicId = op.epicId;
+        group.epicTitle = op.epicTitle;
+      }
     }
   }
   
@@ -189,7 +197,10 @@ export function groupByEpic(entries: JournalEntry[]): EpicGroup[] {
       });
     }
     
-    groups.get(key)!.entries.push(entry);
+    const group = groups.get(key);
+    if (group) {
+      group.entries.push(entry);
+    }
   }
   
   // Sort: epics with titles first (alphabetically), then "No Epic" last

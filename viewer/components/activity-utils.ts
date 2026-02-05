@@ -132,6 +132,90 @@ export function groupByTask(operations: OperationEntry[]): TaskGroup[] {
     .sort((a, b) => b.mostRecentTs.localeCompare(a.mostRecentTs));
 }
 
+const MERGE_WINDOW_MS = 30000; // 30 seconds
+
+interface StrReplaceOp {
+  type: 'str_replace';
+  old_str: string;
+  new_str: string;
+}
+
+function isStrReplace(op: OperationEntry): op is OperationEntry & { params: { uri: string; operation: StrReplaceOp } } {
+  if (op.tool !== 'write_resource') return false;
+  const operation = op.params.operation as { type?: string } | undefined;
+  return operation?.type === 'str_replace';
+}
+
+/**
+ * Merge consecutive str_replace operations on the same URI within a time window.
+ * Operations are in reverse chronological order (newest first).
+ * Merged operation shows: oldest.old_str → newest.new_str
+ */
+export function mergeConsecutiveEdits(operations: OperationEntry[]): OperationEntry[] {
+  if (operations.length <= 1) return operations;
+  
+  const result: OperationEntry[] = [];
+  let i = 0;
+  
+  while (i < operations.length) {
+    const current = operations[i];
+    
+    if (!isStrReplace(current)) {
+      result.push(current);
+      i++;
+      continue;
+    }
+    
+    // Start a merge group
+    const group: OperationEntry[] = [current];
+    const uri = current.params.uri;
+    let j = i + 1;
+    
+    // Collect consecutive str_replace ops on same URI within time window
+    while (j < operations.length) {
+      const next = operations[j];
+      if (!isStrReplace(next) || next.params.uri !== uri) break;
+      
+      // Check time gap (operations are newest-first, so group[last] is older)
+      const newerTs = new Date(group[group.length - 1].ts).getTime();
+      const olderTs = new Date(next.ts).getTime();
+      if (newerTs - olderTs > MERGE_WINDOW_MS) break;
+      
+      group.push(next);
+      j++;
+    }
+    
+    if (group.length === 1) {
+      result.push(current);
+    } else {
+      // Create merged operation: oldest.old_str → newest.new_str
+      const newest = group[0];
+      const oldest = group[group.length - 1];
+      const newestOp = newest.params.operation as StrReplaceOp;
+      const oldestOp = oldest.params.operation as StrReplaceOp;
+      
+      const merged: OperationEntry = {
+        ...newest,
+        params: {
+          ...newest.params,
+          operation: {
+            type: 'str_replace',
+            old_str: oldestOp.old_str,
+            new_str: newestOp.new_str,
+          },
+          _mergedCount: group.length,
+          _mergedRange: { from: oldest.ts, to: newest.ts },
+        },
+      };
+      result.push(merged);
+    }
+    
+    i = j;
+  }
+  
+  return result;
+}
+
 /**
  * Aggregate operations for journal view.
  * Categorizes tasks by their most significant status change.

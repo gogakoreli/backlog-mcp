@@ -15,6 +15,7 @@ import {
   groupByEpic,
   getToolLabel,
   getToolIcon,
+  mergeConsecutiveEdits,
   type OperationEntry,
   type Actor,
   type DayGroup,
@@ -36,7 +37,7 @@ const DEFAULT_VISIBLE_ITEMS = 2;
 export class ActivityPanel extends HTMLElement {
   private taskId: string | null = null;
   private operations: OperationEntry[] = [];
-  private expandedIndex: number | null = null;
+  private expandedIndex: string | null = null; // Changed to timestamp-based ID
   private pollTimer: number | null = null;
   private visibilityHandler: (() => void) | null = null;
   private mode: ViewMode = 'timeline';
@@ -195,12 +196,15 @@ export class ActivityPanel extends HTMLElement {
   }
 
   private renderTaskGroup(taskGroup: TaskGroup): string {
+    // Merge consecutive edits before rendering
+    const mergedOps = mergeConsecutiveEdits(taskGroup.operations);
+    
     const isExpanded = this.expandedTaskGroups.has(taskGroup.resourceId);
-    const hasMore = taskGroup.operations.length > DEFAULT_VISIBLE_ITEMS;
+    const hasMore = mergedOps.length > DEFAULT_VISIBLE_ITEMS;
     const visibleOps = isExpanded 
-      ? taskGroup.operations 
-      : taskGroup.operations.slice(0, DEFAULT_VISIBLE_ITEMS);
-    const hiddenCount = taskGroup.operations.length - DEFAULT_VISIBLE_ITEMS;
+      ? mergedOps 
+      : mergedOps.slice(0, DEFAULT_VISIBLE_ITEMS);
+    const hiddenCount = mergedOps.length - DEFAULT_VISIBLE_ITEMS;
     
     // Format most recent activity date
     const mostRecentDate = new Date(taskGroup.mostRecentTs);
@@ -220,10 +224,7 @@ export class ActivityPanel extends HTMLElement {
           ${taskGroup.title !== taskGroup.resourceId ? `<span class="activity-task-title">${this.escapeHtml(taskGroup.title)}</span>` : ''}
           <span class="activity-task-recent">${mostRecentDateStr}</span>
         </div>
-        ${visibleOps.map(op => {
-          const globalIndex = this.operations.indexOf(op);
-          return this.renderOperation(op, globalIndex);
-        }).join('')}
+        ${visibleOps.map(op => this.renderOperation(op)).join('')}
         ${hasMore ? `
           <button class="activity-toggle-btn" data-task-id="${taskGroup.resourceId}">
             ${isExpanded ? 'Show less' : `Show ${hiddenCount} more`}
@@ -307,8 +308,9 @@ export class ActivityPanel extends HTMLElement {
     `;
   }
 
-  private renderOperation(op: OperationEntry, index: number): string {
-    const isExpanded = this.expandedIndex === index;
+  private renderOperation(op: OperationEntry): string {
+    const opId = op.ts; // Use timestamp as unique ID
+    const isExpanded = this.expandedIndex === opId;
     const time = new Date(op.ts);
     const dateKey = getLocalDateKey(time);
     const today = getTodayKey();
@@ -317,14 +319,20 @@ export class ActivityPanel extends HTMLElement {
     const timeStr = dateKey === today 
       ? formatTime(time)
       : formatDateTime(time);
+    
+    // Check if this is a merged operation
+    const mergedCount = op.params._mergedCount as number | undefined;
+    const mergedBadge = mergedCount && mergedCount > 1 
+      ? `<span class="activity-merged-badge">${mergedCount} edits</span>` 
+      : '';
 
     return `
-      <div class="activity-item ${isExpanded ? 'expanded' : ''}" data-index="${index}">
+      <div class="activity-item ${isExpanded ? 'expanded' : ''}" data-op-id="${opId}">
         <div class="activity-item-header">
           <div class="activity-item-left">
             <span class="activity-icon">${getToolIcon(op.tool)}</span>
             <div class="activity-item-info">
-              <span class="activity-label">${getToolLabel(op.tool)}</span>
+              <span class="activity-label">${getToolLabel(op.tool)}${mergedBadge}</span>
               ${this.renderActorInline(op.actor)}
             </div>
           </div>
@@ -479,8 +487,8 @@ export class ActivityPanel extends HTMLElement {
     this.querySelectorAll('.activity-item-header').forEach(header => {
       header.addEventListener('click', () => {
         const item = header.closest('.activity-item');
-        const index = parseInt(item?.getAttribute('data-index') || '0');
-        this.toggleExpand(index);
+        const opId = item?.getAttribute('data-op-id') || '';
+        this.toggleExpand(opId);
       });
     });
 
@@ -517,8 +525,8 @@ export class ActivityPanel extends HTMLElement {
       .replace(/"/g, '&quot;');
   }
 
-  private toggleExpand(index: number) {
-    this.expandedIndex = this.expandedIndex === index ? null : index;
+  private toggleExpand(opId: string) {
+    this.expandedIndex = this.expandedIndex === opId ? null : opId;
     this.render();
   }
 }

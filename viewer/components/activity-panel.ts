@@ -17,19 +17,136 @@ interface OperationEntry {
   actor?: Actor;
 }
 
-function formatRelativeTime(isoDate: string): string {
-  const date = new Date(isoDate);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
+type ViewMode = 'timeline' | 'journal';
 
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
+interface DayGroup {
+  dateKey: string;
+  label: string;
+  operations: OperationEntry[];
+}
+
+interface JournalEntry {
+  resourceId: string;
+  title: string;
+}
+
+interface JournalData {
+  completed: JournalEntry[];
+  inProgress: JournalEntry[];
+  created: JournalEntry[];
+  updated: JournalEntry[];
+}
+
+// Date utilities
+function getDateKey(date: Date): string {
+  return date.toISOString().split('T')[0];
+}
+
+function getTodayKey(): string {
+  return getDateKey(new Date());
+}
+
+function formatDayLabel(dateKey: string): string {
+  const today = getTodayKey();
+  const yesterday = getDateKey(new Date(Date.now() - 86400000));
+  
+  if (dateKey === today) return 'Today';
+  if (dateKey === yesterday) return 'Yesterday';
+  
+  const date = new Date(dateKey + 'T12:00:00');
+  return date.toLocaleDateString(undefined, { 
+    weekday: 'long', 
+    month: 'long', 
+    day: 'numeric', 
+    year: 'numeric' 
+  });
+}
+
+function formatDateForNav(dateKey: string): string {
+  const today = getTodayKey();
+  const yesterday = getDateKey(new Date(Date.now() - 86400000));
+  
+  if (dateKey === today) return 'Today';
+  if (dateKey === yesterday) return 'Yesterday';
+  
+  const date = new Date(dateKey + 'T12:00:00');
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function getPrevDay(dateKey: string): string {
+  const date = new Date(dateKey + 'T12:00:00');
+  date.setDate(date.getDate() - 1);
+  return getDateKey(date);
+}
+
+function getNextDay(dateKey: string): string {
+  const date = new Date(dateKey + 'T12:00:00');
+  date.setDate(date.getDate() + 1);
+  return getDateKey(date);
+}
+
+// Group operations by day
+function groupByDay(operations: OperationEntry[]): DayGroup[] {
+  const groups = new Map<string, OperationEntry[]>();
+  
+  for (const op of operations) {
+    const dateKey = getDateKey(new Date(op.ts));
+    if (!groups.has(dateKey)) {
+      groups.set(dateKey, []);
+    }
+    groups.get(dateKey)!.push(op);
+  }
+  
+  // Sort by date descending (most recent first)
+  const sortedKeys = Array.from(groups.keys()).sort().reverse();
+  
+  return sortedKeys.map(dateKey => ({
+    dateKey,
+    label: formatDayLabel(dateKey),
+    operations: groups.get(dateKey)!,
+  }));
+}
+
+// Aggregate operations for journal view
+function aggregateForJournal(operations: OperationEntry[]): JournalData {
+  const completed: JournalEntry[] = [];
+  const inProgress: JournalEntry[] = [];
+  const created: JournalEntry[] = [];
+  const updated: JournalEntry[] = [];
+  
+  const seenCompleted = new Set<string>();
+  const seenInProgress = new Set<string>();
+  const seenCreated = new Set<string>();
+  const seenUpdated = new Set<string>();
+  
+  for (const op of operations) {
+    const resourceId = op.resourceId;
+    if (!resourceId) continue;
+    
+    if (op.tool === 'backlog_create') {
+      if (!seenCreated.has(resourceId)) {
+        seenCreated.add(resourceId);
+        created.push({ 
+          resourceId, 
+          title: (op.params.title as string) || resourceId 
+        });
+      }
+    } else if (op.tool === 'backlog_update') {
+      const status = op.params.status as string | undefined;
+      if (status === 'done' && !seenCompleted.has(resourceId)) {
+        seenCompleted.add(resourceId);
+        completed.push({ resourceId, title: resourceId });
+      } else if (status === 'in_progress' && !seenInProgress.has(resourceId)) {
+        seenInProgress.add(resourceId);
+        inProgress.push({ resourceId, title: resourceId });
+      } else if (!seenUpdated.has(resourceId) && !seenCompleted.has(resourceId) && !seenInProgress.has(resourceId)) {
+        seenUpdated.add(resourceId);
+        updated.push({ resourceId, title: resourceId });
+      }
+    }
+  }
+  
+  return { completed, inProgress, created, updated };
 }
 
 function getToolLabel(tool: string): string {
@@ -52,34 +169,11 @@ function getToolIcon(tool: string): string {
   return icons[tool] || '⚡';
 }
 
-function formatActorDisplay(actor?: Actor): string {
-  if (!actor) return '';
-  
-  const currentUser = 'You'; // Could be enhanced to check against current user
-  
-  if (actor.type === 'user') {
-    return `<span class="activity-actor activity-actor-user">${currentUser}</span>`;
-  }
-  
-  // Agent with delegation info
-  let display = `<span class="activity-actor activity-actor-agent">${actor.name}</span>`;
-  if (actor.delegatedBy) {
-    display += `<span class="activity-delegated">(delegated by ${actor.delegatedBy})</span>`;
-  }
-  if (actor.taskContext) {
-    display += `<span class="activity-context">Working on: ${actor.taskContext}</span>`;
-  }
-  return display;
-}
-
-/**
- * Generate unified diff string from old and new content using diff library.
- */
 function createUnifiedDiff(oldStr: string, newStr: string, filename: string = 'file'): string {
   return createTwoFilesPatch(filename, filename, oldStr, newStr, '', '', { context: 5 });
 }
 
-const POLL_INTERVAL = 30000; // 30 seconds
+const POLL_INTERVAL = 30000;
 
 export class ActivityPanel extends HTMLElement {
   private taskId: string | null = null;
@@ -87,6 +181,8 @@ export class ActivityPanel extends HTMLElement {
   private expandedIndex: number | null = null;
   private pollTimer: number | null = null;
   private visibilityHandler: (() => void) | null = null;
+  private mode: ViewMode = 'timeline';
+  private selectedDate: string = getTodayKey();
 
   connectedCallback() {
     this.className = 'activity-panel';
@@ -99,14 +195,12 @@ export class ActivityPanel extends HTMLElement {
   }
 
   private startPolling() {
-    // Start polling timer
     this.pollTimer = window.setInterval(() => {
       if (document.visibilityState === 'visible') {
         this.loadOperations();
       }
     }, POLL_INTERVAL);
 
-    // Also refresh when page becomes visible
     this.visibilityHandler = () => {
       if (document.visibilityState === 'visible') {
         this.loadOperations();
@@ -131,8 +225,18 @@ export class ActivityPanel extends HTMLElement {
     this.loadOperations();
   }
 
+  setMode(mode: ViewMode) {
+    this.mode = mode;
+    this.expandedIndex = null;
+    this.render();
+  }
+
+  setDate(dateKey: string) {
+    this.selectedDate = dateKey;
+    this.render();
+  }
+
   async loadOperations() {
-    // Only show loading on initial load, not on poll refresh
     if (this.operations.length === 0) {
       this.innerHTML = '<div class="activity-loading">Loading activity...</div>';
     }
@@ -145,7 +249,7 @@ export class ActivityPanel extends HTMLElement {
       const res = await fetch(url);
       this.operations = await res.json();
       this.render();
-    } catch (error) {
+    } catch {
       this.innerHTML = `<div class="activity-error">Failed to load activity</div>`;
     }
   }
@@ -161,39 +265,104 @@ export class ActivityPanel extends HTMLElement {
       return;
     }
 
-    this.innerHTML = `
-      <div class="activity-list">
-        ${this.operations.map((op, i) => this.renderOperation(op, i)).join('')}
+    const modeToggle = this.taskId ? '' : `
+      <div class="activity-mode-toggle">
+        <button class="activity-mode-btn ${this.mode === 'timeline' ? 'active' : ''}" data-mode="timeline">Timeline</button>
+        <button class="activity-mode-btn ${this.mode === 'journal' ? 'active' : ''}" data-mode="journal">Journal</button>
       </div>
     `;
 
-    // Bind click handlers for expansion - only on header
-    this.querySelectorAll('.activity-item-header').forEach((header) => {
-      header.addEventListener('click', () => {
-        const item = header.closest('.activity-item');
-        const index = parseInt(item?.getAttribute('data-index') || '0');
-        this.toggleExpand(index);
-      });
-    });
+    if (this.mode === 'journal' && !this.taskId) {
+      this.innerHTML = `${modeToggle}${this.renderJournal()}`;
+    } else {
+      this.innerHTML = `${modeToggle}${this.renderTimeline()}`;
+    }
 
-    // Bind task badge clicks for navigation (in expanded content)
-    this.querySelectorAll('.activity-task-link').forEach(link => {
-      link.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const taskId = (link as HTMLElement).dataset.taskId;
-        if (taskId) {
-          document.dispatchEvent(new CustomEvent('task-selected', { detail: { taskId } }));
-        }
-      });
-    });
+    this.bindEventHandlers();
+  }
+
+  private renderTimeline(): string {
+    const dayGroups = groupByDay(this.operations);
+    
+    return `
+      <div class="activity-list">
+        ${dayGroups.map(group => `
+          <div class="activity-day-separator">
+            <span class="activity-day-label">${group.label}</span>
+            <span class="activity-day-count">${group.operations.length}</span>
+          </div>
+          ${group.operations.map((op, i) => {
+            const globalIndex = this.operations.indexOf(op);
+            return this.renderOperation(op, globalIndex);
+          }).join('')}
+        `).join('')}
+      </div>
+    `;
+  }
+
+  private renderJournal(): string {
+    // Filter operations for selected date
+    const dayOps = this.operations.filter(op => 
+      getDateKey(new Date(op.ts)) === this.selectedDate
+    );
+    
+    const journal = aggregateForJournal(dayOps);
+    const hasContent = journal.completed.length || journal.inProgress.length || 
+                       journal.created.length || journal.updated.length;
+    
+    const isToday = this.selectedDate === getTodayKey();
+    const canGoNext = this.selectedDate < getTodayKey();
+    
+    return `
+      <div class="activity-journal">
+        <div class="activity-nav">
+          <button class="activity-nav-btn" data-action="prev">← Prev</button>
+          <span class="activity-nav-date">${formatDayLabel(this.selectedDate)}</span>
+          <button class="activity-nav-btn" data-action="next" ${canGoNext ? '' : 'disabled'}>Next →</button>
+          ${!isToday ? `<button class="activity-nav-btn activity-nav-today" data-action="today">Today</button>` : ''}
+        </div>
+        
+        ${!hasContent ? `
+          <div class="activity-journal-empty">
+            <div class="activity-empty-icon">📭</div>
+            <div>No activity on ${formatDateForNav(this.selectedDate)}</div>
+          </div>
+        ` : `
+          <div class="activity-journal-content">
+            ${this.renderJournalSection('✅ Completed', journal.completed)}
+            ${this.renderJournalSection('🚧 In Progress', journal.inProgress)}
+            ${this.renderJournalSection('➕ Created', journal.created)}
+            ${this.renderJournalSection('✏️ Updated', journal.updated)}
+          </div>
+        `}
+      </div>
+    `;
+  }
+
+  private renderJournalSection(title: string, entries: JournalEntry[]): string {
+    if (entries.length === 0) return '';
+    
+    return `
+      <div class="activity-journal-section">
+        <div class="activity-journal-section-title">${title}</div>
+        <ul class="activity-journal-list">
+          ${entries.map(e => `
+            <li class="activity-journal-item">
+              <a href="#" class="activity-task-link" data-task-id="${e.resourceId}">
+                <task-badge task-id="${e.resourceId}"></task-badge>
+              </a>
+              ${e.title !== e.resourceId ? `<span class="activity-journal-title">${this.escapeHtml(e.title)}</span>` : ''}
+            </li>
+          `).join('')}
+        </ul>
+      </div>
+    `;
   }
 
   private renderOperation(op: OperationEntry, index: number): string {
     const isExpanded = this.expandedIndex === index;
     const time = new Date(op.ts);
     const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const dateStr = time.toLocaleDateString([], { month: 'short', day: 'numeric' });
 
     return `
       <div class="activity-item ${isExpanded ? 'expanded' : ''}" data-index="${index}">
@@ -207,7 +376,6 @@ export class ActivityPanel extends HTMLElement {
             </div>
           </div>
           <div class="activity-item-right">
-            <span class="activity-date">${dateStr}</span>
             <span class="activity-time">${timeStr}</span>
           </div>
         </div>
@@ -229,7 +397,6 @@ export class ActivityPanel extends HTMLElement {
   private renderExpandedContent(op: OperationEntry): string {
     let content = '';
     
-    // Add clickable task badge at top if we have a resourceId
     if (op.resourceId) {
       content += `
         <div class="activity-detail-row">
@@ -307,6 +474,51 @@ export class ActivityPanel extends HTMLElement {
     }
 
     return `<div class="activity-expanded" onclick="event.stopPropagation()">${content}</div>`;
+  }
+
+  private bindEventHandlers() {
+    // Mode toggle
+    this.querySelectorAll('.activity-mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = (btn as HTMLElement).dataset.mode as ViewMode;
+        this.setMode(mode);
+      });
+    });
+
+    // Day navigation
+    this.querySelectorAll('.activity-nav-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const action = (btn as HTMLElement).dataset.action;
+        if (action === 'prev') {
+          this.setDate(getPrevDay(this.selectedDate));
+        } else if (action === 'next') {
+          this.setDate(getNextDay(this.selectedDate));
+        } else if (action === 'today') {
+          this.setDate(getTodayKey());
+        }
+      });
+    });
+
+    // Expansion
+    this.querySelectorAll('.activity-item-header').forEach(header => {
+      header.addEventListener('click', () => {
+        const item = header.closest('.activity-item');
+        const index = parseInt(item?.getAttribute('data-index') || '0');
+        this.toggleExpand(index);
+      });
+    });
+
+    // Task links
+    this.querySelectorAll('.activity-task-link').forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const taskId = (link as HTMLElement).dataset.taskId;
+        if (taskId) {
+          document.dispatchEvent(new CustomEvent('task-selected', { detail: { taskId } }));
+        }
+      });
+    });
   }
 
   private escapeHtml(str: string): string {

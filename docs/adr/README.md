@@ -8,6 +8,7 @@ An ADR documents an important architectural decision along with its context and 
 
 ## Active ADRs
 
+- [0056. Activity Day Grouping and Daily Work Journal View](./0056-activity-day-grouping-and-journal-view.md) - Day separators in timeline, changelog-style journal view with navigation - 2026-02-04
 - [0055. Activity Panel Phase 2](./0055-activity-panel-phase-2.md) - Actor attribution, diff2html, count badge, polling, logger refactor - 2026-02-02
 - [0054. Operation Logging and Activity View](./0054-operation-logging-and-activity-view.md) - Log MCP tool operations and display in web viewer activity panel - 2026-02-02
 - [0053. Remove description field from backlog_update](./0053-remove-description-from-backlog-update.md) - Enforce safer incremental editing via write_resource - 2026-02-02

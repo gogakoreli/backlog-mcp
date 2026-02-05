@@ -1756,6 +1756,7 @@ copy-button {
   border-radius: 6px;
   overflow: hidden;
   margin-top: 8px;
+  position: relative; /* Fix for d2h-code-linenumber absolute positioning */
 }
 
 .activity-diff .d2h-file-header {
@@ -1764,10 +1765,27 @@ copy-button {
 
 .activity-diff .d2h-file-wrapper {
   margin-bottom: 0;
+  border: none;
 }
 
 .activity-diff .d2h-diff-table {
   font-size: 12px;
+}
+
+.activity-diff .d2h-code-linenumber {
+  position: sticky;
+  left: 0;
+}
+
+/* Stacked diffs container */
+.activity-diff-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.activity-diff-stack .activity-diff {
+  margin-top: 0;
 }
 
 /* Day grouping styles */

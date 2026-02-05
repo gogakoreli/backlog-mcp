@@ -149,7 +149,7 @@ function isStrReplace(op: OperationEntry): op is OperationEntry & { params: { ur
 /**
  * Merge consecutive str_replace operations on the same URI within a time window.
  * Operations are in reverse chronological order (newest first).
- * Merged operation shows: oldest.old_str → newest.new_str
+ * Stores all operations in _mergedOps for stacked diff rendering.
  */
 export function mergeConsecutiveEdits(operations: OperationEntry[]): OperationEntry[] {
   if (operations.length <= 1) return operations;
@@ -188,22 +188,16 @@ export function mergeConsecutiveEdits(operations: OperationEntry[]): OperationEn
     if (group.length === 1) {
       result.push(current);
     } else {
-      // Create merged operation: oldest.old_str → newest.new_str
+      // Create merged operation with all individual ops for stacked rendering
       const newest = group[0];
       const oldest = group[group.length - 1];
-      const newestOp = newest.params.operation as StrReplaceOp;
-      const oldestOp = oldest.params.operation as StrReplaceOp;
       
       const merged: OperationEntry = {
         ...newest,
         params: {
           ...newest.params,
-          operation: {
-            type: 'str_replace',
-            old_str: oldestOp.old_str,
-            new_str: newestOp.new_str,
-          },
           _mergedCount: group.length,
+          _mergedOps: group, // Store all ops for stacked diff rendering
           _mergedRange: { from: oldest.ts, to: newest.ts },
         },
       };

@@ -339,9 +339,11 @@ describe('activity-utils', () => {
       
       expect(merged).toHaveLength(1);
       expect(merged[0].params._mergedCount).toBe(2);
-      // Should show oldest.old_str → newest.new_str
-      expect((merged[0].params.operation as { old_str: string }).old_str).toBe('A');
-      expect((merged[0].params.operation as { new_str: string }).new_str).toBe('C');
+      // Should store all ops for stacked rendering
+      const mergedOps = merged[0].params._mergedOps as OperationEntry[];
+      expect(mergedOps).toHaveLength(2);
+      expect((mergedOps[0].params.operation as { new_str: string }).new_str).toBe('C'); // newest
+      expect((mergedOps[1].params.operation as { old_str: string }).old_str).toBe('A'); // oldest
     });
 
     it('does not merge ops more than 30s apart', () => {

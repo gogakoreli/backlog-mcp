@@ -406,31 +406,61 @@ export class ActivityPanel extends HTMLElement {
       }).join('');
     } else if (op.tool === 'backlog_delete') {
       content += `<div class="activity-detail-row"><span class="activity-detail-value">Task permanently deleted</span></div>`;
-    } else if (op.tool === 'write_resource' && op.params.operation) {
-      const operation = op.params.operation as { type: string; old_str?: string; new_str?: string };
+    } else if (op.tool === 'write_resource') {
+      // Check if this is a merged operation with multiple diffs
+      const mergedOps = op.params._mergedOps as OperationEntry[] | undefined;
       
-      if (operation.type === 'str_replace' && operation.old_str !== undefined && operation.new_str !== undefined) {
+      if (mergedOps && mergedOps.length > 1) {
+        // Render stacked diffs for all merged operations (oldest first for reading order)
         const uri = op.params.uri as string;
         const filename = uri.split('/').pop() || 'file';
-        const unifiedDiff = createUnifiedDiff(operation.old_str, operation.new_str, filename);
-        content += `
-          <div class="activity-diff">
-            ${Diff2Html.html(unifiedDiff, {
-              drawFileList: false,
-              matching: 'lines',
-              outputFormat: 'line-by-line',
-              diffStyle: 'word',
-              colorScheme: 'dark',
-            })}
-          </div>
-        `;
-      } else {
-        content += `
-          <div class="activity-detail-row">
-            <span class="activity-detail-label">Operation:</span>
-            <span class="activity-detail-value">${operation.type}</span>
-          </div>
-        `;
+        
+        content += `<div class="activity-diff-stack">`;
+        for (const mergedOp of [...mergedOps].reverse()) {
+          const operation = mergedOp.params.operation as { type: string; old_str?: string; new_str?: string };
+          if (operation.old_str !== undefined && operation.new_str !== undefined) {
+            const unifiedDiff = createUnifiedDiff(operation.old_str, operation.new_str, filename);
+            content += `
+              <div class="activity-diff">
+                ${Diff2Html.html(unifiedDiff, {
+                  drawFileList: false,
+                  matching: 'lines',
+                  outputFormat: 'line-by-line',
+                  diffStyle: 'word',
+                  colorScheme: 'dark',
+                })}
+              </div>
+            `;
+          }
+        }
+        content += `</div>`;
+      } else if (op.params.operation) {
+        // Single operation
+        const operation = op.params.operation as { type: string; old_str?: string; new_str?: string };
+        
+        if (operation.type === 'str_replace' && operation.old_str !== undefined && operation.new_str !== undefined) {
+          const uri = op.params.uri as string;
+          const filename = uri.split('/').pop() || 'file';
+          const unifiedDiff = createUnifiedDiff(operation.old_str, operation.new_str, filename);
+          content += `
+            <div class="activity-diff">
+              ${Diff2Html.html(unifiedDiff, {
+                drawFileList: false,
+                matching: 'lines',
+                outputFormat: 'line-by-line',
+                diffStyle: 'word',
+                colorScheme: 'dark',
+              })}
+            </div>
+          `;
+        } else {
+          content += `
+            <div class="activity-detail-row">
+              <span class="activity-detail-label">Operation:</span>
+              <span class="activity-detail-value">${operation.type}</span>
+            </div>
+          `;
+        }
       }
     }
 

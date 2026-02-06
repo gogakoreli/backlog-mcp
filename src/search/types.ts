@@ -22,6 +22,7 @@ export interface SearchFilters {
   status?: Status[];
   type?: TaskType;
   epic_id?: string;
+  parent_id?: string;
 }
 
 /**

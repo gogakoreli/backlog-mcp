@@ -403,7 +403,10 @@ export class OramaSearchService implements SearchService {
         hits = hits.filter(h => (h.task.type || 'task') === filters.type);
       }
       if (filters.epic_id) {
-        hits = hits.filter(h => h.task.epic_id === filters.epic_id);
+        hits = hits.filter(h => (h.task.parent_id ?? h.task.epic_id) === filters.epic_id);
+      }
+      if (filters.parent_id) {
+        hits = hits.filter(h => (h.task.parent_id ?? h.task.epic_id) === filters.parent_id);
       }
     }
 
@@ -623,7 +626,8 @@ export class OramaSearchService implements SearchService {
         const task = h.item as Task;
         if (filters.status?.length && !filters.status.includes(task.status)) return false;
         if (filters.type && (task.type || 'task') !== filters.type) return false;
-        if (filters.epic_id && task.epic_id !== filters.epic_id) return false;
+        if (filters.epic_id && (task.parent_id ?? task.epic_id) !== filters.epic_id) return false;
+        if (filters.parent_id && (task.parent_id ?? task.epic_id) !== filters.parent_id) return false;
         return true;
       });
     }

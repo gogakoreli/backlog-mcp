@@ -8,6 +8,8 @@ An ADR documents an important architectural decision along with its context and 
 
 ## Active ADRs
 
+- [0067. Substrates Backend Integration](./0067-substrates-backend-integration.md) - Evolve schema, storage, and MCP tools to support 5 entity types with parent_id - 2026-02-06
+- [0066. Frontend Type Registry for Substrates Viewer UI](./0066-frontend-type-registry-substrates-viewer.md) - Centralized type registry for rendering 5 substrate types in the web viewer - 2026-02-07
 - [0062. Spotlight Default Tabs: Recent Searches and Recent Activity](./0062-spotlight-default-tabs.md) - Tabbed default view with recent searches tracking and recent activity display - 2026-02-05
 - [0061. Activity Panel Polish and Code Quality](./0061-activity-panel-polish.md) - Non-null assertion fixes, sort dropdown, task-scoped filter UX, write_resource timestamp fix - 2026-02-05
 - [0060. Activity Summary System](./0060-activity-summary-system.md) - MCP tool for activity data, summary resources, UI integration - 2026-02-04

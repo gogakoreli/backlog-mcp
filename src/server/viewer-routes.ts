@@ -75,7 +75,15 @@ export function registerViewerRoutes(app: FastifyInstance) {
     // Include raw markdown for copy button
     const raw = storage.getMarkdown(id);
     
-    return { ...task, raw };
+    // Resolve parent title
+    const parentId = task.parent_id ?? task.epic_id;
+    let parentTitle: string | undefined;
+    if (parentId) {
+      const parent = storage.get(parentId);
+      parentTitle = parent?.title;
+    }
+    
+    return { ...task, raw, parentTitle };
   });
 
   // System status
@@ -212,7 +220,7 @@ export function registerViewerRoutes(app: FastifyInstance) {
           const taskData = storage.get(op.resourceId);
           taskCache.set(op.resourceId, {
             title: taskData?.title,
-            epicId: taskData?.epic_id,
+            epicId: taskData?.parent_id ?? taskData?.epic_id,
           });
         }
         const cached = taskCache.get(op.resourceId)!;

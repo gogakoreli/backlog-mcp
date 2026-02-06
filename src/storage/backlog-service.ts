@@ -52,13 +52,13 @@ class BacklogService {
     return this.taskStorage.getMarkdown(id);
   }
 
-  async list(filter?: { status?: Status[]; type?: TaskType; epic_id?: string; query?: string; limit?: number }): Promise<Task[]> {
+  async list(filter?: { status?: Status[]; type?: TaskType; epic_id?: string; parent_id?: string; query?: string; limit?: number }): Promise<Task[]> {
     const { query, ...storageFilter } = filter ?? {};
 
     if (query) {
       await this.ensureSearchReady();
       const results = await this.search.search(query, {
-        filters: { status: storageFilter.status, type: storageFilter.type, epic_id: storageFilter.epic_id },
+        filters: { status: storageFilter.status, type: storageFilter.type, epic_id: storageFilter.epic_id, parent_id: storageFilter.parent_id },
         limit: storageFilter.limit,
       });
       return results.map(r => ({ ...r.task, score: r.score }));
@@ -107,11 +107,11 @@ class BacklogService {
     return deleted;
   }
 
-  counts(): { total_tasks: number; total_epics: number; by_status: Record<Status, number> } {
+  counts(): { total_tasks: number; total_epics: number; by_status: Record<Status, number>; by_type: Record<string, number> } {
     return this.taskStorage.counts();
   }
 
-  getMaxId(type?: 'task' | 'epic'): number {
+  getMaxId(type?: TaskType): number {
     return this.taskStorage.getMaxId(type);
   }
 }

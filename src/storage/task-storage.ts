@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, unlink
 import { join } from 'node:path';
 import matter from 'gray-matter';
 import type { Task, Status, TaskType } from './schema.js';
+import { TYPE_PREFIXES } from './schema.js';
 import { paths } from '../utils/paths.js';
 import { logger } from '../utils/logger.js';
 
@@ -75,13 +76,14 @@ export class TaskStorage {
     return null;
   }
 
-  list(filter?: { status?: Status[]; type?: TaskType; epic_id?: string; limit?: number }): Task[] {
-    const { status, type, epic_id, limit = 20 } = filter ?? {};
+  list(filter?: { status?: Status[]; type?: TaskType; epic_id?: string; parent_id?: string; limit?: number }): Task[] {
+    const { status, type, epic_id, parent_id, limit = 20 } = filter ?? {};
     let tasks = Array.from(this.iterateTasks());
     
     if (status) tasks = tasks.filter(t => status.includes(t.status));
     if (type) tasks = tasks.filter(t => (t.type ?? 'task') === type);
-    if (epic_id) tasks = tasks.filter(t => t.epic_id === epic_id);
+    if (parent_id) tasks = tasks.filter(t => (t.parent_id ?? t.epic_id) === parent_id);
+    else if (epic_id) tasks = tasks.filter(t => (t.parent_id ?? t.epic_id) === epic_id);
     
     return tasks
       .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
@@ -114,7 +116,7 @@ export class TaskStorage {
     return false;
   }
 
-  counts(): { total_tasks: number; total_epics: number; by_status: Record<Status, number> } {
+  counts(): { total_tasks: number; total_epics: number; by_status: Record<Status, number>; by_type: Record<string, number> } {
     const by_status: Record<Status, number> = {
       open: 0,
       in_progress: 0,
@@ -123,23 +125,27 @@ export class TaskStorage {
       cancelled: 0,
     };
 
+    const by_type: Record<string, number> = {};
     let total_tasks = 0;
     let total_epics = 0;
 
     for (const task of this.iterateTasks()) {
       by_status[task.status]++;
-      if ((task.type ?? 'task') === 'epic') {
+      const type = task.type ?? 'task';
+      by_type[type] = (by_type[type] || 0) + 1;
+      if (type === 'epic') {
         total_epics++;
       } else {
         total_tasks++;
       }
     }
 
-    return { total_tasks, total_epics, by_status };
+    return { total_tasks, total_epics, by_status, by_type };
   }
 
-  getMaxId(type?: 'task' | 'epic'): number {
-    const pattern = type === 'epic' ? /^EPIC-(\d{4,})\.md$/ : /^TASK-(\d{4,})\.md$/;
+  getMaxId(type?: TaskType): number {
+    const prefix = TYPE_PREFIXES[type ?? 'task'];
+    const pattern = new RegExp(`^${prefix}-(\\d{4,})\\.md$`);
     let maxNum = 0;
 
     if (existsSync(this.tasksPath)) {

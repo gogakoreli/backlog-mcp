@@ -1,5 +1,5 @@
 import { fetchTasks, type Task } from '../utils/api.js';
-import { sseClient } from '../services/event-source-client.js';
+import { backlogEvents } from '../services/event-source-client.js';
 import './breadcrumb.js';
 import { ringIcon } from '../icons/index.js';
 
@@ -18,8 +18,6 @@ export class TaskList extends HTMLElement {
   private selectedTaskId: string | null = null;
   private currentQuery: string | null = null;
   private allTasks: Task[] = [];
-  
-  private pollTimer: number | null = null;
 
   connectedCallback() {
     const params = new URLSearchParams(window.location.search);
@@ -34,28 +32,34 @@ export class TaskList extends HTMLElement {
     }
 
     this.loadTasks();
-    this.setupRefresh();
-    
+
+    // Real-time updates via centralized event service
+    backlogEvents.onChange((event) => {
+      if (event.type === 'task_changed' || event.type === 'task_created' || event.type === 'task_deleted') {
+        this.loadTasks();
+      }
+    });
+
     document.addEventListener('filter-change', ((e: CustomEvent) => {
       this.currentFilter = e.detail.filter;
       this.currentType = e.detail.type ?? 'all';
       this.loadTasks();
     }) as EventListener);
-    
+
     document.addEventListener('sort-change', ((e: CustomEvent) => {
       this.currentSort = e.detail.sort;
       this.loadTasks();
     }) as EventListener);
-    
+
     document.addEventListener('search-change', ((e: CustomEvent) => {
       this.currentQuery = e.detail.query || null;
       this.loadTasks();
     }) as EventListener);
-    
+
     document.addEventListener('task-selected', ((e: CustomEvent) => {
       this.setSelected(e.detail.taskId);
     }) as EventListener);
-    
+
     document.addEventListener('epic-navigate', ((e: CustomEvent) => {
       this.currentEpicId = e.detail.epicId;
       if (e.detail.epicId) {
@@ -64,7 +68,7 @@ export class TaskList extends HTMLElement {
       this.loadTasks();
     }) as EventListener);
   }
-  
+
   setState(filter: string, type: string, epicId: string | null, taskId: string | null, query: string | null) {
     this.currentFilter = filter;
     this.currentType = type;
@@ -74,32 +78,6 @@ export class TaskList extends HTMLElement {
     this.loadTasks();
   }
 
-  private setupRefresh() {
-    // SSE-driven refresh for real-time updates
-    const sseHandler = () => this.loadTasks();
-    document.addEventListener('backlog:task_changed', sseHandler);
-    document.addEventListener('backlog:task_created', sseHandler);
-    document.addEventListener('backlog:task_deleted', sseHandler);
-
-    // Fall back to polling when SSE is disconnected
-    document.addEventListener('backlog:disconnected', () => {
-      if (!this.pollTimer) {
-        this.pollTimer = window.setInterval(() => this.loadTasks(), 5000);
-      }
-    });
-    document.addEventListener('backlog:connected', () => {
-      if (this.pollTimer) {
-        clearInterval(this.pollTimer);
-        this.pollTimer = null;
-      }
-    });
-
-    // Start with polling until SSE connects
-    if (!sseClient.connected) {
-      this.pollTimer = window.setInterval(() => this.loadTasks(), 5000);
-    }
-  }
-  
   private sortTasks(tasks: Task[]): Task[] {
     const sorted = [...tasks];
     switch (this.currentSort) {
@@ -112,20 +90,20 @@ export class TaskList extends HTMLElement {
         return sorted.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
     }
   }
-  
+
   async loadTasks() {
     try {
       let tasks = await fetchTasks(this.currentFilter as any, this.currentQuery || undefined);
       this.allTasks = tasks;
-      
+
       // Type filter
       if (this.currentType !== 'all') {
         tasks = tasks.filter(t => (t.type ?? 'task') === this.currentType);
       }
-      
+
       // Apply sort
       tasks = this.sortTasks(tasks);
-      
+
       // Epic navigation filter
       if (this.currentEpicId) {
         const currentEpic = tasks.find(t => t.id === this.currentEpicId);
@@ -137,9 +115,9 @@ export class TaskList extends HTMLElement {
         const orphanTasks = tasks.filter(t => (t.type ?? 'task') === 'task' && !t.epic_id);
         tasks = [...rootEpics, ...orphanTasks];
       }
-      
+
       this.render(tasks);
-      
+
       const breadcrumb = this.querySelector('epic-breadcrumb');
       if (breadcrumb) {
         (breadcrumb as any).setData(this.currentEpicId, this.allTasks);
@@ -148,13 +126,13 @@ export class TaskList extends HTMLElement {
       this.innerHTML = `<div class="error">Failed to load tasks: ${(error as Error).message}</div>`;
     }
   }
-  
+
   render(tasks: Task[]) {
     const isEmpty = tasks.length === 0;
     const isInsideEpic = !!this.currentEpicId;
     const currentEpic = isInsideEpic ? tasks.find(t => t.id === this.currentEpicId) : null;
     const hasOnlyEpic = isInsideEpic && tasks.length === 1 && currentEpic;
-    
+
     if (isEmpty) {
       this.innerHTML = `
         <epic-breadcrumb></epic-breadcrumb>
@@ -169,22 +147,22 @@ export class TaskList extends HTMLElement {
       }
       return;
     }
-    
+
     // Group: epics first, then tasks
     const epics = tasks.filter(t => (t.type ?? 'task') === 'epic');
     const regularTasks = tasks.filter(t => (t.type ?? 'task') === 'task');
     const grouped = [...epics, ...regularTasks];
-    
+
     this.innerHTML = `
       <epic-breadcrumb></epic-breadcrumb>
       <div class="task-list">
         ${grouped.map((task, index) => {
-          const childCount = (task.type ?? 'task') === 'epic' 
-            ? this.allTasks.filter(t => t.epic_id === task.id).length 
+          const childCount = (task.type ?? 'task') === 'epic'
+            ? this.allTasks.filter(t => t.epic_id === task.id).length
             : 0;
           const isCurrentEpic = this.currentEpicId === task.id;
           return `
-            <task-item 
+            <task-item
               data-id="${task.id}"
               data-title="${escapeAttr(task.title)}"
               data-status="${task.status}"
@@ -199,13 +177,13 @@ export class TaskList extends HTMLElement {
         ${hasOnlyEpic ? '<div class="empty-state-inline"><div class="empty-state-icon">—</div><div>No tasks in this epic</div></div>' : ''}
       </div>
     `;
-    
+
     const breadcrumb = this.querySelector('epic-breadcrumb');
     if (breadcrumb) {
       (breadcrumb as any).setData(this.currentEpicId, this.allTasks);
     }
   }
-  
+
   setSelected(taskId: string) {
     this.selectedTaskId = taskId;
   }

@@ -23,7 +23,7 @@ import {
   type JournalEntry,
   type EpicGroup,
 } from './activity-utils.js';
-import { sseClient } from '../services/event-source-client.js';
+import { backlogEvents, type ChangeCallback } from '../services/event-source-client.js';
 
 type ViewMode = 'timeline' | 'journal';
 
@@ -31,7 +31,6 @@ function createUnifiedDiff(oldStr: string, newStr: string, filename: string = 'f
   return createTwoFilesPatch(filename, filename, oldStr, newStr, '', '', { context: 5 });
 }
 
-const POLL_INTERVAL = 30000;
 const MODE_STORAGE_KEY = 'backlog:activity-mode';
 const DEFAULT_VISIBLE_ITEMS = 2;
 
@@ -39,13 +38,10 @@ export class ActivityPanel extends HTMLElement {
   private taskId: string | null = null;
   private operations: OperationEntry[] = [];
   private expandedIndex: string | null = null; // Changed to timestamp-based ID
-  private pollTimer: number | null = null;
-  private visibilityHandler: (() => void) | null = null;
   private mode: ViewMode = 'timeline';
   private selectedDate: string = getTodayKey();
   private expandedTaskGroups = new Set<string>();
-
-  private sseHandler: (() => void) | null = null;
+  private changeHandler: ChangeCallback = () => this.loadOperations();
 
   connectedCallback() {
     this.className = 'activity-panel';
@@ -55,62 +51,11 @@ export class ActivityPanel extends HTMLElement {
       this.mode = savedMode;
     }
     this.render();
-    this.setupRefresh();
+    backlogEvents.onChange(this.changeHandler);
   }
 
   disconnectedCallback() {
-    this.stopPolling();
-    if (this.sseHandler) {
-      document.removeEventListener('backlog:change', this.sseHandler);
-      this.sseHandler = null;
-    }
-  }
-
-  private setupRefresh() {
-    // SSE-driven refresh
-    this.sseHandler = () => this.loadOperations();
-    document.addEventListener('backlog:change', this.sseHandler);
-
-    // Fall back to polling when SSE is disconnected
-    document.addEventListener('backlog:disconnected', () => {
-      if (!this.pollTimer) {
-        this.startPolling();
-      }
-    });
-    document.addEventListener('backlog:connected', () => {
-      this.stopPolling();
-    });
-
-    // Start with polling until SSE connects
-    if (!sseClient.connected) {
-      this.startPolling();
-    }
-  }
-
-  private startPolling() {
-    this.pollTimer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        this.loadOperations();
-      }
-    }, POLL_INTERVAL);
-
-    this.visibilityHandler = () => {
-      if (document.visibilityState === 'visible') {
-        this.loadOperations();
-      }
-    };
-    document.addEventListener('visibilitychange', this.visibilityHandler);
-  }
-
-  private stopPolling() {
-    if (this.pollTimer !== null) {
-      clearInterval(this.pollTimer);
-      this.pollTimer = null;
-    }
-    if (this.visibilityHandler) {
-      document.removeEventListener('visibilitychange', this.visibilityHandler);
-      this.visibilityHandler = null;
-    }
+    backlogEvents.offChange(this.changeHandler);
   }
 
   setTaskId(taskId: string | null) {

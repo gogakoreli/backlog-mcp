@@ -1,6 +1,7 @@
 import { fetchTask, fetchOperationCount } from '../utils/api.js';
 import type { Reference } from '../utils/api.js';
 import { copyIcon, activityIcon } from '../icons/index.js';
+import { backlogEvents } from '../services/event-source-client.js';
 
 function linkify(input: string | Reference): string {
   if (typeof input === 'string') {
@@ -17,12 +18,11 @@ export class TaskDetail extends HTMLElement {
     this.showEmpty();
 
     // Re-fetch displayed task when it changes via SSE
-    const onTaskChange = ((e: CustomEvent) => {
-      if (this.currentTaskId && e.detail?.id === this.currentTaskId) {
+    backlogEvents.onChange((event) => {
+      if (this.currentTaskId && event.type === 'task_changed' && event.id === this.currentTaskId) {
         this.loadTask(this.currentTaskId);
       }
-    }) as EventListener;
-    document.addEventListener('backlog:task_changed', onTaskChange);
+    });
   }
 
   showEmpty() {

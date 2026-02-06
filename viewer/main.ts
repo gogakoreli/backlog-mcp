@@ -16,10 +16,10 @@ import './components/activity-panel.js';
 import './components/backlog-app.js';
 import { urlState } from './utils/url-state.js';
 import { splitPane } from './utils/split-pane.js';
-import { sseClient } from './services/event-source-client.js';
+import { backlogEvents } from './services/event-source-client.js';
 
 // Connect to SSE for real-time updates
-sseClient.connect();
+backlogEvents.connect();
 
 // Component events -> URL updates
 document.addEventListener('filter-change', ((e: CustomEvent) => {

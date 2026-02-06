@@ -1,17 +1,20 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { operationLogger } from './logger.js';
 import { eventBus } from '../events/index.js';
+import type { BacklogEventType } from '../events/index.js';
 import { extractResourceId } from './resource-id.js';
-import { WRITE_TOOLS } from './types.js';
+import { WRITE_TOOLS, type ToolName } from './types.js';
 
-/** Map tool names to event types for the EventBus. */
-function toolToEventType(tool: string): 'task_changed' | 'task_created' | 'task_deleted' | 'resource_changed' {
-  switch (tool) {
-    case 'backlog_create': return 'task_created';
-    case 'backlog_delete': return 'task_deleted';
-    case 'write_resource': return 'resource_changed';
-    default: return 'task_changed';
-  }
+/** Declarative mapping from write tool to event type. */
+const TOOL_EVENT_MAP: Record<ToolName, BacklogEventType> = {
+  backlog_create: 'task_created',
+  backlog_update: 'task_changed',
+  backlog_delete: 'task_deleted',
+  write_resource: 'resource_changed',
+};
+
+function isWriteTool(name: string): name is ToolName {
+  return WRITE_TOOLS.includes(name as ToolName);
 }
 
 /**
@@ -35,9 +38,9 @@ export function withOperationLogging(server: McpServer): McpServer {
       operationLogger.log(name, params, result);
 
       // Emit real-time event for SSE consumers
-      if (WRITE_TOOLS.includes(name as any)) {
+      if (isWriteTool(name)) {
         eventBus.emit({
-          type: toolToEventType(name),
+          type: TOOL_EVENT_MAP[name],
           id: extractResourceId(name, params, result) || '',
           tool: name,
           actor: process.env.BACKLOG_ACTOR_NAME || process.env.USER || 'unknown',

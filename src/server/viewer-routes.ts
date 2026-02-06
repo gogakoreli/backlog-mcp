@@ -7,6 +7,10 @@ import { storage } from '../storage/backlog-service.js';
 import { resourceManager } from '../resources/manager.js';
 import { paths } from '../utils/paths.js';
 import { operationLogger } from '../operations/index.js';
+import { eventBus } from '../events/index.js';
+import type { BacklogEvent } from '../events/index.js';
+
+const SSE_HEARTBEAT_MS = 30_000;
 
 export function registerViewerRoutes(app: FastifyInstance) {
   // Static files - serve from dist/viewer (built assets)
@@ -235,5 +239,51 @@ export function registerViewerRoutes(app: FastifyInstance) {
   app.get('/operations/count/:taskId', async (request) => {
     const { taskId } = request.params as { taskId: string };
     return { count: operationLogger.countForTask(taskId) };
+  });
+
+  // SSE endpoint for real-time viewer updates
+  app.get('/events', (request, reply) => {
+    const lastEventId = request.headers['last-event-id'] as string | undefined;
+
+    reply.hijack();
+    const raw = reply.raw;
+
+    raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no', // Disable nginx buffering
+    });
+
+    // Replay missed events if client reconnected with Last-Event-ID
+    if (lastEventId) {
+      const seq = parseInt(lastEventId, 10);
+      if (!isNaN(seq)) {
+        const missed = eventBus.replaySince(seq);
+        for (const event of missed) {
+          raw.write(`id: ${event.seq}\ndata: ${JSON.stringify(event)}\n\n`);
+        }
+      }
+    }
+
+    // Send initial connected event
+    raw.write(`: connected\n\n`);
+
+    // Subscribe to new events
+    const onEvent = (event: BacklogEvent) => {
+      raw.write(`id: ${event.seq}\ndata: ${JSON.stringify(event)}\n\n`);
+    };
+    eventBus.subscribe(onEvent);
+
+    // Heartbeat to keep connection alive through proxies
+    const heartbeat = setInterval(() => {
+      raw.write(`: heartbeat\n\n`);
+    }, SSE_HEARTBEAT_MS);
+
+    // Cleanup on disconnect
+    request.raw.on('close', () => {
+      clearInterval(heartbeat);
+      eventBus.unsubscribe(onEvent);
+    });
   });
 }

@@ -11,10 +11,20 @@ function linkify(input: string | Reference): string {
 }
 
 export class TaskDetail extends HTMLElement {
+  private currentTaskId: string | null = null;
+
   connectedCallback() {
     this.showEmpty();
+
+    // Re-fetch displayed task when it changes via SSE
+    const onTaskChange = ((e: CustomEvent) => {
+      if (this.currentTaskId && e.detail?.id === this.currentTaskId) {
+        this.loadTask(this.currentTaskId);
+      }
+    }) as EventListener;
+    document.addEventListener('backlog:task_changed', onTaskChange);
   }
-  
+
   showEmpty() {
     this.innerHTML = `
       <div class="empty-state">
@@ -25,6 +35,7 @@ export class TaskDetail extends HTMLElement {
   }
   
   async loadTask(taskId: string) {
+    this.currentTaskId = taskId;
     try {
       const task = await fetchTask(taskId);
       

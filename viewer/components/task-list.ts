@@ -1,4 +1,5 @@
 import { fetchTasks, type Task } from '../utils/api.js';
+import { sseClient } from '../services/event-source-client.js';
 import './breadcrumb.js';
 import { ringIcon } from '../icons/index.js';
 
@@ -18,20 +19,22 @@ export class TaskList extends HTMLElement {
   private currentQuery: string | null = null;
   private allTasks: Task[] = [];
   
+  private pollTimer: number | null = null;
+
   connectedCallback() {
     const params = new URLSearchParams(window.location.search);
     this.selectedTaskId = params.get('task');
     this.currentEpicId = params.get('epic');
     this.currentQuery = params.get('q');
-    
+
     // Restore sort from localStorage
     const savedSort = localStorage.getItem(SORT_STORAGE_KEY);
     if (savedSort) {
       this.currentSort = savedSort;
     }
-    
+
     this.loadTasks();
-    setInterval(() => this.loadTasks(), 5000);
+    this.setupRefresh();
     
     document.addEventListener('filter-change', ((e: CustomEvent) => {
       this.currentFilter = e.detail.filter;
@@ -69,6 +72,32 @@ export class TaskList extends HTMLElement {
     this.selectedTaskId = taskId;
     this.currentQuery = query;
     this.loadTasks();
+  }
+
+  private setupRefresh() {
+    // SSE-driven refresh for real-time updates
+    const sseHandler = () => this.loadTasks();
+    document.addEventListener('backlog:task_changed', sseHandler);
+    document.addEventListener('backlog:task_created', sseHandler);
+    document.addEventListener('backlog:task_deleted', sseHandler);
+
+    // Fall back to polling when SSE is disconnected
+    document.addEventListener('backlog:disconnected', () => {
+      if (!this.pollTimer) {
+        this.pollTimer = window.setInterval(() => this.loadTasks(), 5000);
+      }
+    });
+    document.addEventListener('backlog:connected', () => {
+      if (this.pollTimer) {
+        clearInterval(this.pollTimer);
+        this.pollTimer = null;
+      }
+    });
+
+    // Start with polling until SSE connects
+    if (!sseClient.connected) {
+      this.pollTimer = window.setInterval(() => this.loadTasks(), 5000);
+    }
   }
   
   private sortTasks(tasks: Task[]): Task[] {

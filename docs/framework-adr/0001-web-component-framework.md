@@ -29,7 +29,24 @@ document.addEventListener('filter-change', ((e: CustomEvent) => {
 
 **Evidence**: `task-list.ts:43-66` has 5 event listeners with identical boilerplate. `main.ts` has 8 more. `task-detail.ts:94` attaches click handlers after render via `setTimeout`. None of these are cleaned up in `disconnectedCallback`.
 
-### Problem 3: No Shared State Primitives
+### Problem 3: Untyped Global Event Pollution
+
+Components communicate by spraying `document.dispatchEvent(new CustomEvent('task-selected', { detail: { taskId } }))` into the global void. This is problematic in several ways:
+
+- **No type safety**: Event names are magic strings. Payloads are `any`. Nothing catches typos or shape mismatches at compile time.
+- **Invisible contracts**: To understand what a component emits or consumes, you must read every line of its source. There's no declaration of "this component emits X and listens to Y."
+- **Global namespace pollution**: All events live on `document`. Every component can hear every event. There's no scoping, no hierarchy, no intentional communication boundaries.
+- **Coupling via hidden channels**: `task-item.ts:71` dispatches `task-selected` on `document`. `task-list.ts:59`, `main.ts:33`, and `url-state` all listen. But none of these know about each other — the coupling is invisible and fragile.
+
+**Evidence**: `main.ts` is essentially a hand-written event router — 8 `document.addEventListener` calls wiring components to services. This is the "framework" the codebase accidentally grew.
+
+### Problem 4: Events Are Detached from Templates
+
+Event listeners are registered in one place (`listen('.task-row click', ...)` or `attachListeners()`) while the DOM elements they target are defined in another (the template). This creates coupling via CSS selectors — rename a class in the template and the event silently stops working. There's no way to see, from reading the template alone, which elements are interactive.
+
+**Evidence**: `task-item.ts:39-77` — `attachListeners()` queries for `.task-item` and `.enter-icon` by selector after render. If the template changes the class name, the listener breaks silently.
+
+### Problem 5: No Shared State Primitives
 
 State is scattered across:
 - Private class fields (`this.currentFilter`, `this.selectedTaskId`)
@@ -40,11 +57,11 @@ State is scattered across:
 
 There is no unified way to declare "this component depends on X, re-render when X changes." Dependencies are implicit, wired up manually, and easy to get wrong.
 
-### Problem 4: No Lifecycle Management
+### Problem 6: No Lifecycle Management
 
 Components subscribe to global events and services but rarely unsubscribe. `ActivityPanel` is the only component that implements `disconnectedCallback` cleanup. All others leak listeners when removed from the DOM.
 
-### Problem 5: CSS Is a Maintenance Bottleneck
+### Problem 7: CSS Is a Maintenance Bottleneck
 
 `styles.css` is a single 600+ line global stylesheet with manual class names. Every new component means adding more hand-written CSS. Component styles are not colocated with component logic — they live in a separate file, requiring constant context-switching. Class naming is ad-hoc (`.task-item`, `.epic-separator`, `.empty-state-inline`), with no system or convention.
 
@@ -95,8 +112,8 @@ This means:
 viewer/framework/
 ├── signal.ts          # signal(), computed(), effect() — pure functions
 ├── component.ts       # defineComponent() + minimal BaseComponent shell
-├── template.ts        # html tagged template → DOM binding engine
-├── events.ts          # listen() — pure function, auto-cleanup via context
+├── template.ts        # html tagged template → DOM binding engine + @event
+├── channel.ts         # createChannel() — typed pub/sub, replaces CustomEvent
 ├── injector.ts        # createToken(), provide(), inject() — pure functions
 ├── context.ts         # Setup context: getCurrentComponent() + runWithContext()
 └── index.ts           # Public API barrel export
@@ -132,25 +149,55 @@ This is the same pattern used by Angular's `inject()`, Solid's `createSignal()`,
 ```typescript
 import { signal, computed, effect } from './framework';
 
-// These are standalone functions — no class, no this, no context needed
+// Create a signal — returns [read, write] tuple
 const [count, setCount] = signal(0);
-count.value;        // read → 0 (auto-tracks if inside effect/computed)
-setCount(5);        // write → notifies dependents
+
+// Read: call the signal like a function
+count()             // → 0 (auto-tracks if inside effect/computed)
+
+// Write: call the setter
+setCount(5);        // → notifies dependents
 setCount(n => n + 1); // updater function
 
-// Derived — lazy, cached, auto-tracks
-const doubled = computed(() => count.value * 2);
+// Derived — lazy, cached, auto-tracks dependencies
+const doubled = computed(() => count() * 2);
 
 // Side effect — re-runs when deps change, returns dispose function
 const dispose = effect(() => {
-  console.log('count is', count.value);
+  console.log('count is', count());
   return () => { /* cleanup on re-run or dispose */ };
 });
 ```
 
 Signals are **completely decoupled from components**. They work anywhere: in a component setup, in a service, in a plain module, in a test. They're just reactive atoms with dependency tracking.
 
-**Implicit reads in templates**: Signal objects implement `toString()` and carry a `[signalBrand]` symbol. When the `html` tag function encounters a signal in an interpolation slot, it recognizes it and creates a live binding — no need to call `count()` or `count.value` in templates. You just write `${count}` and the template engine handles subscription automatically. Outside templates (in computed, effect, or plain code), you use `.value` for explicit reads.
+#### Why `count()` and not just `count` (the honest answer)
+
+In JavaScript, there is no way to make a plain variable reactive. When you write `const x = someSignal`, `x` holds a reference — reading `x` doesn't go through any proxy or trap. This is a language-level limitation that every framework hits:
+
+| Framework | Read syntax | Requires compiler? |
+|---|---|---|
+| Svelte 5 | `count` (plain variable) | Yes (`$state` rune) |
+| Vue | `count.value` | No |
+| Angular 17+ | `count()` | No |
+| Solid | `count()` | No |
+| React | `count` (but no dependency tracking) | No |
+
+Without a compiler, the only options are `.value` (property access) or `()` (function call). We choose `()` because:
+- It's one character shorter than `.value`
+- The return shape of `signal()` — a tuple `[getter, setter]` — makes it obvious that `count` is a function
+- Angular and Solid have proven this ergonomic at scale
+- It's consistent: `count()` reads, `setCount(v)` writes
+
+**However, in templates, signals are fully implicit.** The `html` tag function receives the raw signal object in each `${}` slot. It detects signals (via `[Symbol.signal]` brand), reads the current value for initial render, and subscribes for updates. You just write `${count}` — the template engine handles everything. This is the crucial difference from Solid/Angular, where you'd write `${count()}` in JSX/templates. Our tagged template design means the most natural code IS the correct code.
+
+```typescript
+// In JS code (computed, effect, event handlers):
+const doubled = computed(() => count() * 2);  // explicit read
+
+// In html templates:
+html`<span>${count}</span>`                    // implicit — just works
+```
 
 **Key design choice**: Push-pull hybrid. Writes push "dirty" flags up the graph. Reads pull fresh values lazily. Computed values aren't recalculated until actually read.
 
@@ -159,91 +206,158 @@ Signals are **completely decoupled from components**. They work anywhere: in a c
 ### Component Model (`component.ts`) — Thin Shell + setup()
 
 ```typescript
-import { defineComponent, html, signal, computed, inject, listen } from './framework';
+import { defineComponent, html, signal, computed, inject, when } from './framework';
 
-// ---------- Example: TaskItem ----------
 const TaskItem = defineComponent('task-item', (host) => {
-  // Reactive state — plain function calls, no this
+  // State — pure function calls, no this
   const [title, setTitle] = signal('');
   const [status, setStatus] = signal('open');
-  const [selected, setSelected] = signal(false);
   const [childCount, setChildCount] = signal(0);
 
-  // Inject services — resolved from ancestor providers via DOM tree
+  // Inject typed channels and services from ancestor providers
+  const navigation = inject(NavigationChannel);
   const scope = inject(SidebarScope);
 
-  // Derived state — auto-recomputes when dependencies change
-  const statusLabel = computed(() => status.value.replace('_', ' '));
+  // Derived state
+  const statusLabel = computed(() => status().replace('_', ' '));
 
-  // Events — auto-cleaned when component disconnects
-  listen('.task-row click', () => {
-    document.dispatchEvent(new CustomEvent('task-selected', { detail: { taskId: host.id } }));
-  });
-  listen('.enter-icon click', (e) => {
+  // Selection — subscribe to channel, get reactive signal back
+  const selected = navigation.isSelected(() => host.dataset.id!);
+
+  // Handlers — plain functions, no event ceremony
+  const onSelect = () => navigation.select(host.dataset.id!);
+  const onDrillIn = (e: Event) => {
     e.stopPropagation();
-    scope.set(host.dataset.id);
-  });
-  listen('document task-selected', (e) => {
-    setSelected(e.detail.taskId === host.dataset.id);
-  });
+    scope.set(host.dataset.id!);
+  };
 
-  // Template — signals are IMPLICIT, no .value or () needed
-  // Tailwind classes colocated with structure
+  // Template — events INLINE with @, signals IMPLICIT
   return html`
     <div class="flex items-center gap-2 px-3 py-2 rounded cursor-pointer
                 hover:bg-white/5 transition-colors
-                ${selected} ? 'bg-white/10 border-l-2 border-blue-400' : ''">
+                ${selected} ? 'bg-white/10 border-l-2 border-blue-400' : ''"
+         @click=${onSelect}>
       <task-badge task-id="${host.dataset.id}"></task-badge>
       <span class="flex-1 truncate text-sm">${title}</span>
       <span class="text-xs px-2 py-0.5 rounded-full bg-white/10">${statusLabel}</span>
-      ${when(childCount, html`<span class="text-xs text-gray-400">${childCount}</span>`)}
+      ${when(childCount,
+        html`<span class="text-xs text-gray-400"
+                   @click=${onDrillIn}>${childCount}</span>`
+      )}
     </div>
   `;
 });
 ```
 
+Notice what's NOT in this component:
+- No `document.dispatchEvent`
+- No `new CustomEvent`
+- No `document.addEventListener`
+- No `listen('.some-selector click', ...)`
+- No `this`
+- No `.value` or `()` in the template
+- No separate CSS file
+
 **What `defineComponent()` does internally**:
 1. Creates a class extending `HTMLElement` (you never write `class ... extends` yourself)
-2. In `connectedCallback`, calls `runWithContext(this, setupFn)` — this is the only moment the context exists
-3. The `setup()` function's pure function calls (`signal()`, `inject()`, `listen()`) register themselves against the context
-4. `setup()` returns an `html` template result, which gets mounted
-5. In `disconnectedCallback`, all registered listeners and effects are disposed automatically
+2. In `connectedCallback`, calls `runWithContext(this, setupFn)` — the only moment the context exists
+3. The `setup()` function's pure function calls (`signal()`, `inject()`) register against the context
+4. `setup()` returns an `html` template result, which gets mounted — including `@event` bindings
+5. In `disconnectedCallback`, all subscriptions, effects, and event bindings are disposed automatically
 
-The component author never touches `connectedCallback`, `disconnectedCallback`, `attributeChangedCallback`, or `this`. The setup function receives `host` (the raw element) for the rare cases you need it (reading `dataset`, `id`, etc.).
+The component author never touches `connectedCallback`, `disconnectedCallback`, `attributeChangedCallback`, or `this`. The setup function receives `host` (the raw element) for reading `dataset`, `id`, etc.
 
-**Implicit signal reads in templates**: When the `html` tag function processes `${title}`, it checks if the value is a signal (has a `[signalBrand]` symbol). If so, it reads the current value for initial render AND subscribes for future updates. The component author never needs to write `title.value` or `title()` inside a template — just `${title}`. This is critical for human-AI coherence: an LLM naturally writes `${title}`, not `${title()}`.
+### Inline Events via `@event` — Events Live Where Elements Live
 
-**Conditional rendering**: `when(signal, thenTemplate, elseTemplate?)` renders based on whether a signal is truthy. `repeat(signal, keyFn, templateFn)` handles lists. These are plain functions, not special syntax.
+Events are **part of the template**, not separate from it:
 
-### Why This Is Better Than `this.signal()` / `this.inject()`
+```typescript
+// Events are colocated with the elements they belong to
+return html`
+  <button @click=${onSave}>Save</button>
+  <input @input=${onSearch} @keydown.escape=${onClear} />
+  <div @mouseenter=${onHover} @mouseleave=${onLeave}>...</div>
+`;
+```
 
-| `this.method()` style (old proposal) | Pure function style (this proposal) |
-|---|---|
-| `title = this.signal('')` | `const title = signal('')` |
-| `scope = this.inject(SidebarScope)` | `const scope = inject(SidebarScope)` |
-| `events = this.listen({...})` | `listen('.btn click', handler)` |
-| Requires class inheritance | `defineComponent()` — no class authoring |
-| Logic locked inside a class body | Composable — extract to shared functions |
-| Can't share logic between components | Extract a function, call it from any setup |
-| Testing requires instantiating the class | Test signals/services in isolation, no DOM needed |
+This eliminates the selector-coupling problem entirely. There's no `.btn click` string that must match a class in the template. The `@click` is ON the element — you can see from reading the template exactly which elements are interactive and what they do.
 
-**Composability** is the killer advantage. Because everything is a plain function, you can extract and share reactive logic:
+The `html` tag function processes `@event` attributes as event bindings:
+1. Extracts the handler reference from the `${}` slot
+2. Attaches it to the specific DOM element during mount
+3. Removes it during unmount
+4. Supports modifiers: `@click.stop`, `@input.debounce.300`, `@keydown.enter`
+
+This is the same `@event` convention used by Lit and Vue templates — proven, familiar, and self-documenting.
+
+### Typed Event Channels — Replace `document.dispatchEvent`
+
+Instead of spraying untyped `CustomEvent`s onto `document`, components communicate through **typed channels** provided via DI:
+
+```typescript
+// ---- Channel definition (shared types file) ----
+
+interface NavigationEvents {
+  select: { id: string };
+  filter: { filter: string; type: string };
+  search: { query: string };
+}
+
+const NavigationChannel = createChannel<NavigationEvents>('Navigation');
+
+// ---- Provider (app root) ----
+const BacklogApp = defineComponent('backlog-app', (host) => {
+  provide(NavigationChannel);
+  // ...
+});
+
+// ---- Producer (task-item) ----
+const TaskItem = defineComponent('task-item', (host) => {
+  const nav = inject(NavigationChannel);
+  const onSelect = () => nav.emit('select', { id: host.dataset.id! });
+  // ...
+});
+
+// ---- Consumer (task-list) ----
+const TaskList = defineComponent('task-list', (host) => {
+  const nav = inject(NavigationChannel);
+
+  // Subscribe — auto-disposed on disconnect
+  nav.on('select', ({ id }) => setSelectedId(id));
+  nav.on('filter', ({ filter, type }) => { /* ... */ });
+
+  // Or: derive a signal directly from a channel event
+  const selectedId = nav.toSignal('select', e => e.id, null);
+  // ...
+});
+```
+
+**What channels give us**:
+- **Type safety**: `nav.emit('select', { id: 123 })` is a compile error — `id` must be `string`
+- **Explicit contracts**: The `NavigationEvents` interface IS the documentation. You can see every event a channel carries.
+- **Scoped communication**: Channels are provided via DI, not global. Only components in the provider's subtree can access them.
+- **No magic strings**: Event names are typed keys, not arbitrary strings on `document`
+- **Auto-cleanup**: Subscriptions are tied to the component lifecycle via the setup context
+- **Signal integration**: `toSignal()` bridges channels directly into the reactive system
+
+This replaces ALL of `main.ts`'s hand-written event routing. The 8 `document.addEventListener` calls become typed channel subscriptions scoped to the provider tree.
+
+### Composability — Shared Logic as Plain Functions
+
+Because everything is a plain function, you can extract and share reactive logic:
 
 ```typescript
 // Shared composable — works in any component's setup()
-function useSelection(getId: () => string) {
-  const [selected, setSelected] = signal(false);
-  listen('document task-selected', (e) => {
-    setSelected(e.detail.taskId === getId());
-  });
-  return selected;  // returns readable signal — implicit in templates
+function useSelection(channel: Channel<NavigationEvents>, getId: () => string) {
+  const selectedId = channel.toSignal('select', e => e.id, null);
+  return computed(() => selectedId() === getId());
 }
 
 // Used in TaskItem setup:
-const selected = useSelection(() => host.dataset.id!);
+const selected = useSelection(nav, () => host.dataset.id!);
 
 // Used in TaskDetail setup:
-const selected = useSelection(() => currentTaskId.value);
+const selected = useSelection(nav, () => currentTaskId());
 ```
 
 This is a "composable" / "hook" without React's rules-of-hooks constraints. It's just a function that calls other functions. No ordering rules, no conditional call restrictions.
@@ -282,49 +396,45 @@ html`
 ### Dependency Injection (`injector.ts`) — Pure Functions
 
 ```typescript
-import { createToken, provide, inject } from './framework';
+import { createToken, createChannel, provide, inject } from './framework';
 
-// Define tokens — plain constants
+// Services — plain tokens
 const SidebarScope = createToken<SidebarScopeService>('SidebarScope');
-const EventBus = createToken<BacklogEventsService>('EventBus');
-const UrlState = createToken<UrlStateService>('UrlState');
+const BacklogAPI = createToken<BacklogAPIService>('BacklogAPI');
+const SSEEvents = createToken<SSEService>('SSEEvents');
+
+// Channels — typed pub/sub (replace document.dispatchEvent)
+const NavigationChannel = createChannel<NavigationEvents>('Navigation');
+const FilterChannel = createChannel<FilterEvents>('Filter');
+const ResourceChannel = createChannel<ResourceEvents>('Resource');
 
 // Provider (app root setup)
 const BacklogApp = defineComponent('backlog-app', (host) => {
   provide(SidebarScope, () => new SidebarScopeService());
-  provide(EventBus, () => new BacklogEventsService());
-  provide(UrlState, () => new UrlStateService());
+  provide(BacklogAPI, () => new BacklogAPIService());
+  provide(SSEEvents, () => new SSEService());
+  provide(NavigationChannel);
+  provide(FilterChannel);
+  provide(ResourceChannel);
   // ...
 });
 
 // Consumer (any descendant setup)
 const TaskList = defineComponent('task-list', (host) => {
-  const scope = inject(SidebarScope);   // walks DOM tree to find provider
-  const events = inject(EventBus);
+  const scope = inject(SidebarScope);
+  const nav = inject(NavigationChannel);
+  const filters = inject(FilterChannel);
   // ...
 });
 ```
 
 `inject()` calls `getCurrentComponent()` internally, walks up `host.parentElement` to find the nearest ancestor that called `provide()` for that token. Values are lazy-created and cached. Falls back to a module-level registry for backward compat with existing singletons during migration.
 
-### Event System (`events.ts`) — Pure Functions
+**Channels vs Services**: Both are injectable, but they serve different purposes:
+- **Services** (`createToken`) — hold logic and state (API clients, storage, SSE connection)
+- **Channels** (`createChannel`) — typed event buses for component-to-component communication
 
-```typescript
-// Inside any setup() function:
-
-// Local DOM events — scoped to this component's subtree
-listen('.btn click', (e) => handleClick(e));
-listen('.input input', (e) => search(e.target.value), { debounce: 300 });
-
-// Global custom events
-listen('document task-selected', (e) => onTaskSelected(e.detail));
-listen('document filter-change', (e) => onFilter(e.detail));
-
-// Service subscriptions
-listen(EventBus, 'onChange', (event) => onBackendChange(event));
-```
-
-`listen()` reads the setup context to know which component owns this listener. It registers the listener for attachment in `connectedCallback` and removal in `disconnectedCallback`. The component author never writes lifecycle code.
+This separation makes intent explicit: if a component injects a channel, it's communicating with siblings/ancestors. If it injects a service, it's accessing shared infrastructure.
 
 ### Migration Path
 
@@ -338,17 +448,21 @@ Components can be migrated one at a time:
 ### Strengths
 - Zero-overhead updates: signal → exact DOM node, no diffing
 - **Pure functions everywhere** — no `this`, no class authoring, no inheritance
+- **Events colocated with elements** — `@click=${handler}` ON the element, not via detached selector
+- **Typed channels** replace `document.dispatchEvent(new CustomEvent(...))` pollution
 - **Composable** — extract shared logic into plain functions (like React hooks but no rules)
+- **Implicit signals in templates** — `${title}` just works, `count()` only needed in JS logic
 - Signals work standalone (in services, tests, modules) — not coupled to components
 - Template is parsed once, cloned per instance, then only bindings execute
 - True fine-grained reactivity — updating one task's status touches one `<span>`, not the whole list
 - DI via pure `inject()` makes testing trivial without mocking module imports
 
 ### Weaknesses
-- Tagged template engine is the most complex piece (~200 lines) — needs careful implementation
+- Tagged template engine + `@event` processing is the most complex piece (~250 lines) — needs careful implementation
 - List reconciliation (repeat/keyed) is inherently tricky
+- Channels add an indirection layer vs direct function calls between components
 - Setup context pattern may confuse contributors unfamiliar with Angular/Solid/Vue 3
-- Calling `signal()`/`inject()` outside `setup()` throws — must be clearly documented
+- `signal()` reads require `()` in JS code (fundamental JS limitation — no way around this without a compiler)
 
 ---
 
@@ -372,10 +486,9 @@ viewer/framework/
 ### Reactive Properties (`reactive.ts`)
 
 ```typescript
-import { defineComponent, reactive, inject, listen } from './framework';
+import { defineComponent, reactive, inject } from './framework';
 
 const TaskItem = defineComponent('task-item', (host) => {
-  // Reactive state — plain object, writes auto-trigger re-render
   const state = reactive({
     title: '',
     status: 'open',
@@ -383,22 +496,28 @@ const TaskItem = defineComponent('task-item', (host) => {
     childCount: 0,
   });
 
+  const nav = inject(NavigationChannel);
   const scope = inject(SidebarScope);
 
-  listen('.task-item click', () => { /* ... */ });
+  nav.on('select', ({ id }) => { state.selected = id === host.dataset.id; });
 
-  // Template returns plain HTML string
+  const onSelect = () => nav.emit('select', { id: host.dataset.id! });
+
+  // Returns render function — plain HTML string, re-runs on any state change
   return () => `
-    <div class="task-item ${state.selected ? 'selected' : ''}">
+    <div class="flex items-center gap-2 px-3 py-2 ${state.selected ? 'bg-white/10' : ''}"
+         onclick="this.dispatchEvent(new Event('select', { bubbles: true }))">
       <task-badge task-id="${host.dataset.id}"></task-badge>
-      <span class="task-title">${state.title}</span>
-      <span class="status-badge status-${state.status}">${state.status.replace('_', ' ')}</span>
+      <span class="flex-1 truncate text-sm">${state.title}</span>
+      <span class="text-xs">${state.status.replace('_', ' ')}</span>
     </div>
   `;
 });
 ```
 
 `reactive()` wraps the object in a Proxy. Writes to `state.title = 'new'` schedule a batched re-render via microtask. The setup function returns a **render function** (not a template result) — a closure that produces an HTML string each time.
+
+**Note**: Plain string templates cannot support `@click=${handler}` syntax — that requires tagged template parsing. Proposal B must use inline `onclick` attributes or re-query DOM elements for event binding after morph, which is the problem we're trying to solve.
 
 ### Morphdom Patching (`morph.ts`)
 
@@ -437,31 +556,32 @@ This is the approach used by Turbo/Stimulus (via idiomorph), htmx, and Phoenix L
 ### How It Works
 
 ```typescript
-import { defineComponent, signal, computed, inject, listen } from './framework';
+import { defineComponent, signal, computed, inject } from './framework';
 
 const TaskItem = defineComponent('task-item', (host) => {
-  const title = signal('');
-  const status = signal('open');
-  const selected = signal(false);
+  const [title, setTitle] = signal('');
+  const [status, setStatus] = signal('open');
+  const [selected, setSelected] = signal(false);
 
+  const nav = inject(NavigationChannel);
   const statusLabel = computed(() => status().replace('_', ' '));
 
-  listen('document task-selected', (e) => {
-    selected.set(e.detail.taskId === host.dataset.id);
-  });
+  nav.on('select', ({ id }) => setSelected(id === host.dataset.id));
 
-  // Returns a render function (plain string), not a binding template
+  // Returns a render function (plain string), signals must be called explicitly
   return () => `
-    <div class="task-item ${selected() ? 'selected' : ''}">
+    <div class="flex items-center gap-2 px-3 py-2 ${selected() ? 'bg-white/10' : ''}">
       <task-badge task-id="${host.dataset.id}"></task-badge>
-      <span class="task-title">${title()}</span>
-      <span class="status-badge status-${statusLabel()}">${statusLabel()}</span>
+      <span class="flex-1 truncate text-sm">${title()}</span>
+      <span class="text-xs">${statusLabel()}</span>
     </div>
   `;
 });
 ```
 
 The returned render function is wrapped in an `effect()`. When any signal read inside it changes, the effect re-runs, producing a new HTML string. The morph algorithm applies the diff to the live DOM.
+
+**Note**: Like Proposal B, plain strings cannot support `@click` syntax and require explicit `signal()` calls everywhere — including in the template where LLMs will forget the `()`.
 
 ### Strengths
 - Signals provide computed/effect/batch primitives for complex derived state
@@ -475,6 +595,73 @@ The returned render function is wrapped in an `effect()`. When any signal read i
 - Signals exist but their fine-grained nature is wasted — every signal change re-runs the full template
 - Two mental models to understand (signals + morph) without the full benefit of either
 - "Worst of both worlds" risk: signal complexity without signal performance
+
+---
+
+## Adjacent Significant Improvements
+
+Beyond the core framework, there are architectural improvements that become possible (or significantly easier) once the foundation is in place.
+
+### 1. Granular SSE → Signal Bridge
+
+**Current problem**: When a `task_changed` SSE event arrives, `task-list.ts` re-fetches ALL tasks from the API and re-renders the entire list. Every SSE event = full network round-trip + full DOM rebuild.
+
+**With signals + channels**: The SSE service can emit granular events on a typed channel. Individual task-item components subscribe to changes for their specific ID. When TASK-0042 changes, only the `<task-item data-id="TASK-0042">` component updates — no re-fetch, no list rebuild.
+
+```typescript
+// SSE service bridges backend events into typed channels
+const SSEChannel = createChannel<{
+  taskChanged: { id: string; patch: Partial<Task> };
+  taskCreated: { task: Task };
+  taskDeleted: { id: string };
+}>('SSE');
+
+// Inside task-item setup:
+const sse = inject(SSEChannel);
+sse.on('taskChanged', ({ id, patch }) => {
+  if (id === host.dataset.id) {
+    if (patch.title) setTitle(patch.title);
+    if (patch.status) setStatus(patch.status);
+  }
+});
+```
+
+This transforms SSE from "nuke and rebuild" to "surgical patch." The task list only re-renders when tasks are added/removed — not when individual tasks change.
+
+### 2. Derived Stores — Computed Over Collections
+
+**Current problem**: Filtering, sorting, and scoping logic is imperative code in `task-list.ts:95-139`. It runs on every change, always against the full array.
+
+**With signals**: The data pipeline becomes a chain of computed signals, each layer derived from the one before:
+
+```typescript
+const allTasks = signal<Task[]>([]);
+const filter = signal('active');
+const sortBy = signal('updated');
+const scopeId = signal<string | null>(null);
+
+const filtered = computed(() => filterTasks(allTasks(), filter()));
+const sorted = computed(() => sortTasks(filtered(), sortBy()));
+const scoped = computed(() => scopeTasks(sorted(), scopeId(), allTasks()));
+```
+
+Each layer is lazy and cached. Changing `sortBy` only recomputes `sorted` and `scoped` — not `filtered`. Changing `filter` recomputes from `filtered` down. The framework batches all updates into one render pass.
+
+### 3. Optimistic UI Updates
+
+**Current problem**: After an MCP tool modifies a task, the flow is: backend saves → event bus emits → SSE pushes → client re-fetches → DOM rebuilds. This creates visible latency.
+
+**With signals**: The SSE channel can carry a `patch` object. The component applies the patch optimistically to its local signals immediately, before the full re-fetch completes. If the re-fetch returns different data, the signal updates again (self-correcting).
+
+### 4. Component DevTools
+
+**With signals and channels**: Because all state flows through signals and all communication flows through channels, it becomes trivial to build a dev panel that shows:
+- All active signals and their current values
+- All channel messages in real-time
+- The dependency graph (which signal feeds which computed/effect)
+- Component tree with injected dependencies
+
+This is impossible with the current architecture where state is scattered across private fields, localStorage, URL params, and untyped events.
 
 ---
 
@@ -550,18 +737,22 @@ Maximum control, but unreadable for anything beyond trivial templates. No human 
 Tagged template literals with implicit signal reads are the **best option in the no-compiler design space**. The authoring experience is:
 
 ```typescript
-// What you write (almost identical to JSX + Tailwind)
+// What you write — almost identical to JSX + Tailwind
 return html`
   <div class="flex items-center gap-2 p-3 rounded hover:bg-white/5
-              ${selected} ? 'bg-blue-500/20' : ''">
+              ${selected} ? 'bg-blue-500/20' : ''"
+       @click=${onSelect}>
     <task-badge task-id="${id}"></task-badge>
     <span class="flex-1 truncate text-sm">${title}</span>
-    ${when(hasChildren, html`<span class="text-xs text-gray-400">${childCount}</span>`)}
+    ${when(hasChildren,
+      html`<span class="text-xs text-gray-400"
+                 @click.stop=${onDrillIn}>${childCount}</span>`
+    )}
   </div>
 `;
 ```
 
-This is as close to "just write HTML with expressions" as you can get without a compiler. An LLM produces this naturally — it's just HTML with `${}` slots.
+This is as close to "just write HTML with expressions and events" as you can get without a compiler. Structure, styling, data, and interaction — all in one place. An LLM produces this naturally.
 
 ---
 
@@ -639,7 +830,9 @@ Build performance: v4's Oxide engine is 3.5-10x faster than v3, incremental buil
 | **Composability** | High — extract to shared functions | Medium — reactive() is component-tied | High — signals are standalone |
 | **Testability** | High (signals are pure, inject mocks) | Medium (need DOM for proxy) | High (signals are pure, inject mocks) |
 | **Component authoring** | `defineComponent()` + pure functions | `defineComponent()` + pure functions | `defineComponent()` + pure functions |
-| **DI / Events** | Pure `inject()` / `listen()` | Pure `inject()` / `listen()` | Pure `inject()` / `listen()` |
+| **Inter-component events** | Typed channels via DI | Typed channels via DI | Typed channels via DI |
+| **DOM event binding** | Inline `@click` in template | `onclick` attr or post-morph query | `onclick` attr or post-morph query |
+| **Event colocation** | Events on element (visible in template) | Detached from template | Detached from template |
 | **CSS strategy** | Tailwind (all proposals) | Tailwind (all proposals) | Tailwind (all proposals) |
 
 ---
@@ -669,13 +862,14 @@ Build performance: v4's Oxide engine is 3.5-10x faster than v3, incremental buil
 | Phase | What | Unblocks |
 |---|---|---|
 | 1 | `signal.ts` — `signal()`, `computed()`, `effect()` with batching | Everything |
-| 2 | `context.ts` — `runWithContext()`, `getCurrentComponent()` | Pure function DI/events |
-| 3 | `component.ts` — `defineComponent()` shell + lifecycle | Component authoring |
-| 4 | `events.ts` — `listen()` with auto-cleanup via context | Cleaner event wiring |
-| 5 | `injector.ts` — `createToken()`, `provide()`, `inject()` | Testability, decoupling |
-| 6 | `template.ts` — Tagged `html` with binding engine | Fine-grained rendering |
+| 2 | `context.ts` — `runWithContext()`, `getCurrentComponent()` | Pure function DI/channels |
+| 3 | `injector.ts` — `createToken()`, `provide()`, `inject()` | Testability, decoupling |
+| 4 | `channel.ts` — `createChannel()`, typed emit/on/toSignal | Replace CustomEvent pollution |
+| 5 | `component.ts` — `defineComponent()` shell + lifecycle | Component authoring |
+| 6 | `template.ts` — Tagged `html` with binding engine + `@event` | Fine-grained rendering |
 | 7 | Migrate `task-item` as proof-of-concept (smallest leaf) | Validate the approach |
 | 8 | Migrate `task-list` with `repeat()` (biggest pain point) | Prove list perf |
+| 9 | Add Tailwind v4 to build pipeline | Colocated styling |
 
 ### File Structure
 
@@ -684,42 +878,44 @@ viewer/framework/
 ├── signal.ts          # ~120 lines — signal(), computed(), effect(), batch
 ├── context.ts         # ~20 lines  — runWithContext(), getCurrentComponent()
 ├── component.ts       # ~80 lines  — defineComponent(), lifecycle wiring
-├── template.ts        # ~200 lines — html tagged template, Binding, repeat()
-├── events.ts          # ~80 lines  — listen() with auto-cleanup
+├── template.ts        # ~250 lines — html tagged template, Binding, @event, repeat()
+├── channel.ts         # ~80 lines  — createChannel(), typed pub/sub
 ├── injector.ts        # ~60 lines  — createToken(), provide(), inject()
 └── index.ts           # ~10 lines  — Re-exports
 ```
 
-Total: ~570 lines of framework code, 0 external dependencies, 0 build plugins.
+Total: ~620 lines of framework code, 0 external dependencies, 0 build plugins.
 
 ## Consequences
 
 ### Positive
 - SSE updates patch individual task rows instead of rebuilding the entire list
 - **No `this` in component authoring** — pure functions all the way down
-- **Implicit signal reads** — `${title}` in templates, no ceremony
+- **Implicit signal reads in templates** — `${title}` just works, `count()` only in JS logic
+- **Events colocated with elements** — `@click=${handler}` on the element, not detached via selectors
+- **Typed channels replace global event pollution** — no more `document.dispatchEvent(new CustomEvent(...))`
+- **Self-contained components** — Tailwind + tagged templates + inline events = complete component in one function
 - **Composable** — shared reactive logic extracted as plain functions, reusable across components
-- **Self-contained components** — Tailwind + tagged templates = complete component in one function
 - Signals work anywhere (services, tests, standalone modules) — not coupled to components
-- Event listeners are declarative, auto-cleaned, and type-safe via `listen()`
 - State is explicit (signals) instead of implicit (scattered private fields)
-- Components become testable via `inject()` (provide mock services)
+- Components become testable via `inject()` (provide mock services/channels)
+- `main.ts` shrinks from 70-line event router to just `backlogEvents.connect()` + imports
 - New components are ~40% less code than current equivalents
 - Framework code lives in one folder, clearly separated from application code
 - No new build tooling beyond Tailwind esbuild plugin — tagged templates work natively
 - **High AI coherence** — an LLM can produce correct, styled, reactive components naturally
 
 ### Negative
-- Contributors must learn signals, tagged template bindings, and the setup context pattern
-- The template binding engine is the most complex piece and must be robust
+- Contributors must learn signals, tagged template bindings, channels, and the setup context pattern
+- The template binding engine + `@event` processing is the most complex piece and must be robust
 - Debugging reactive chains requires understanding the push-pull propagation model
 - Two component styles coexist during migration (raw HTMLElement and defineComponent)
-- Calling `inject()`/`listen()` outside `setup()` throws — must be clearly documented
+- `signal()` reads require `()` in JS code — fundamental JS limitation, no way around without a compiler
 - Tailwind adds a dev dependency and esbuild plugin (though zero runtime cost)
 
 ### Risks
 - Tagged template performance: parsing + cloning must be fast. Mitigated by caching parsed templates per component class.
 - Memory: each binding holds a DOM node reference. Mitigated by cleanup in `disconnectedCallback`.
-- Setup context confusion: calling `inject()` outside setup throws. Mitigated by clear error messages ("inject() must be called inside defineComponent setup").
+- Channel over-abstraction: simple parent→child communication shouldn't need a channel. Mitigated by using signals/props for direct parent-child, channels only for cross-tree communication.
 - Edge cases in `repeat()` (reordering, nested lists). Mitigated by starting with simple append/remove and upgrading to keyed reconciliation.
 - Tailwind class verbosity in complex components. Mitigated by extracting common patterns into composable functions that return class strings.

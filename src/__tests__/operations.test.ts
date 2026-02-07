@@ -31,6 +31,12 @@ describe('Operations Module', () => {
       expect(extractResourceId('backlog_create', {}, result)).toBe('EPIC-0005');
     });
 
+    it('extracts new entity type IDs from backlog_create result', () => {
+      expect(extractResourceId('backlog_create', {}, { content: [{ text: 'Created FLDR-0001' }] })).toBe('FLDR-0001');
+      expect(extractResourceId('backlog_create', {}, { content: [{ text: 'Created ARTF-0001' }] })).toBe('ARTF-0001');
+      expect(extractResourceId('backlog_create', {}, { content: [{ text: 'Created MLST-0001' }] })).toBe('MLST-0001');
+    });
+
     it('extracts ID from backlog_update params', () => {
       expect(extractResourceId('backlog_update', { id: 'TASK-0099' }, {})).toBe('TASK-0099');
     });

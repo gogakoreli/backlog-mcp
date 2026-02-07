@@ -5,14 +5,12 @@
 
 type Extractor = (params: Record<string, unknown>, result: unknown) => string | undefined;
 
+const ID_RE = /(TASK|EPIC|FLDR|ARTF|MLST)-\d+/;
+
 const extractors: Record<string, Extractor> = {
   backlog_create: (_, result) => {
     const text = (result as any)?.content?.[0]?.text as string | undefined;
-    if (text) {
-      const match = text.match(/(TASK|EPIC)-\d+/);
-      return match?.[0];
-    }
-    return undefined;
+    return text ? ID_RE.exec(text)?.[0] : undefined;
   },
 
   backlog_update: (params) => params.id as string | undefined,
@@ -21,11 +19,7 @@ const extractors: Record<string, Extractor> = {
 
   write_resource: (params) => {
     const uri = params.uri as string | undefined;
-    if (uri) {
-      const match = uri.match(/(TASK|EPIC)-\d+/);
-      return match?.[0];
-    }
-    return undefined;
+    return uri ? ID_RE.exec(uri)?.[0] : undefined;
   },
 };
 

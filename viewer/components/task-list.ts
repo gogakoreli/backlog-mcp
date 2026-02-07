@@ -1,5 +1,6 @@
 import { fetchTasks, type Task } from '../utils/api.js';
 import { backlogEvents } from '../services/event-source-client.js';
+import { sidebarScope } from '../utils/sidebar-scope.js';
 import { getTypeConfig, getParentId } from '../type-registry.js';
 import './breadcrumb.js';
 import { ringIcon } from '../icons/index.js';
@@ -15,16 +16,13 @@ export class TaskList extends HTMLElement {
   private currentFilter: string = 'active';
   private currentType: string = 'all';
   private currentSort: string = 'updated';
-  private currentEpicId: string | null = null;
   private selectedTaskId: string | null = null;
   private currentQuery: string | null = null;
   private allTasks: Task[] = [];
 
   connectedCallback() {
     const params = new URLSearchParams(window.location.search);
-    this.selectedTaskId = params.get('task');
-    this.currentEpicId = params.get('epic');
-    this.currentQuery = params.get('q');
+    this.selectedTaskId = params.get('id') || params.get('task');
 
     // Restore sort from localStorage
     const savedSort = localStorage.getItem(SORT_STORAGE_KEY);
@@ -61,22 +59,22 @@ export class TaskList extends HTMLElement {
       this.setSelected(e.detail.taskId);
     }) as EventListener);
 
-    document.addEventListener('epic-navigate', ((e: CustomEvent) => {
-      this.currentEpicId = e.detail.epicId;
-      if (e.detail.epicId) {
-        this.selectedTaskId = e.detail.epicId;
-      }
+    // Sidebar scope changes (from arrow clicks, breadcrumb, etc.)
+    document.addEventListener('scope-change', (() => {
       this.loadTasks();
     }) as EventListener);
   }
 
-  setState(filter: string, type: string, epicId: string | null, taskId: string | null, query: string | null) {
+  setState(filter: string, type: string, id: string | null, query: string | null) {
     this.currentFilter = filter;
     this.currentType = type;
-    this.currentEpicId = epicId;
-    this.selectedTaskId = taskId;
+    this.selectedTaskId = id;
     this.currentQuery = query;
     this.loadTasks();
+  }
+
+  private get currentScopeId(): string | null {
+    return sidebarScope.get();
   }
 
   private sortTasks(tasks: Task[]): Task[] {
@@ -97,6 +95,21 @@ export class TaskList extends HTMLElement {
       let tasks = await fetchTasks(this.currentFilter as any, this.currentQuery || undefined);
       this.allTasks = tasks;
 
+      // Auto-scope for leaf entities: if selected entity is a leaf, scope to its parent
+      if (this.selectedTaskId && !this.currentScopeId) {
+        const selectedTask = tasks.find(t => t.id === this.selectedTaskId);
+        if (selectedTask) {
+          const config = getTypeConfig(selectedTask.type ?? 'task');
+          if (!config.isContainer) {
+            const parentId = getParentId(selectedTask);
+            if (parentId) {
+              sidebarScope.set(parentId);
+              // Don't return — continue rendering with the new scope
+            }
+          }
+        }
+      }
+
       // Type filter
       if (this.currentType !== 'all') {
         tasks = tasks.filter(t => (t.type ?? 'task') === this.currentType);
@@ -105,10 +118,12 @@ export class TaskList extends HTMLElement {
       // Apply sort
       tasks = this.sortTasks(tasks);
 
+      const scopeId = this.currentScopeId;
+
       // Container navigation filter (works for epics, folders, milestones)
-      if (this.currentEpicId) {
-        const currentContainer = tasks.find(t => t.id === this.currentEpicId);
-        const children = tasks.filter(t => getParentId(t) === this.currentEpicId);
+      if (scopeId) {
+        const currentContainer = tasks.find(t => t.id === scopeId);
+        const children = tasks.filter(t => getParentId(t) === scopeId);
         tasks = currentContainer ? [currentContainer, ...children] : children;
       } else {
         // Home page: root containers and orphan items (no parent)
@@ -127,7 +142,7 @@ export class TaskList extends HTMLElement {
 
       const breadcrumb = this.querySelector('epic-breadcrumb');
       if (breadcrumb) {
-        (breadcrumb as any).setData(this.currentEpicId, this.allTasks);
+        (breadcrumb as any).setData(scopeId, this.allTasks);
       }
     } catch (error) {
       this.innerHTML = `<div class="error">Failed to load tasks: ${(error as Error).message}</div>`;
@@ -135,9 +150,10 @@ export class TaskList extends HTMLElement {
   }
 
   render(tasks: Task[]) {
+    const scopeId = this.currentScopeId;
     const isEmpty = tasks.length === 0;
-    const isInsideContainer = !!this.currentEpicId;
-    const currentContainer = isInsideContainer ? tasks.find(t => t.id === this.currentEpicId) : null;
+    const isInsideContainer = !!scopeId;
+    const currentContainer = isInsideContainer ? tasks.find(t => t.id === scopeId) : null;
     const hasOnlyContainer = isInsideContainer && tasks.length === 1 && currentContainer;
 
     if (isEmpty) {
@@ -150,7 +166,7 @@ export class TaskList extends HTMLElement {
       `;
       const breadcrumb = this.querySelector('epic-breadcrumb');
       if (breadcrumb) {
-        (breadcrumb as any).setData(this.currentEpicId, this.allTasks);
+        (breadcrumb as any).setData(scopeId, this.allTasks);
       }
       return;
     }
@@ -169,7 +185,7 @@ export class TaskList extends HTMLElement {
           const childCount = config.isContainer
             ? this.allTasks.filter(t => getParentId(t) === task.id).length
             : 0;
-          const isCurrentContainer = this.currentEpicId === task.id;
+          const isCurrentContainer = scopeId === task.id;
           return `
             <task-item
               data-id="${task.id}"
@@ -190,7 +206,7 @@ export class TaskList extends HTMLElement {
 
     const breadcrumb = this.querySelector('epic-breadcrumb');
     if (breadcrumb) {
-      (breadcrumb as any).setData(this.currentEpicId, this.allTasks);
+      (breadcrumb as any).setData(scopeId, this.allTasks);
     }
   }
 

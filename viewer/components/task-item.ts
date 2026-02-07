@@ -1,4 +1,5 @@
 import { getTypeConfig } from '../type-registry.js';
+import { sidebarScope } from '../utils/sidebar-scope.js';
 
 export class TaskItem extends HTMLElement {
   connectedCallback() {
@@ -29,7 +30,7 @@ export class TaskItem extends HTMLElement {
         <span class="task-title">${title}</span>
         ${dueDateHtml}
         ${config.isContainer ? `<span class="child-count">${childCount}</span>` : ''}
-        ${config.isContainer && !isCurrentEpic ? '<span class="enter-icon">→</span>' : ''}
+        ${config.isContainer && !isCurrentEpic ? '<span class="enter-icon" title="Browse inside">→</span>' : ''}
         ${config.hasStatus ? `<span class="status-badge status-${status}">${status.replace('_', ' ')}</span>` : ''}
       </div>
     `;
@@ -37,21 +38,27 @@ export class TaskItem extends HTMLElement {
   
   attachListeners() {
     const taskItem = this.querySelector('.task-item');
+    const enterIcon = this.querySelector('.enter-icon');
     const type = this.dataset.type || 'task';
-    const isCurrentEpic = this.dataset.currentEpic === 'true';
     const config = getTypeConfig(type);
     
+    // Arrow click → scope sidebar only (no URL change)
+    if (enterIcon && config.isContainer) {
+      enterIcon.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const taskId = this.dataset.id;
+        if (taskId) {
+          sidebarScope.set(taskId);
+        }
+      });
+    }
+
+    // Item click → navigate (set ?id=, show in detail)
     taskItem?.addEventListener('click', () => {
       const taskId = this.dataset.id;
       if (!taskId) return;
       
-      // If container and not current, navigate into it
-      if (config.isContainer && !isCurrentEpic) {
-        document.dispatchEvent(new CustomEvent('epic-navigate', { detail: { epicId: taskId } }));
-        return;
-      }
-      
-      // Otherwise, select and show detail
+      // Select and show detail
       document.querySelectorAll('task-item .task-item').forEach(item => {
         item.classList.toggle('selected', (item.closest('task-item') as HTMLElement)?.dataset.id === taskId);
       });

@@ -31,17 +31,10 @@ document.addEventListener('search-change', ((e: CustomEvent) => {
 }) as EventListener);
 
 document.addEventListener('task-selected', ((e: CustomEvent) => {
-  urlState.set({ task: e.detail.taskId });
+  urlState.set({ id: e.detail.taskId });
 }) as EventListener);
 
-document.addEventListener('epic-navigate', ((e: CustomEvent) => {
-  const epicId = e.detail.epicId;
-  urlState.set({ epic: epicId, task: epicId });
-}) as EventListener);
-
-document.addEventListener('epic-pin', ((e: CustomEvent) => {
-  urlState.set({ epic: e.detail.epicId });
-}) as EventListener);
+// scope-change is handled by sidebarScope service directly — no URL update needed
 
 document.addEventListener('resource-open', ((e: CustomEvent) => {
   if (e.detail.uri) {

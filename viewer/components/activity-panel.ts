@@ -510,14 +510,14 @@ export class ActivityPanel extends HTMLElement {
       });
     });
 
-    // Epic links
+    // Epic links — navigate to entity (same as task links)
     this.querySelectorAll('.activity-epic-link').forEach(link => {
       link.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
         const epicId = (link as HTMLElement).dataset.epicId;
         if (epicId) {
-          document.dispatchEvent(new CustomEvent('epic-navigate', { detail: { epicId } }));
+          document.dispatchEvent(new CustomEvent('task-selected', { detail: { taskId: epicId } }));
         }
       });
     });

@@ -1,8 +1,10 @@
 import { settingsIcon, activityIcon } from '../icons/index.js';
 import { urlState } from '../utils/url-state.js';
+import { sidebarScope } from '../utils/sidebar-scope.js';
 import { splitPane } from '../utils/split-pane.js';
 import { resizeService } from '../utils/resize.js';
 import { layoutService } from '../utils/layout.js';
+import { getTypeConfig, getTypeFromId } from '../type-registry.js';
 
 export class BacklogApp extends HTMLElement {
   private isMac = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
@@ -67,11 +69,20 @@ export class BacklogApp extends HTMLElement {
       filterBar?.setState?.(state.filter, state.type, state.q);
 
       const taskList = this.querySelector('task-list') as any;
-      taskList?.setState?.(state.filter, state.type, state.epic, state.task, state.q);
+      taskList?.setState?.(state.filter, state.type, state.id, state.q);
 
-      if (state.task) {
+      if (state.id) {
+        // Auto-scope sidebar based on navigated entity type
+        const type = getTypeFromId(state.id);
+        const config = getTypeConfig(type);
+        if (config.isContainer) {
+          // Navigating to a container → scope sidebar to it
+          sidebarScope.set(state.id);
+        }
+        // For leaves, auto-scoping to parent happens in task-list after tasks load
+
         const detail = this.querySelector('task-detail') as any;
-        detail?.loadTask?.(state.task);
+        detail?.loadTask?.(state.id);
       }
     });
 
@@ -82,7 +93,8 @@ export class BacklogApp extends HTMLElement {
 
     // Button handlers
     this.querySelector('.home-button')?.addEventListener('click', () => {
-      urlState.set({ epic: null, task: null });
+      sidebarScope.set(null);
+      urlState.set({ id: null });
     });
 
     const spotlight = this.querySelector('spotlight-search') as any;

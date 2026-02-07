@@ -1,8 +1,7 @@
 type State = {
   filter: string;
   type: string;
-  task: string | null;
-  epic: string | null;
+  id: string | null;
   q: string | null;
 };
 
@@ -18,11 +17,22 @@ class UrlState {
 
   get(): State {
     const params = new URLSearchParams(window.location.search);
+
+    // Backward compat: redirect ?epic=&task= to ?id=
+    if (params.has('epic') || params.has('task')) {
+      const id = params.get('task') || params.get('epic');
+      const url = new URL(window.location.href);
+      url.searchParams.delete('epic');
+      url.searchParams.delete('task');
+      if (id) url.searchParams.set('id', id);
+      history.replaceState(null, '', url);
+      return this.get();
+    }
+
     return {
       filter: params.get('filter') || 'active',
       type: params.get('type') || 'all',
-      task: params.get('task'),
-      epic: params.get('epic'),
+      id: params.get('id'),
       q: params.get('q'),
     };
   }

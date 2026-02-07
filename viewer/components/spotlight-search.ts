@@ -163,8 +163,7 @@ class SpotlightSearch extends HTMLElement {
     if (type === 'resource') {
       document.dispatchEvent(new CustomEvent('resource-open', { detail: { uri: id } }));
     } else {
-      const isEpic = type === 'epic';
-      urlState.set({ task: id, epic: isEpic ? id : null });
+      urlState.set({ id });
     }
     this.close();
   }
@@ -586,12 +585,7 @@ class SpotlightSearch extends HTMLElement {
       const task = result.item as Task;
       const type = task.type || (task.id.startsWith('EPIC-') ? 'epic' : 'task');
       recentSearchesService.add({ id: task.id, title: task.title, type });
-      const parentId = task.parent_id || task.epic_id;
-      const isContainer = type === 'epic' || type === 'folder' || type === 'milestone';
-      urlState.set({ 
-        task: task.id,
-        epic: isContainer ? task.id : (parentId || null),
-      });
+      urlState.set({ id: task.id });
     }
     this.close();
   }

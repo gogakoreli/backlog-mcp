@@ -157,7 +157,6 @@ export class TaskDetail extends HTMLElement {
         e.preventDefault();
         const epicId = (epicLink as HTMLElement).dataset.epicId;
         if (epicId) {
-          this.loadTask(epicId);
           document.dispatchEvent(new CustomEvent('task-selected', { detail: { taskId: epicId } }));
         }
       });

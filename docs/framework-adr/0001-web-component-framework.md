@@ -64,78 +64,161 @@ A lightweight framework layer — **not** React, **not** Angular, **no compiler,
 
 ---
 
-## Proposal A: Signal-Driven Base Class with Targeted DOM Patching
+## Proposal A: Pure Functions with Setup Context and Targeted DOM Patching
 
-**Core idea**: Signals as the single state primitive. Components declare signals, bind them to DOM regions, and the framework patches only the specific DOM nodes that depend on changed signals. No virtual DOM — instead, each signal knows exactly which DOM nodes it controls.
+**Core idea**: All framework primitives — `signal()`, `computed()`, `effect()`, `inject()`, `listen()` — are **pure, standalone functions**, not class methods. Components declare a `setup()` function that runs inside an ambient context, so these functions can resolve the owning component without needing `this`. The class becomes a thin shell; all logic lives in composable functions.
+
+**Design principle**: If it doesn't need `this`, it shouldn't be on `this`. Signals are just reactive atoms. `inject()` is just a tree lookup. `listen()` is just event registration with lifecycle. None of these are inherently tied to a class instance. They only need to know *which component is currently being set up* — and that's a single context variable, not inheritance.
 
 ### Architecture
 
 ```
 viewer/framework/
-├── signal.ts          # Signal, Computed, Effect primitives
-├── component.ts       # BaseComponent class (extends HTMLElement)
-├── template.ts        # Tagged template literal → DOM binding engine
-├── events.ts          # Declarative event binding with auto-cleanup
-├── injector.ts        # Stateless DI container (provide/inject)
+├── signal.ts          # signal(), computed(), effect() — pure functions
+├── component.ts       # defineComponent() + minimal BaseComponent shell
+├── template.ts        # html tagged template → DOM binding engine
+├── events.ts          # listen() — pure function, auto-cleanup via context
+├── injector.ts        # createToken(), provide(), inject() — pure functions
+├── context.ts         # Setup context: getCurrentComponent() + runWithContext()
 └── index.ts           # Public API barrel export
 ```
 
-### Signal Primitive (`signal.ts`)
+### Setup Context (`context.ts`)
+
+The glue that lets pure functions access the component they belong to, without `this`:
 
 ```typescript
-// Core reactive atom — holds a value, tracks subscribers
-const [count, setCount] = signal(0);
-count();        // read → 0 (registers dependency if inside effect/computed)
-setCount(5);    // write → notifies dependents
-setCount(n => n + 1); // updater function
+// Framework-internal — not part of the public API
+let currentComponent: BaseComponent | null = null;
 
-// Derived computation — lazy, cached, auto-tracks dependencies
-const doubled = computed(() => count() * 2);
+export function runWithContext(component: BaseComponent, fn: () => void) {
+  const prev = currentComponent;
+  currentComponent = component;
+  fn();
+  currentComponent = prev;
+}
 
-// Side effect — runs when dependencies change, returns cleanup
-const dispose = effect(() => {
-  console.log('count is', count());
-  return () => { /* cleanup when re-run or disposed */ };
-});
-```
-
-**Key design choice**: Signals use a **push-pull hybrid**. Writes push "dirty" notifications up the dependency graph. Reads pull fresh values lazily. This means computed values are not recalculated until actually read, avoiding wasted work.
-
-**Batch updates**: Multiple synchronous signal writes are batched into a single microtask flush via `queueMicrotask`. This means `setA(1); setB(2); setC(3)` triggers one re-render, not three.
-
-### Base Component (`component.ts`)
-
-```typescript
-class TaskItem extends BaseComponent {
-  // Declare reactive state
-  title = this.signal('');
-  status = this.signal('open');
-  selected = this.signal(false);
-
-  // Inject services (resolved from parent providers)
-  scope = this.inject(SidebarScope);
-
-  // Declarative events — auto-cleaned on disconnect
-  events = this.listen({
-    '.task-item click': () => this.onSelect(),
-    '.enter-icon click': (e) => { e.stop(); this.scope.set(this.id); },
-    'document task-selected': (e) => this.selected.set(e.detail.taskId === this.id),
-  });
-
-  // Template — returns a binding map, not HTML string
-  template() {
-    return html`
-      <div class="task-item ${() => this.selected() ? 'selected' : ''}">
-        <task-badge task-id="${this.id}"></task-badge>
-        <span class="task-title">${this.title}</span>
-        <span class="status-badge status-${this.status}">${this.status}</span>
-      </div>
-    `;
+export function getCurrentComponent(): BaseComponent {
+  if (!currentComponent) {
+    throw new Error('inject()/listen() called outside setup()');
   }
+  return currentComponent;
 }
 ```
 
-**What `template()` does differently**: The tagged `html` template literal does NOT produce an HTML string. It produces a `DocumentFragment` on first render, then on subsequent signal changes, it patches *only the specific `Text` nodes and attribute values* that are bound to the changed signal. The static HTML structure is parsed exactly once.
+This is the same pattern used by Angular's `inject()`, Solid's `createSignal()`, and Vue's `setup()`. The context exists only during component initialization — it's not a runtime thing.
+
+### Signal Primitive (`signal.ts`) — Pure Functions
+
+```typescript
+import { signal, computed, effect } from './framework';
+
+// These are standalone functions — no class, no this, no context needed
+const [count, setCount] = signal(0);
+count();            // read → 0 (auto-tracks if inside effect/computed)
+setCount(5);        // write → notifies dependents
+setCount(n => n + 1); // updater function
+
+// Derived — lazy, cached, auto-tracks
+const doubled = computed(() => count() * 2);
+
+// Side effect — re-runs when deps change, returns dispose function
+const dispose = effect(() => {
+  console.log('count is', count());
+  return () => { /* cleanup on re-run or dispose */ };
+});
+```
+
+Signals are **completely decoupled from components**. They work anywhere: in a component setup, in a service, in a plain module, in a test. They're just reactive atoms with dependency tracking.
+
+**Key design choice**: Push-pull hybrid. Writes push "dirty" flags up the graph. Reads pull fresh values lazily. Computed values aren't recalculated until actually read.
+
+**Batch updates**: Multiple synchronous writes coalesce into one microtask flush via `queueMicrotask`. `setA(1); setB(2); setC(3)` triggers one update pass, not three.
+
+### Component Model (`component.ts`) — Thin Shell + setup()
+
+```typescript
+import { defineComponent, html, signal, computed, inject, listen } from './framework';
+
+// ---------- Example: TaskItem ----------
+const TaskItem = defineComponent('task-item', (host) => {
+  // Reactive state — plain function calls, no this
+  const title = signal('');
+  const status = signal('open');
+  const selected = signal(false);
+  const childCount = signal(0);
+
+  // Inject services — resolved from ancestor providers via DOM tree
+  const scope = inject(SidebarScope);
+
+  // Derived state — auto-recomputes when dependencies change
+  const statusLabel = computed(() => status().replace('_', ' '));
+
+  // Events — auto-cleaned when component disconnects
+  listen('.task-item click', () => {
+    document.dispatchEvent(new CustomEvent('task-selected', { detail: { taskId: host.id } }));
+  });
+  listen('.enter-icon click', (e) => {
+    e.stopPropagation();
+    scope.set(host.dataset.id);
+  });
+  listen('document task-selected', (e) => {
+    selected.set(e.detail.taskId === host.dataset.id);
+  });
+
+  // Template — returns binding map, not HTML string
+  return html`
+    <div class="task-item ${() => selected() ? 'selected' : ''}">
+      <task-badge task-id="${() => host.dataset.id}"></task-badge>
+      <span class="task-title">${title}</span>
+      <span class="status-badge status-${status}">${statusLabel}</span>
+      ${() => childCount() > 0 ? html`<span class="child-count">${childCount}</span>` : null}
+    </div>
+  `;
+});
+```
+
+**What `defineComponent()` does internally**:
+1. Creates a class extending `HTMLElement` (you never write `class ... extends` yourself)
+2. In `connectedCallback`, calls `runWithContext(this, setupFn)` — this is the only moment the context exists
+3. The `setup()` function's pure function calls (`signal()`, `inject()`, `listen()`) register themselves against the context
+4. `setup()` returns an `html` template result, which gets mounted
+5. In `disconnectedCallback`, all registered listeners and effects are disposed automatically
+
+The component author never touches `connectedCallback`, `disconnectedCallback`, `attributeChangedCallback`, or `this`. The setup function receives `host` (the raw element) for the rare cases you need it (reading `dataset`, `id`, etc.).
+
+### Why This Is Better Than `this.signal()` / `this.inject()`
+
+| `this.method()` style (old proposal) | Pure function style (this proposal) |
+|---|---|
+| `title = this.signal('')` | `const title = signal('')` |
+| `scope = this.inject(SidebarScope)` | `const scope = inject(SidebarScope)` |
+| `events = this.listen({...})` | `listen('.btn click', handler)` |
+| Requires class inheritance | `defineComponent()` — no class authoring |
+| Logic locked inside a class body | Composable — extract to shared functions |
+| Can't share logic between components | Extract a function, call it from any setup |
+| Testing requires instantiating the class | Test signals/services in isolation, no DOM needed |
+
+**Composability** is the killer advantage. Because everything is a plain function, you can extract and share reactive logic:
+
+```typescript
+// Shared composable — works in any component's setup()
+function useSelection(getId: () => string) {
+  const selected = signal(false);
+  listen('document task-selected', (e) => {
+    selected.set(e.detail.taskId === getId());
+  });
+  return selected;
+}
+
+// Used in TaskItem setup:
+const selected = useSelection(() => host.dataset.id!);
+
+// Used in TaskDetail setup:
+const selected = useSelection(() => currentTaskId());
+```
+
+This is a "composable" / "hook" without React's rules-of-hooks constraints. It's just a function that calls other functions. No ordering rules, no conditional call restrictions.
 
 ### Targeted DOM Patching (`template.ts`)
 
@@ -159,80 +242,85 @@ The template engine works in two phases:
 ```typescript
 html`
   <div class="task-list">
-    ${repeat(this.tasks, task => task.id, task => html`
+    ${repeat(tasks, task => task.id, task => html`
       <task-item data-id="${task.id}" ...></task-item>
     `)}
   </div>
 `
 ```
 
-`repeat()` uses key-based reconciliation: it adds new items, removes deleted items, and reorders moved items — but never recreates items whose data changed. Instead, existing items receive signal updates through their bindings.
+`repeat()` uses key-based reconciliation: adds new items, removes deleted items, reorders moved items — but never recreates items whose data merely changed. Existing items receive signal updates through their bindings.
 
-### Dependency Injection (`injector.ts`)
-
-Inspired by Angular's `inject()` but simpler — no decorators, no modules, no hierarchical injectors at the framework level. Instead, the DOM tree IS the injector hierarchy.
+### Dependency Injection (`injector.ts`) — Pure Functions
 
 ```typescript
-// Define an injection token
+import { createToken, provide, inject } from './framework';
+
+// Define tokens — plain constants
 const SidebarScope = createToken<SidebarScopeService>('SidebarScope');
+const EventBus = createToken<BacklogEventsService>('EventBus');
+const UrlState = createToken<UrlStateService>('UrlState');
 
-// Provider component (typically the app root)
-class BacklogApp extends BaseComponent {
-  providers = this.provide({
-    [SidebarScope]: () => new SidebarScopeService(),
-    [EventBus]: () => new BacklogEventsService(),
-    [UrlState]: () => new UrlStateService(),
-  });
-}
+// Provider (app root setup)
+const BacklogApp = defineComponent('backlog-app', (host) => {
+  provide(SidebarScope, () => new SidebarScopeService());
+  provide(EventBus, () => new BacklogEventsService());
+  provide(UrlState, () => new UrlStateService());
+  // ...
+});
 
-// Consumer component (anywhere in the tree)
-class TaskList extends BaseComponent {
-  scope = this.inject(SidebarScope);   // resolved from nearest ancestor provider
-  events = this.inject(EventBus);
-}
-```
-
-Resolution walks up the DOM tree from the requesting component to find the nearest ancestor that provides the requested token. Values are created lazily (on first inject) and cached on the provider. This is essentially the same pattern as React's Context but using the real DOM tree.
-
-### Event System (`events.ts`)
-
-```typescript
-// Declarative map — all listeners auto-removed on disconnectedCallback
-events = this.listen({
-  // Scoped to this component's shadow/light DOM
-  '.btn click': (e) => this.handleClick(e),
-  '.input input debounce:300': (e) => this.search(e.target.value),
-
-  // Global listeners (document-level custom events)
-  'document task-selected': (e) => this.onTaskSelected(e.detail),
-  'document filter-change': (e) => this.onFilter(e.detail),
-
-  // Service subscriptions (SSE, etc.)
-  'service backlogEvents.onChange': (event) => this.onBackendChange(event),
+// Consumer (any descendant setup)
+const TaskList = defineComponent('task-list', (host) => {
+  const scope = inject(SidebarScope);   // walks DOM tree to find provider
+  const events = inject(EventBus);
+  // ...
 });
 ```
 
-The `listen()` method parses the key string at component creation, attaches listeners in `connectedCallback`, and detaches them in `disconnectedCallback`. The `debounce:N` modifier is built in. The `service` prefix subscribes to injectable service callbacks.
+`inject()` calls `getCurrentComponent()` internally, walks up `host.parentElement` to find the nearest ancestor that called `provide()` for that token. Values are lazy-created and cached. Falls back to a module-level registry for backward compat with existing singletons during migration.
+
+### Event System (`events.ts`) — Pure Functions
+
+```typescript
+// Inside any setup() function:
+
+// Local DOM events — scoped to this component's subtree
+listen('.btn click', (e) => handleClick(e));
+listen('.input input', (e) => search(e.target.value), { debounce: 300 });
+
+// Global custom events
+listen('document task-selected', (e) => onTaskSelected(e.detail));
+listen('document filter-change', (e) => onFilter(e.detail));
+
+// Service subscriptions
+listen(EventBus, 'onChange', (event) => onBackendChange(event));
+```
+
+`listen()` reads the setup context to know which component owns this listener. It registers the listener for attachment in `connectedCallback` and removal in `disconnectedCallback`. The component author never writes lifecycle code.
 
 ### Migration Path
 
 Components can be migrated one at a time:
-1. Old `HTMLElement` components and new `BaseComponent` components coexist
-2. The DI container falls back to the existing singleton imports when no provider is found
-3. `html` tagged templates and `innerHTML` can coexist during transition
+1. Old `HTMLElement` components and new `defineComponent` components coexist in the same DOM
+2. `inject()` falls back to existing singleton imports when no ancestor provider is found
+3. `html` tagged templates and `innerHTML` can coexist during the transition
 4. No changes to the build system — esbuild handles everything as-is
+5. The `host` parameter gives escape-hatch access to the raw element for edge cases
 
 ### Strengths
 - Zero-overhead updates: signal → exact DOM node, no diffing
-- Familiar mental model (signals are mainstream: Solid, Angular 17+, Preact, TC39 proposal)
+- **Pure functions everywhere** — no `this`, no class authoring, no inheritance
+- **Composable** — extract shared logic into plain functions (like React hooks but no rules)
+- Signals work standalone (in services, tests, modules) — not coupled to components
 - Template is parsed once, cloned per instance, then only bindings execute
 - True fine-grained reactivity — updating one task's status touches one `<span>`, not the whole list
-- DI makes testing trivial (inject mocks) and eliminates hard-coded singleton imports
+- DI via pure `inject()` makes testing trivial without mocking module imports
 
 ### Weaknesses
 - Tagged template engine is the most complex piece (~200 lines) — needs careful implementation
 - List reconciliation (repeat/keyed) is inherently tricky
-- New abstraction to learn for contributors
+- Setup context pattern may confuse contributors unfamiliar with Angular/Solid/Vue 3
+- Calling `signal()`/`inject()` outside `setup()` throws — must be clearly documented
 
 ---
 
@@ -245,45 +333,49 @@ Components can be migrated one at a time:
 ```
 viewer/framework/
 ├── reactive.ts        # Proxy-based reactive state with dirty tracking
-├── component.ts       # BaseComponent with auto-render on property change
+├── component.ts       # defineComponent() with reactive state
 ├── morph.ts           # Minimal DOM morph (real DOM → real DOM diff)
-├── events.ts          # Same declarative event system as Proposal A
-├── injector.ts        # Same DI as Proposal A
+├── events.ts          # listen() — same pure function approach as Proposal A
+├── injector.ts        # inject()/provide() — same as Proposal A
+├── context.ts         # Same setup context as Proposal A
 └── index.ts
 ```
 
 ### Reactive Properties (`reactive.ts`)
 
 ```typescript
-class TaskItem extends BaseComponent {
-  // All properties on `this.state` are reactive
-  state = this.reactive({
+import { defineComponent, reactive, inject, listen } from './framework';
+
+const TaskItem = defineComponent('task-item', (host) => {
+  // Reactive state — plain object, writes auto-trigger re-render
+  const state = reactive({
     title: '',
     status: 'open',
     selected: false,
     childCount: 0,
   });
 
-  template() {
-    const { title, status, selected } = this.state;
-    return `
-      <div class="task-item ${selected ? 'selected' : ''}">
-        <task-badge task-id="${this.id}"></task-badge>
-        <span class="task-title">${title}</span>
-        <span class="status-badge status-${status}">${status.replace('_', ' ')}</span>
-      </div>
-    `;
-  }
-}
+  const scope = inject(SidebarScope);
+
+  listen('.task-item click', () => { /* ... */ });
+
+  // Template returns plain HTML string
+  return () => `
+    <div class="task-item ${state.selected ? 'selected' : ''}">
+      <task-badge task-id="${host.dataset.id}"></task-badge>
+      <span class="task-title">${state.title}</span>
+      <span class="status-badge status-${state.status}">${state.status.replace('_', ' ')}</span>
+    </div>
+  `;
+});
 ```
 
-Writes to `this.state.title = 'new'` trigger a batched re-render. The `reactive()` method wraps the object in a Proxy that intercepts `set` and schedules a microtask render.
+`reactive()` wraps the object in a Proxy. Writes to `state.title = 'new'` schedule a batched re-render via microtask. The setup function returns a **render function** (not a template result) — a closure that produces an HTML string each time.
 
 ### Morphdom Patching (`morph.ts`)
 
-Instead of targeted bindings, the component re-renders its full template string on every change, then uses a real-DOM-to-real-DOM morph algorithm:
-
-1. Component calls `template()` which returns an HTML string
+On every batched change:
+1. The render function is called, producing a new HTML string
 2. Framework parses the string into a temporary `DocumentFragment`
 3. Morph algorithm walks old DOM and new fragment in parallel
 4. Matching nodes (by tag + key attribute) are updated in place
@@ -298,47 +390,56 @@ This is the approach used by Turbo/Stimulus (via idiomorph), htmx, and Phoenix L
 - Morphing preserves focus, scroll position, and CSS transitions automatically
 - Implementation is smaller (~150 lines for a minimal morph)
 - Closest to what exists today — smallest conceptual leap for migration
+- Same pure function model for `inject()`, `listen()` as Proposal A
 
 ### Weaknesses
 - **O(n) diffing on every change** — morph must walk the entire subtree even if one attribute changed
-- Still re-runs the full template function, recreating the HTML string, on every state change
-- Cannot achieve truly fine-grained updates (changing one signal can't skip non-affected subtrees)
+- Still re-runs the full render function, recreating the HTML string, on every state change
+- Cannot achieve truly fine-grained updates (changing one property can't skip non-affected subtrees)
 - Morph algorithms have edge cases with keyed lists, `<select>`, contenteditable, and third-party DOM mutations
 - String-based templates cannot express conditional logic as cleanly (ternary soup)
+- No computed/effect primitives — derived state must be manually managed
 
 ---
 
 ## Proposal C: Hybrid — Signals for State, Morphdom for DOM
 
-**Core idea**: Use signals from Proposal A for state management and dependency tracking, but use morphdom from Proposal B for DOM application. This gets the ergonomic state model without the complexity of the targeted binding engine.
+**Core idea**: Use signals from Proposal A for state management and dependency tracking, but use morphdom from Proposal B for DOM application. Gets the ergonomic state model without the complexity of the targeted binding engine.
 
 ### How It Works
 
 ```typescript
-class TaskItem extends BaseComponent {
-  title = this.signal('');
-  status = this.signal('open');
-  selected = this.signal(false);
+import { defineComponent, signal, computed, inject, listen } from './framework';
 
-  // Template returns a string (like Proposal B)
-  template() {
-    return `
-      <div class="task-item ${this.selected() ? 'selected' : ''}">
-        <task-badge task-id="${this.id}"></task-badge>
-        <span class="task-title">${this.title()}</span>
-        <span class="status-badge status-${this.status()}">${this.status()}</span>
-      </div>
-    `;
-  }
-}
+const TaskItem = defineComponent('task-item', (host) => {
+  const title = signal('');
+  const status = signal('open');
+  const selected = signal(false);
+
+  const statusLabel = computed(() => status().replace('_', ' '));
+
+  listen('document task-selected', (e) => {
+    selected.set(e.detail.taskId === host.dataset.id);
+  });
+
+  // Returns a render function (plain string), not a binding template
+  return () => `
+    <div class="task-item ${selected() ? 'selected' : ''}">
+      <task-badge task-id="${host.dataset.id}"></task-badge>
+      <span class="task-title">${title()}</span>
+      <span class="status-badge status-${statusLabel()}">${statusLabel()}</span>
+    </div>
+  `;
+});
 ```
 
-The `template()` method is wrapped in an `effect()`. When any signal read inside `template()` changes, the effect re-runs, producing a new HTML string. The morph algorithm applies the diff to the live DOM.
+The returned render function is wrapped in an `effect()`. When any signal read inside it changes, the effect re-runs, producing a new HTML string. The morph algorithm applies the diff to the live DOM.
 
 ### Strengths
 - Signals provide computed/effect/batch primitives for complex derived state
 - Template is still a plain string — no binding engine complexity
 - Morph handles DOM preservation
+- Same pure function model as Proposals A and B
 - Best middle ground between complexity and capability
 
 ### Weaknesses
@@ -356,55 +457,58 @@ The `template()` method is wrapped in an `effect()`. When any signal read inside
 | **Update granularity** | Signal → exact DOM node | Full subtree morph | Full subtree morph |
 | **Performance at scale** | O(1) per signal change | O(n) tree walk per change | O(n) tree walk per change |
 | **SSE update cost** | Update 1 task = patch 1 row | Update 1 task = morph entire list | Update 1 task = morph entire list |
-| **Template complexity** | Tagged template (new concept) | Plain HTML string (familiar) | Plain HTML string (familiar) |
-| **Framework code size** | ~600 lines (~3KB min) | ~400 lines (~2KB min) | ~500 lines (~2.5KB min) |
+| **Template complexity** | Tagged `html` template (new concept) | Plain HTML string (familiar) | Plain HTML string (familiar) |
+| **Framework code size** | ~570 lines (~3KB min) | ~400 lines (~2KB min) | ~500 lines (~2.5KB min) |
 | **Implementation risk** | Higher (binding engine, repeat) | Lower (morph is well-understood) | Medium |
 | **Migration effort** | Medium (new template syntax) | Low (templates stay as strings) | Medium (add signals, keep strings) |
 | **Ceiling for optimization** | Very high (surgical updates) | Limited (always walks tree) | Limited (always walks tree) |
 | **State management** | Signals (computed, effect, batch) | Proxy (simple get/set) | Signals (computed, effect, batch) |
-| **Testability** | High (signals are pure) | Medium (need DOM for proxy) | High (signals are pure) |
-| **Event handling** | Same across all proposals | Same across all proposals | Same across all proposals |
-| **Dependency injection** | Same across all proposals | Same across all proposals | Same across all proposals |
+| **Composability** | High — extract to shared functions | Medium — reactive() is component-tied | High — signals are standalone |
+| **Testability** | High (signals are pure, inject mocks) | Medium (need DOM for proxy) | High (signals are pure, inject mocks) |
+| **Component authoring** | `defineComponent()` + pure functions | `defineComponent()` + pure functions | `defineComponent()` + pure functions |
+| **DI / Events** | Pure `inject()` / `listen()` | Pure `inject()` / `listen()` | Pure `inject()` / `listen()` |
 
 ---
 
-## Recommendation: Proposal A — Signal-Driven Base Class with Targeted DOM Patching
+## Recommendation: Proposal A — Pure Functions with Signals and Targeted DOM Patching
 
 ### Rationale
 
-1. **The core problem is needless re-rendering**. The user's primary complaint — "new data arrives from the backend and it causes to re-render the entire freakin DOM tree" — is a granularity problem. Proposals B and C improve on `innerHTML` but still walk the full subtree. Only Proposal A achieves O(1) updates: one signal change → one DOM mutation.
+1. **The core problem is needless re-rendering**. The primary complaint — "new data arrives from the backend and it causes to re-render the entire freakin DOM tree" — is a granularity problem. Proposals B and C improve on `innerHTML` but still walk the full subtree. Only Proposal A achieves O(1) updates: one signal change → one DOM mutation.
 
-2. **The complexity is front-loaded, not ongoing**. The binding engine in `template.ts` is ~200 lines of code written once. After that, every component author gets fine-grained reactivity for free by writing natural-looking tagged templates. The alternative — morphdom — is simpler to implement but imposes O(n) cost on every component, forever.
+2. **Pure functions are the right default**. `signal()`, `inject()`, `listen()` don't need a class. Making them standalone functions means they compose naturally — extract shared logic into a `useSelection()` or `useSSE()` function, call it from any component's `setup()`. No mixins, no multiple inheritance, no decorator magic. This is the same insight that drove React hooks, Vue 3 Composition API, and Angular's functional `inject()`.
 
-3. **Signals are the industry direction**. TC39 has a signals proposal. Angular, Solid, Preact, Qwik, and Vue (refs) all converge on this model. Building on signals means the mental model will be familiar to anyone who has touched modern frontend in the last two years.
+3. **The complexity is front-loaded, not ongoing**. The binding engine in `template.ts` is ~200 lines of code written once. After that, every component author gets fine-grained reactivity for free by writing natural-looking tagged templates. Morphdom is simpler to implement but imposes O(n) cost on every component, forever.
 
-4. **The repeat() problem is solvable**. Keyed list reconciliation is well-understood (same algorithm in every framework). We can start with a simple append/remove strategy and optimize to full keyed reconciliation later.
+4. **Signals are the industry direction**. TC39 has a signals proposal. Angular, Solid, Preact, Qwik, and Vue all converge on this model. Building on signals means the mental model will be familiar to anyone who has touched modern frontend in the last two years.
 
-5. **The DI system pays for itself immediately**. Replacing 15 hard-coded singleton imports with injectable tokens makes every component testable in isolation — something currently impossible without mocking module imports.
+5. **The DI system pays for itself immediately**. Replacing 15 hard-coded singleton imports with injectable tokens via pure `inject()` makes every component testable in isolation — something currently impossible without mocking module imports.
 
-6. **Incremental adoption eliminates migration risk**. Old components keep working. New components use `BaseComponent`. The two can coexist indefinitely. There is no "big bang" rewrite.
+6. **Incremental adoption eliminates migration risk**. Old `HTMLElement` components keep working. New `defineComponent` components coexist in the same DOM tree. There is no "big bang" rewrite.
 
 ### Implementation Order
 
 | Phase | What | Unblocks |
 |---|---|---|
-| 1 | `signal.ts` — Signal, Computed, Effect with batching | Everything |
-| 2 | `component.ts` — BaseComponent lifecycle, `this.signal()`, `this.inject()` | Component migration |
-| 3 | `events.ts` — Declarative `this.listen()` with auto-cleanup | Cleaner event wiring |
-| 4 | `template.ts` — Tagged `html` with binding engine | Fine-grained rendering |
-| 5 | `injector.ts` — Provider/inject with DOM-tree resolution | Testability, decoupling |
-| 6 | Migrate `task-item` as proof-of-concept (smallest leaf component) | Validate the approach |
-| 7 | Migrate `task-list` with `repeat()` (biggest pain point) | Prove list perf |
+| 1 | `signal.ts` — `signal()`, `computed()`, `effect()` with batching | Everything |
+| 2 | `context.ts` — `runWithContext()`, `getCurrentComponent()` | Pure function DI/events |
+| 3 | `component.ts` — `defineComponent()` shell + lifecycle | Component authoring |
+| 4 | `events.ts` — `listen()` with auto-cleanup via context | Cleaner event wiring |
+| 5 | `injector.ts` — `createToken()`, `provide()`, `inject()` | Testability, decoupling |
+| 6 | `template.ts` — Tagged `html` with binding engine | Fine-grained rendering |
+| 7 | Migrate `task-item` as proof-of-concept (smallest leaf) | Validate the approach |
+| 8 | Migrate `task-list` with `repeat()` (biggest pain point) | Prove list perf |
 
 ### File Structure
 
 ```
 viewer/framework/
-├── signal.ts          # ~120 lines — Signal, Computed, Effect, batch
-├── component.ts       # ~100 lines — BaseComponent extends HTMLElement
-├── template.ts        # ~200 lines — Tagged html, Binding, repeat()
-├── events.ts          # ~80 lines  — Declarative listen() with auto-cleanup
-├── injector.ts        # ~60 lines  — createToken, provide, inject
+├── signal.ts          # ~120 lines — signal(), computed(), effect(), batch
+├── context.ts         # ~20 lines  — runWithContext(), getCurrentComponent()
+├── component.ts       # ~80 lines  — defineComponent(), lifecycle wiring
+├── template.ts        # ~200 lines — html tagged template, Binding, repeat()
+├── events.ts          # ~80 lines  — listen() with auto-cleanup
+├── injector.ts        # ~60 lines  — createToken(), provide(), inject()
 └── index.ts           # ~10 lines  — Re-exports
 ```
 
@@ -414,20 +518,25 @@ Total: ~570 lines of framework code, 0 external dependencies, 0 build plugins.
 
 ### Positive
 - SSE updates patch individual task rows instead of rebuilding the entire list
-- Event listeners are declarative, auto-cleaned, and type-safe
+- **No `this` in component authoring** — pure functions all the way down
+- **Composable** — shared reactive logic extracted as plain functions, reusable across components
+- Signals work anywhere (services, tests, standalone modules) — not coupled to components
+- Event listeners are declarative, auto-cleaned, and type-safe via `listen()`
 - State is explicit (signals) instead of implicit (scattered private fields)
-- Components become testable via DI (inject mock services)
+- Components become testable via `inject()` (provide mock services)
 - New components are ~40% less code than current equivalents
 - Framework code lives in one folder, clearly separated from application code
 - No new build tooling — esbuild handles tagged templates natively
 
 ### Negative
-- Contributors must learn signals and tagged template binding syntax
+- Contributors must learn signals, tagged template bindings, and the setup context pattern
 - The template binding engine is the most complex piece and must be robust
 - Debugging reactive chains requires understanding the push-pull propagation model
-- Two component styles coexist during migration (HTMLElement and BaseComponent)
+- Two component styles coexist during migration (raw HTMLElement and defineComponent)
+- Calling `inject()`/`listen()` outside `setup()` throws — must be clearly documented
 
 ### Risks
 - Tagged template performance: parsing + cloning must be fast. Mitigated by caching parsed templates per component class.
 - Memory: each binding holds a DOM node reference. Mitigated by cleanup in `disconnectedCallback`.
+- Setup context confusion: calling `inject()` outside setup throws. Mitigated by clear error messages ("inject() must be called inside defineComponent setup").
 - Edge cases in `repeat()` (reordering, nested lists). Mitigated by starting with simple append/remove and upgrading to keyed reconciliation.

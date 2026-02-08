@@ -113,8 +113,8 @@ viewer/framework/
 ├── signal.ts          # signal(), computed(), effect() — pure functions
 ├── component.ts       # component() + minimal BaseComponent shell
 ├── template.ts        # html tagged template → DOM binding engine + @event
-├── channel.ts         # createChannel() — typed pub/sub, replaces CustomEvent
-├── injector.ts        # provide(), inject() — pure functions, class-as-token
+├── emitter.ts         # Emitter<T> base class — typed pub/sub for services
+├── injector.ts        # provide(), inject() — class-as-token, auto-singleton
 ├── context.ts         # Setup context: getCurrentComponent() + runWithContext()
 └── index.ts           # Public API barrel export
 ```
@@ -231,16 +231,16 @@ const TaskItem = component<TaskItemProps>('task-item', (host, props) => {
   // props.task → Signal<Task>        — fully typed, no strings
   // props.selected → Signal<boolean>  — framework creates signals internally
 
-  // Inject typed channels and services from ancestor providers
-  const navigation = inject(NavigationChannel);
-  const scope = inject(SidebarScope);
+  // Inject services from DI — auto-singleton, no registration needed
+  const navigation = inject(NavigationEvents);
+  const scope = inject(SidebarScopeService);
 
   // Derived state
   const title = computed(() => props.task.value.title);
   const status = computed(() => props.task.value.status.replace('_', ' '));
 
   // Handlers — plain functions, no event ceremony
-  const onSelect = () => navigation.select(host.dataset.id!);
+  const onSelect = () => navigation.emit('select', { id: host.dataset.id! });
   const onDrillIn = (e: Event) => {
     e.stopPropagation();
     scope.set(host.dataset.id!);
@@ -456,7 +456,7 @@ In the template slot, `tasks.map(fn)` returns a `ReactiveList` object that the t
 const TaskItem = component<TaskItemProps>('task-item', (host, props) => {
   // If anything here throws, the component renders an error state
   // instead of crashing the entire app
-  const api = inject(BacklogAPIToken);
+  const api = inject(BacklogAPI);
   // ...
 });
 ```
@@ -496,8 +496,8 @@ interface TaskListProps {
 
 const TaskList = component<TaskListProps>('task-list', (host, props) => {
   const api = inject(BacklogAPI);
-  const nav = inject(NavigationChannel);
-  const sse = inject(SSEChannel);
+  const nav = inject(NavigationEvents);
+  const sse = inject(SSEEvents);
 
   const tasks = signal<Task[]>([]);
   const loading = signal(true);
@@ -545,66 +545,61 @@ const TaskList = component<TaskListProps>('task-list', (host, props) => {
 
 **The pattern**:
 - **Services** handle API calls (injected, never imported directly)
-- **Channels** trigger reloads (filter changed, SSE event arrived)
+- **Emitters** trigger reloads (filter changed, SSE event arrived)
 - **Signals** hold the data + loading/error states
 - **`computed()`** selects the right template based on state
 - **`.map()` + `key`** for lists
 
-No special `query()` primitive. No `useEffect`. Just signals, services, and channels — primitives we already have, composed in a canonical pattern documented as THE way to load data.
+No special `query()` primitive. No `useEffect`. Just signals and services — primitives we already have, composed in a canonical pattern documented as THE way to load data.
 
-### Typed Event Channels — Replace `document.dispatchEvent`
+### Typed Event Emitters — Replace `document.dispatchEvent`
 
-Instead of spraying untyped `CustomEvent`s onto `document`, components communicate through **typed channels** provided via DI:
+Instead of spraying untyped `CustomEvent`s onto `document`, components communicate through **typed emitter services**. An emitter is just a service class that extends `Emitter<T>` — no separate "channel" concept, no `createChannel()`, same DI as everything else:
 
 ```typescript
-// ---- Channel definition (shared types file) ----
+// ---- Emitter definition (shared types file) ----
+// It's just a class. The interface defines the event contract.
 
-interface NavigationEvents {
+class NavigationEvents extends Emitter<{
   select: { id: string };
   filter: { filter: string; type: string };
   search: { query: string };
-}
-
-const NavigationChannel = createChannel<NavigationEvents>('Navigation');
-
-// ---- Provider (app root) ----
-const BacklogApp = component('backlog-app', (host) => {
-  provide(NavigationChannel);
-  // ...
-});
+}> {}
 
 // ---- Producer (task-item) ----
 interface TaskItemProps { task: Task; }
 
 const TaskItem = component<TaskItemProps>('task-item', (host, props) => {
-  const nav = inject(NavigationChannel);
+  const nav = inject(NavigationEvents);  // auto-singleton, same as any service
   const onSelect = () => nav.emit('select', { id: host.dataset.id! });
   // ...
 });
 
 // ---- Consumer (task-list) ----
 const TaskList = component('task-list', (host) => {
-  const nav = inject(NavigationChannel);
+  const nav = inject(NavigationEvents);  // same instance as producer
 
   // Subscribe — auto-disposed on disconnect
   nav.on('select', ({ id }) => setSelectedId(id));
   nav.on('filter', ({ filter, type }) => { /* ... */ });
 
-  // Or: derive a signal directly from a channel event
+  // Or: derive a signal directly from an event
   const selectedId = nav.toSignal('select', e => e.id, null);
   // ...
 });
 ```
 
-**What channels give us**:
+`Emitter<T>` is a tiny base class (~30 lines) in `framework/emitter.ts` that provides typed `emit()`, `on()`, and `toSignal()`. It's not a DI concept — it's just a class you extend when your service needs pub/sub.
+
+**What typed emitters give us**:
 - **Type safety**: `nav.emit('select', { id: 123 })` is a compile error — `id` must be `string`
-- **Explicit contracts**: The `NavigationEvents` interface IS the documentation. You can see every event a channel carries.
-- **Scoped communication**: Channels are provided via DI, not global. Only components in the provider's subtree can access them.
+- **Explicit contracts**: The class definition IS the documentation. You can see every event it carries.
+- **Same DI as everything else**: `inject(NavigationEvents)` — no special `createChannel()` or `provide()` needed
 - **No magic strings**: Event names are typed keys, not arbitrary strings on `document`
 - **Auto-cleanup**: Subscriptions are tied to the component lifecycle via the setup context
-- **Signal integration**: `toSignal()` bridges channels directly into the reactive system
+- **Signal integration**: `toSignal()` bridges events directly into the reactive system
 
-This replaces ALL of `main.ts`'s hand-written event routing. The 8 `document.addEventListener` calls become typed channel subscriptions scoped to the provider tree.
+This replaces ALL of `main.ts`'s hand-written event routing. The 8 `document.addEventListener` calls become typed emitter subscriptions on auto-singleton services.
 
 ### Composability — Shared Logic as Plain Functions
 
@@ -612,8 +607,8 @@ Because everything is a plain function, you can extract and share reactive logic
 
 ```typescript
 // Shared composable — works in any component's setup()
-function useSelection(channel: Channel<NavigationEvents>, getId: () => string) {
-  const selectedId = channel.toSignal('select', e => e.id, null);
+function useSelection(nav: NavigationEvents, getId: () => string) {
+  const selectedId = nav.toSignal('select', e => e.id, null);
   return computed(() => selectedId.value === getId());
 }
 
@@ -657,43 +652,47 @@ html`
 
 `.map()` uses key-based reconciliation: adds new items, removes deleted items, reorders moved items — but never recreates items whose data merely changed. Existing items receive signal updates through their bindings.
 
-### Dependency Injection (`injector.ts`) — Class-as-Token, No Ceremony
+### Dependency Injection (`injector.ts`) — Class-as-Token, Auto-Singleton
 
-The core insight from Angular's evolution: **the class IS the token**. A class constructor is already a unique JavaScript object reference, already typed, already named. `createToken()` was reinventing what JavaScript gives us for free.
+Two insights from Angular's evolution simplify DI dramatically:
+
+1. **The class IS the token.** A class constructor is already a unique JavaScript object reference, already typed, already named. No `createToken()` needed.
+2. **`provide()` is optional for services.** `inject(BacklogAPI)` auto-creates a singleton on first call — no one needs to "register" it first. `provide()` only exists for overriding (testing, custom construction).
 
 ```typescript
-import { createChannel, provide, inject } from './framework';
+import { inject, provide } from './framework';
 
-// Services — the class IS the token. No createToken() needed.
-// Just define the class and use it directly.
+// ---- Services — just classes, nothing special ----
+class BacklogAPI {
+  async getTasks(filter: string): Promise<Task[]> { ... }
+}
 
-// Channels — typed pub/sub (replace document.dispatchEvent)
-const NavigationChannel = createChannel<NavigationEvents>('Navigation');
-const FilterChannel = createChannel<FilterEvents>('Filter');
-const ResourceChannel = createChannel<ResourceEvents>('Resource');
+class SSEEvents extends Emitter<{
+  taskChanged: { id: string; patch: Partial<Task> };
+  taskCreated: { task: Task };
+}> {}
 
-// Provider (app root setup)
-const BacklogApp = component('backlog-app', (host) => {
-  provide(SidebarScopeService);                    // framework calls new SidebarScopeService()
-  provide(BacklogAPI, () => new BacklogAPI(config)); // or pass a factory for custom init
-  provide(SSEService);
-  provide(NavigationChannel);
-  provide(FilterChannel);
-  provide(ResourceChannel);
+class NavigationEvents extends Emitter<{
+  select: { id: string };
+  filter: { filter: string; type: string };
+}> {}
+
+// ---- Consumer — inject() just works, auto-singleton ----
+const TaskList = component('task-list', (host) => {
+  const api = inject(BacklogAPI);         // auto-created on first inject()
+  const nav = inject(NavigationEvents);   // same instance everywhere
+  const sse = inject(SSEEvents);          // typed, no ceremony
   // ...
 });
 
-// Consumer (any descendant setup)
-const TaskList = component('task-list', (host) => {
-  const scope = inject(SidebarScopeService);  // typed as SidebarScopeService
-  const api = inject(BacklogAPI);             // typed as BacklogAPI
-  const nav = inject(NavigationChannel);
-  const filters = inject(FilterChannel);
+// ---- Testing — provide() overrides the auto-singleton ----
+const TestHarness = component('test-harness', (host) => {
+  provide(BacklogAPI, () => new MockBacklogAPI());  // children get the mock
   // ...
 });
 ```
 
-`provide(Class)` registers the class — the framework instantiates it lazily on first `inject()`. `provide(Class, factory)` takes a factory for cases where construction needs arguments. `inject(Class)` walks up `host.parentElement` to find the nearest ancestor that called `provide()` for that class. Values are lazy-created and cached. Falls back to a module-level registry for backward compat with existing singletons during migration.
+`inject(Class)` checks if an instance exists (global singleton cache), creates one via `new Class()` if not, and returns it — fully typed. `provide(Class, factory)` overrides the singleton for the provider's subtree (testing, custom construction). Falls back to a module-level registry for backward compat with existing singletons during migration.
 
 For the rare case of non-class dependencies (config objects, primitives), `createToken<T>(name)` exists as an escape hatch:
 
@@ -704,13 +703,9 @@ provide(AppConfig, () => ({ apiUrl: '/api', debug: true }));
 const config = inject(AppConfig);
 ```
 
-But for the 95% case — service classes — the class IS the token. One concept, zero ceremony.
+But for the 99% case — service classes and emitters — the class IS the token, `inject()` auto-creates, and there's nothing to register. One concept, zero ceremony.
 
-**Channels vs Services**: Both are injectable, but they serve different purposes:
-- **Services** (class-as-token) — hold logic and state (API clients, storage, SSE connection)
-- **Channels** (`createChannel`) — typed event buses for component-to-component communication
-
-This separation makes intent explicit: if a component injects a channel, it's communicating with siblings/ancestors. If it injects a service, it's accessing shared infrastructure.
+**Everything is a service.** API clients, storage adapters, SSE connections, typed event emitters — they're all just classes. Some extend `Emitter<T>` for pub/sub, some don't. The DI system doesn't care. `inject(AnyClass)` always works the same way.
 
 ### Data Flow Summary
 
@@ -720,9 +715,9 @@ Three data-in primitives, each returning signals:
 |---|---|---|---|
 | `signal(initial)` | Component-local state | Read/write Signal | Internal state |
 | `props.name` (via interface generic) | Parent component | Read-only Signal | Typed data from parent |
-| `inject(Token)` | DI tree | Service or Channel | Shared services, cross-tree communication |
+| `inject(Class)` | Auto-singleton DI | Service instance | Shared services, cross-component communication |
 
-The mental model: **props** for data from parents (typed via interface), **signals** for local UI state, **inject** for shared services/channels. All props are signals. All three work in templates without `.value`.
+The mental model: **props** for data from parents (typed via interface), **signals** for local UI state, **inject** for shared services (including emitters for cross-component events). All props are signals. All three work in templates without `.value`.
 
 ### Migration Path
 
@@ -739,7 +734,7 @@ Components can be migrated one at a time:
 - **Typed props via interface** — `component<Props>()` with full TypeScript inference, no magic strings
 - **Auto-resolved prop/attr passing** — framework knows what's a prop, no `.prop` syntax needed
 - **Events colocated with elements** — `@click=${handler}` ON the element, not via detached selector
-- **Typed channels** replace `document.dispatchEvent(new CustomEvent(...))` pollution
+- **Typed emitters** replace `document.dispatchEvent(new CustomEvent(...))` pollution
 - **`.map()` + `key`** for lists — universally known, no custom `repeat()` API
 - **`class:name` directive** for conditional Tailwind classes — no ternary soup
 - **Error boundaries** — one broken component doesn't crash the app
@@ -754,7 +749,6 @@ Components can be migrated one at a time:
 ### Weaknesses
 - Tagged template engine + `@event` processing is the most complex piece (~250 lines) — needs careful implementation
 - List reconciliation (keyed `.map()`) is inherently tricky
-- Channels add an indirection layer vs direct function calls between components
 - Setup context pattern may confuse contributors unfamiliar with Angular/Solid/Vue 3
 - `signal()` reads require `.value` in JS code (fundamental JS limitation — no way around this without a compiler)
 
@@ -790,8 +784,8 @@ const TaskItem = component('task-item', (host) => {
     childCount: 0,
   });
 
-  const nav = inject(NavigationChannel);
-  const scope = inject(SidebarScope);
+  const nav = inject(NavigationEvents);
+  const scope = inject(SidebarScopeService);
 
   nav.on('select', ({ id }) => { state.selected = id === host.dataset.id; });
 
@@ -857,7 +851,7 @@ const TaskItem = component('task-item', (host) => {
   const status = signal('open');
   const selected = signal(false);
 
-  const nav = inject(NavigationChannel);
+  const nav = inject(NavigationEvents);
   const statusLabel = computed(() => status.value.replace('_', ' '));
 
   nav.on('select', ({ id }) => { selected.value = id === host.dataset.id; });
@@ -900,18 +894,20 @@ Beyond the core framework, there are architectural improvements that become poss
 
 **Current problem**: When a `task_changed` SSE event arrives, `task-list.ts` re-fetches ALL tasks from the API and re-renders the entire list. Every SSE event = full network round-trip + full DOM rebuild.
 
-**With signals + channels**: The SSE service can emit granular events on a typed channel. Individual task-item components subscribe to changes for their specific ID. When TASK-0042 changes, only the `<task-item>` for that task updates — no re-fetch, no list rebuild.
+**With signals + typed emitters**: The SSE service extends `Emitter` and emits granular events. Individual task-item components subscribe to changes for their specific ID. When TASK-0042 changes, only the `<task-item>` for that task updates — no re-fetch, no list rebuild.
 
 ```typescript
-// SSE service bridges backend events into typed channels
-const SSEChannel = createChannel<{
+// SSE service — just a class that extends Emitter
+class SSEEvents extends Emitter<{
   taskChanged: { id: string; patch: Partial<Task> };
   taskCreated: { task: Task };
   taskDeleted: { id: string };
-}>('SSE');
+}> {
+  // Connects to backend SSE endpoint and emits typed events
+}
 
-// Inside task-list setup — surgical updates via channel
-const sse = inject(SSEChannel);
+// Inside task-list setup — surgical updates via emitter
+const sse = inject(SSEEvents);
 sse.on('taskChanged', ({ id, patch }) => {
   tasks.value = tasks.value.map(t => t.id === id ? { ...t, ...patch } : t);
 });
@@ -942,15 +938,15 @@ Each layer is lazy and cached. Changing `sortBy` only recomputes `sorted` and `s
 
 **Current problem**: After an MCP tool modifies a task, the flow is: backend saves → event bus emits → SSE pushes → client re-fetches → DOM rebuilds. This creates visible latency.
 
-**With signals**: The SSE channel can carry a `patch` object. The component applies the patch optimistically to its local signals immediately, before the full re-fetch completes. If the re-fetch returns different data, the signal updates again (self-correcting).
+**With signals**: The SSE emitter can carry a `patch` object. The component applies the patch optimistically to its local signals immediately, before the full re-fetch completes. If the re-fetch returns different data, the signal updates again (self-correcting).
 
 ### 4. Component DevTools
 
-**With signals and channels**: Because all state flows through signals and all communication flows through channels, it becomes trivial to build a dev panel that shows:
+**With signals and typed emitters**: Because all state flows through signals and all communication flows through emitter services, it becomes trivial to build a dev panel that shows:
 - All active signals and their current values
-- All channel messages in real-time
+- All emitter messages in real-time
 - The dependency graph (which signal feeds which computed/effect)
-- Component tree with injected dependencies
+- Component tree with injected services
 
 This is impossible with the current architecture where state is scattered across private fields, localStorage, URL params, and untyped events.
 
@@ -1116,7 +1112,7 @@ Build performance: v4's Oxide engine is 3.5-10x faster than v3, incremental buil
 | **Template style** | Tagged `html` + implicit signals | Plain string + explicit reads | Plain string + explicit `signal()` calls |
 | **AI coherence** | High — `${title}` just works in templates | Medium — `${state.title}` | Medium — `${title.value}` or `[object Object]` |
 | **Props** | Typed via interface generic | Untyped / manual | Untyped / manual |
-| **Framework code size** | ~620 lines (~3KB min) | ~400 lines (~2KB min) | ~500 lines (~2.5KB min) |
+| **Framework code size** | ~610 lines (~3KB min) | ~400 lines (~2KB min) | ~500 lines (~2.5KB min) |
 | **Implementation risk** | Higher (binding engine, keyed lists) | Lower (morph is well-understood) | Medium |
 | **Migration effort** | Medium (new template syntax) | Low (templates stay as strings) | Medium (add signals, keep strings) |
 | **Ceiling for optimization** | Very high (surgical updates) | Limited (always walks tree) | Limited (always walks tree) |
@@ -1124,7 +1120,7 @@ Build performance: v4's Oxide engine is 3.5-10x faster than v3, incremental buil
 | **Composability** | High — extract to shared functions | Medium — reactive() is component-tied | High — signals are standalone |
 | **Testability** | High (signals are pure, inject mocks) | Medium (need DOM for proxy) | High (signals are pure, inject mocks) |
 | **Component authoring** | `component()` + pure functions | `component()` + pure functions | `component()` + pure functions |
-| **Inter-component events** | Typed channels via DI | Typed channels via DI | Typed channels via DI |
+| **Inter-component events** | Typed emitters via DI | Typed emitters via DI | Typed emitters via DI |
 | **DOM event binding** | Inline `@click` in template | `onclick` attr or post-morph query | `onclick` attr or post-morph query |
 | **Event colocation** | Events on element (visible in template) | Detached from template | Detached from template |
 | **CSS strategy** | Tailwind (all proposals) | Tailwind (all proposals) | Tailwind (all proposals) |
@@ -1149,7 +1145,7 @@ Build performance: v4's Oxide engine is 3.5-10x faster than v3, incremental buil
 
 7. **Signals are the industry direction**. TC39 has a signals proposal. Angular, Solid, Preact, Qwik, and Vue all converge on this model. Building on signals means the mental model will be familiar to anyone who has touched modern frontend in the last two years.
 
-8. **The DI system pays for itself immediately**. Replacing 15 hard-coded singleton imports with injectable tokens via pure `inject()` makes every component testable in isolation — something currently impossible without mocking module imports.
+8. **The DI system pays for itself immediately**. Replacing 15 hard-coded singleton imports with `inject(Class)` — auto-singleton, zero registration — makes every component testable in isolation. `provide()` overrides for testing, but the common path needs nothing.
 
 9. **Incremental adoption eliminates migration risk**. Old `HTMLElement` components keep working. New `component()` components coexist in the same DOM tree. There is no "big bang" rewrite.
 
@@ -1158,9 +1154,9 @@ Build performance: v4's Oxide engine is 3.5-10x faster than v3, incremental buil
 | Phase | What | Unblocks |
 |---|---|---|
 | 1 | `signal.ts` — `signal()`, `computed()`, `effect()` with batching | Everything |
-| 2 | `context.ts` — `runWithContext()`, `getCurrentComponent()` | Pure function DI/channels |
-| 3 | `injector.ts` — `provide()`, `inject()`, class-as-token | Testability, decoupling |
-| 4 | `channel.ts` — `createChannel()`, typed emit/on/toSignal | Replace CustomEvent pollution |
+| 2 | `context.ts` — `runWithContext()`, `getCurrentComponent()` | Pure function DI |
+| 3 | `emitter.ts` — `Emitter<T>` base class, typed emit/on/toSignal | Replace CustomEvent pollution |
+| 4 | `injector.ts` — `inject()`, `provide()`, class-as-token, auto-singleton | Testability, decoupling |
 | 5 | `component.ts` — `component()` shell + lifecycle + typed props + error boundaries | Component authoring |
 | 6 | `template.ts` — Tagged `html` with binding engine + `@event` + `class:name` + `.map()`/`key` | Fine-grained rendering |
 | 7 | Migrate `task-item` as proof-of-concept (smallest leaf) | Validate the approach |
@@ -1175,12 +1171,12 @@ viewer/framework/
 ├── context.ts         # ~20 lines  — runWithContext(), getCurrentComponent()
 ├── component.ts       # ~100 lines — component(), lifecycle wiring, typed props, error boundaries
 ├── template.ts        # ~270 lines — html tagged template, Binding, @event, class:name, .map()/key
-├── channel.ts         # ~80 lines  — createChannel(), typed pub/sub
-├── injector.ts        # ~60 lines  — provide(), inject(), class-as-token
+├── emitter.ts         # ~30 lines  — Emitter<T> base class, typed emit/on/toSignal
+├── injector.ts        # ~60 lines  — inject(), provide(), class-as-token, auto-singleton
 └── index.ts           # ~10 lines  — Re-exports
 ```
 
-Total: ~660 lines of framework code, 0 external dependencies, 0 build plugins.
+Total: ~610 lines of framework code, 0 external dependencies, 0 build plugins.
 
 ## Consequences
 
@@ -1191,7 +1187,7 @@ Total: ~660 lines of framework code, 0 external dependencies, 0 build plugins.
 - **Auto-resolved prop passing** — framework knows what's a prop vs attribute, no `.prop` syntax
 - **Implicit signal reads in templates** — `${title}` just works, `.value` only in JS logic
 - **Events colocated with elements** — `@click=${handler}` on the element, not detached via selectors
-- **Typed channels replace global event pollution** — no more `document.dispatchEvent(new CustomEvent(...))`
+- **Typed emitters replace global event pollution** — no more `document.dispatchEvent(new CustomEvent(...))`
 - **`.map()` + `key` for lists** — universally known pattern, no custom API to learn
 - **`class:name` directive** — clean conditional Tailwind classes without ternary expressions
 - **Computed views for multi-branch rendering** — `if`/`else` in JS, single `${content}` in template
@@ -1201,7 +1197,7 @@ Total: ~660 lines of framework code, 0 external dependencies, 0 build plugins.
 - **Composable** — shared reactive logic extracted as plain functions, reusable across components
 - Signals work anywhere (services, tests, standalone modules) — not coupled to components
 - State is explicit (signals) instead of implicit (scattered private fields)
-- Components become testable via `inject()` (provide mock services/channels)
+- Components become testable via `inject()` (provide mock services)
 - `main.ts` shrinks from 70-line event router to just `backlogEvents.connect()` + imports
 - New components are ~40% less code than current equivalents
 - Framework code lives in one folder, clearly separated from application code
@@ -1209,7 +1205,7 @@ Total: ~660 lines of framework code, 0 external dependencies, 0 build plugins.
 - **High AI coherence** — an LLM can produce correct, styled, reactive components naturally
 
 ### Negative
-- Contributors must learn signals, tagged template bindings, channels, and the setup context pattern
+- Contributors must learn signals, tagged template bindings, emitters, and the setup context pattern
 - The template binding engine + `@event` processing is the most complex piece and must be robust
 - Debugging reactive chains requires understanding the push-pull propagation model
 - Two component styles coexist during migration (raw HTMLElement and component())
@@ -1219,6 +1215,6 @@ Total: ~660 lines of framework code, 0 external dependencies, 0 build plugins.
 ### Risks
 - Tagged template performance: parsing + cloning must be fast. Mitigated by caching parsed templates per component class.
 - Memory: each binding holds a DOM node reference. Mitigated by cleanup in `disconnectedCallback`.
-- Channel over-abstraction: simple parent→child communication shouldn't need a channel. Mitigated by using typed props for direct parent-child, channels only for cross-tree communication.
+- Emitter over-use: simple parent→child communication shouldn't need an emitter. Mitigated by using typed props for direct parent-child, emitters only for cross-tree communication.
 - Edge cases in keyed `.map()` reconciliation (reordering, nested lists). Mitigated by starting with simple append/remove and upgrading to full keyed reconciliation.
 - Tailwind class verbosity in complex components. Mitigated by extracting common patterns into composable functions that return class strings.

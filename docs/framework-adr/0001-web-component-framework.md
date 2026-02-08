@@ -462,7 +462,7 @@ Components can be migrated one at a time:
 - **Events colocated with elements** — `@click=${handler}` ON the element, not via detached selector
 - **Typed channels** replace `document.dispatchEvent(new CustomEvent(...))` pollution
 - **Composable** — extract shared logic into plain functions (like React hooks but no rules)
-- **Implicit signals in templates** — `${title}` just works, `count()` only needed in JS logic
+- **Implicit signals in templates** — `${title}` just works, `.value` only needed in JS logic
 - Signals work standalone (in services, tests, modules) — not coupled to components
 - Template is parsed once, cloned per instance, then only bindings execute
 - True fine-grained reactivity — updating one task's status touches one `<span>`, not the whole list
@@ -902,7 +902,7 @@ Total: ~620 lines of framework code, 0 external dependencies, 0 build plugins.
 ### Positive
 - SSE updates patch individual task rows instead of rebuilding the entire list
 - **No `this` in component authoring** — pure functions all the way down
-- **Implicit signal reads in templates** — `${title}` just works, `count()` only in JS logic
+- **Implicit signal reads in templates** — `${title}` just works, `.value` only in JS logic
 - **Events colocated with elements** — `@click=${handler}` on the element, not detached via selectors
 - **Typed channels replace global event pollution** — no more `document.dispatchEvent(new CustomEvent(...))`
 - **Self-contained components** — Tailwind + tagged templates + inline events = complete component in one function
@@ -921,7 +921,7 @@ Total: ~620 lines of framework code, 0 external dependencies, 0 build plugins.
 - The template binding engine + `@event` processing is the most complex piece and must be robust
 - Debugging reactive chains requires understanding the push-pull propagation model
 - Two component styles coexist during migration (raw HTMLElement and defineComponent)
-- `signal()` reads require `()` in JS code — fundamental JS limitation, no way around without a compiler
+- `signal()` reads require `.value` in JS code — fundamental JS limitation, no way around without a compiler
 - Tailwind adds a dev dependency and esbuild plugin (though zero runtime cost)
 
 ### Risks

@@ -111,7 +111,7 @@ This means:
 ```
 viewer/framework/
 ├── signal.ts          # signal(), computed(), effect() — pure functions
-├── component.ts       # defineComponent() + minimal BaseComponent shell
+├── component.ts       # component() + minimal BaseComponent shell
 ├── template.ts        # html tagged template → DOM binding engine + @event
 ├── channel.ts         # createChannel() — typed pub/sub, replaces CustomEvent
 ├── injector.ts        # createToken(), provide(), inject() — pure functions
@@ -214,26 +214,30 @@ html`<span>${count}</span>`                       // implicit — just works
 
 **Batch updates**: Multiple synchronous `.value` writes coalesce into one microtask flush via `queueMicrotask`. `a.value = 1; b.value = 2; c.value = 3` triggers one update pass, not three.
 
-### Component Model (`component.ts`) — Thin Shell + setup()
+### Component Model (`component.ts`) — Typed Props via Generic Interface
+
+The `component()` function is the single entry point for defining a web component. Props are declared as a TypeScript interface and passed as a generic — fully typed, no magic strings:
 
 ```typescript
-import { defineComponent, html, signal, computed, inject, when } from './framework';
+import { component, html, signal, computed, inject, when } from './framework';
 
-const TaskItem = defineComponent('task-item', (host) => {
-  // State — plain signal creation, no this
-  const title = signal('');
-  const status = signal('open');
-  const childCount = signal(0);
+// Props contract — one interface, fully typed
+interface TaskItemProps {
+  task: Task;
+  selected: boolean;
+}
+
+const TaskItem = component<TaskItemProps>('task-item', (host, props) => {
+  // props.task → Signal<Task>        — fully typed, no strings
+  // props.selected → Signal<boolean>  — framework creates signals internally
 
   // Inject typed channels and services from ancestor providers
   const navigation = inject(NavigationChannel);
   const scope = inject(SidebarScope);
 
   // Derived state
-  const statusLabel = computed(() => status.value.replace('_', ' '));
-
-  // Selection — subscribe to channel, get reactive signal back
-  const selected = navigation.isSelected(() => host.dataset.id!);
+  const title = computed(() => props.task.value.title);
+  const status = computed(() => props.task.value.status.replace('_', ' '));
 
   // Handlers — plain functions, no event ceremony
   const onSelect = () => navigation.select(host.dataset.id!);
@@ -245,15 +249,17 @@ const TaskItem = defineComponent('task-item', (host) => {
   // Template — events INLINE with @, signals IMPLICIT
   return html`
     <div class="flex items-center gap-2 px-3 py-2 rounded cursor-pointer
-                hover:bg-white/5 transition-colors
-                ${selected} ? 'bg-white/10 border-l-2 border-blue-400' : ''"
+                hover:bg-white/5 transition-colors"
+         class:bg-white/10=${props.selected}
+         class:border-l-2=${props.selected}
+         class:border-blue-400=${props.selected}
          @click=${onSelect}>
       <task-badge task-id="${host.dataset.id}"></task-badge>
       <span class="flex-1 truncate text-sm">${title}</span>
-      <span class="text-xs px-2 py-0.5 rounded-full bg-white/10">${statusLabel}</span>
-      ${when(childCount,
+      <span class="text-xs px-2 py-0.5 rounded-full bg-white/10">${status}</span>
+      ${when(props.task.value.childCount,
         html`<span class="text-xs text-gray-400"
-                   @click=${onDrillIn}>${childCount}</span>`
+                   @click=${onDrillIn}>${props.task.value.childCount}</span>`
       )}
     </div>
   `;
@@ -268,13 +274,67 @@ Notice what's NOT in this component:
 - No `this`
 - No `.value` or `()` in the template
 - No separate CSS file
+- No magic string prop declarations — the TypeScript interface IS the contract
 
-**What `defineComponent()` does internally**:
+#### How Props Work — Typed, Auto-Resolved
+
+`component<P>()` takes the props interface as a generic. The `props` parameter is a mapped type:
+
+```typescript
+type ReactiveProps<P> = { [K in keyof P]: Signal<P[K]> };
+```
+
+Every prop becomes a read-only `Signal`. The framework creates these signals internally and wires up property setters on the custom element class. No `prop('name')` calls, no `attr('name', default)` — the interface IS the declaration.
+
+**Auto-resolution — no `.prop` syntax needed**: When a parent template renders `<task-detail task=${selectedTask}>`, the template engine looks up `task-detail`'s registered props (stored on the custom element class at definition time):
+- If `task` is a declared prop → sets `element.task = selectedTask` (JS property, preserves object reference)
+- If it's NOT a declared prop → falls back to `element.setAttribute(...)` (HTML attribute, for interop with vanilla elements)
+
+This means the parent template uses **one syntax for everything**:
+
+```typescript
+// Parent — same syntax regardless of prop type
+html`
+  <task-detail task=${selectedTask} expanded=${isOpen}></task-detail>
+  <legacy-widget title="hello" data-id="42"></legacy-widget>
+`
+```
+
+The first line passes a `Task` object and a `boolean` to a framework component (via properties). The second line passes strings to a legacy vanilla component (via attributes). Same syntax. The developer doesn't think about it. No `.prop` prefix, no invented conventions.
+
+#### Components Without Props
+
+For components that don't take any props (pure internal state), skip the generic:
+
+```typescript
+const ThemeToggle = component('theme-toggle', (host) => {
+  const dark = signal(false);
+  const toggle = () => { dark.value = !dark.value; };
+
+  return html`
+    <button class="p-2 rounded" @click=${toggle}>
+      ${computed(() => dark.value ? 'Light Mode' : 'Dark Mode')}
+    </button>
+  `;
+});
+```
+
+No generic, no props parameter. Same simple signature.
+
+#### Why the Tag Name String Stays
+
+The string `'task-item'` in `component('task-item', ...)` is a web platform requirement: `customElements.define('tag-name', Class)` demands a hyphenated string. Every web component framework passes this string — Lit, Stencil, FAST, all of them. The only ways to avoid it would require a compiler (derive from variable name) or build tooling magic (file convention). Both are ruled out by our constraints.
+
+It's the **only** magic string in the entire API. Everything else is typed.
+
+**What `component()` does internally**:
 1. Creates a class extending `HTMLElement` (you never write `class ... extends` yourself)
-2. In `connectedCallback`, calls `runWithContext(this, setupFn)` — the only moment the context exists
-3. The `setup()` function's pure function calls (`signal()`, `inject()`) register against the context
-4. `setup()` returns an `html` template result, which gets mounted — including `@event` bindings
-5. In `disconnectedCallback`, all subscriptions, effects, and event bindings are disposed automatically
+2. Registers property setters for each key in the props interface, each backed by a `Signal`
+3. In `connectedCallback`, calls `runWithContext(this, setupFn)` — the only moment the context exists
+4. The `setup()` function's pure function calls (`signal()`, `inject()`) register against the context
+5. `setup()` returns an `html` template result, which gets mounted — including `@event` bindings
+6. In `disconnectedCallback`, all subscriptions, effects, and event bindings are disposed automatically
+7. If the setup function throws, the error boundary catches it and renders a fallback (see Error Boundaries below)
 
 The component author never touches `connectedCallback`, `disconnectedCallback`, `attributeChangedCallback`, or `this`. The setup function receives `host` (the raw element) for reading `dataset`, `id`, etc.
 
@@ -301,6 +361,197 @@ The `html` tag function processes `@event` attributes as event bindings:
 
 This is the same `@event` convention used by Lit and Vue templates — proven, familiar, and self-documenting.
 
+### Conditional Rendering — `when()` for Toggles, `computed()` for Branches
+
+#### Simple Toggle: `when()`
+
+`when()` is scoped to **single-branch inline toggles** — show or hide one element:
+
+```typescript
+// Simple toggle — when() is the right tool
+html`
+  <button @click=${onSave}>Save</button>
+  ${when(hasUnsavedChanges, html`<span class="text-yellow-400">Unsaved</span>`)}
+`;
+```
+
+`when(condition, template)` — show template when condition is truthy. That's it. No else branch, no nesting.
+
+#### Multi-State: Computed Views
+
+For anything with 2+ branches, use `computed()` to select the right template in JavaScript — where `if`/`else` works naturally:
+
+```typescript
+const TaskDetail = component<TaskDetailProps>('task-detail', (host, props) => {
+  const loading = signal(true);
+  const error = signal<string | null>(null);
+
+  // Complex conditional logic stays in JS — where if/else works naturally
+  const content = computed(() => {
+    if (loading.value) return html`<div class="animate-pulse">Loading...</div>`;
+    if (error.value) return html`<div class="text-red-400">${error}</div>`;
+    return html`
+      <div class="task-detail">
+        <h1>${props.task.value.title}</h1>
+        <span>${props.task.value.status}</span>
+      </div>
+    `;
+  });
+
+  // Template stays clean — just one slot
+  return html`<div class="container">${content}</div>`;
+});
+```
+
+This requires **zero new API**. `computed()` already exists. `html` templates already work as values. The template engine handles signal-containing-template in slots (it has to, for `when()` to work at all). We're just using existing primitives.
+
+**The principle**: `when()` is for simple inline toggles. For anything with 2+ branches, use `computed()` + `if`/`else` in JS, and reference it as a single `${view}` in the template. No nesting, no callback hell, each branch visually separate.
+
+### Conditional Classes — `class:name` Directive
+
+Toggling Tailwind classes based on state is a universal need. Ternary expressions in class strings get ugly fast:
+
+```typescript
+// Without class: directive — ternary soup
+html`<div class="p-2 rounded ${selected.value ? 'bg-white/10 border-l-2 border-blue-400' : ''}">`;
+
+// With class: directive — clean, each class toggled independently
+html`<div class="p-2 rounded"
+          class:bg-white/10=${selected}
+          class:border-l-2=${selected}
+          class:border-blue-400=${selected}>`;
+```
+
+`class:name=${signal}` is a **binding directive** processed by the template engine. When the signal is truthy, the class is added; when falsy, removed. Uses `classList.toggle(name, bool)` — one DOM operation, no string parsing.
+
+This is the same convention used by Svelte (`class:active={isActive}`) and Vue (`:class`). It reads naturally: "this element has class `bg-white/10` when `selected` is true."
+
+### List Rendering — `.map()` + `key`
+
+Lists use the universally known `.map()` pattern with a `key` attribute for reconciliation:
+
+```typescript
+html`
+  <div class="task-list">
+    ${tasks.map(t => html`
+      <task-item key=${t.id} task=${t}></task-item>
+    `)}
+  </div>
+`
+```
+
+- `.map()` — universally known, every LLM writes it correctly
+- `key=${t.id}` — React convention, everyone recognizes it
+- No separate `repeat()` import, no key function argument, no unfamiliar API
+
+**How it works**: `Signal<T[]>` has a `.map(fn)` method that returns a reactive mapped list. When the array signal changes, the framework uses the `key` attribute from each template fragment for keyed reconciliation — inserts new items, removes deleted ones, reorders moved ones, but never recreates items that just moved.
+
+In the template slot, `tasks.map(fn)` returns a `ReactiveList` object that the template engine handles natively — same as it handles signals, just for collections.
+
+### Error Boundaries
+
+`component()` wraps the setup function in a try/catch. If the setup function (or any effect within it) throws, the error boundary catches it and renders a fallback:
+
+```typescript
+const TaskItem = component<TaskItemProps>('task-item', (host, props) => {
+  // If anything here throws, the component renders an error state
+  // instead of crashing the entire app
+  const api = inject(BacklogAPIToken);
+  // ...
+});
+```
+
+The default fallback renders a minimal error indicator. Components can opt into custom error handling:
+
+```typescript
+const TaskDetail = component<TaskDetailProps>('task-detail', (host, props) => {
+  // ...
+}, {
+  onError: (error, host) => html`<div class="text-red-400 p-2">Failed to load task</div>`
+});
+```
+
+Errors are caught at the component boundary — one broken component doesn't take down sibling or parent components. This is critical for resilience when AI-generated components may have bugs.
+
+### API Requests and Side Effects — Services via DI
+
+Data fetching lives in **services**, injected via DI. Components orchestrate, services execute. Clear separation:
+
+```typescript
+// Service — plain class, injected, testable
+class BacklogAPI {
+  async getTasks(filter: string): Promise<Task[]> { ... }
+  async updateTask(id: string, patch: Partial<Task>): Promise<Task> { ... }
+}
+
+const BacklogAPIToken = createToken<BacklogAPI>('BacklogAPI');
+```
+
+Components use services via `inject()`, manage loading/error state with signals, and use `computed()` for view selection:
+
+```typescript
+interface TaskListProps {
+  scopeId: string | null;
+}
+
+const TaskList = component<TaskListProps>('task-list', (host, props) => {
+  const api = inject(BacklogAPIToken);
+  const nav = inject(NavigationChannel);
+  const sse = inject(SSEChannel);
+
+  const tasks = signal<Task[]>([]);
+  const loading = signal(true);
+  const error = signal<string | null>(null);
+
+  const load = async () => {
+    loading.value = true;
+    error.value = null;
+    try {
+      tasks.value = await api.getTasks(props.scopeId.value);
+    } catch (e) {
+      error.value = e.message;
+    }
+    loading.value = false;
+  };
+
+  // Load on mount
+  load();
+
+  // Reload when filter changes via channel
+  nav.on('filter', () => load());
+
+  // Surgical SSE updates (no refetch needed)
+  sse.on('taskChanged', ({ id, patch }) => {
+    tasks.value = tasks.value.map(t => t.id === id ? { ...t, ...patch } : t);
+  });
+
+  const content = computed(() => {
+    if (loading.value) return html`<skeleton-list></skeleton-list>`;
+    if (error.value) return html`<div class="text-red-400 p-4">${error}</div>`;
+    if (!tasks.value.length) return html`<empty-state></empty-state>`;
+    return html`${tasks.map(t => html`
+      <task-item key=${t.id} task=${t}></task-item>
+    `)}`;
+  });
+
+  return html`
+    <div class="flex flex-col gap-1 p-2">
+      <list-header count=${tasks.value.length}></list-header>
+      ${content}
+    </div>
+  `;
+});
+```
+
+**The pattern**:
+- **Services** handle API calls (injected, never imported directly)
+- **Channels** trigger reloads (filter changed, SSE event arrived)
+- **Signals** hold the data + loading/error states
+- **`computed()`** selects the right template based on state
+- **`.map()` + `key`** for lists
+
+No special `query()` primitive. No `useEffect`. Just signals, services, and channels — primitives we already have, composed in a canonical pattern documented as THE way to load data.
+
 ### Typed Event Channels — Replace `document.dispatchEvent`
 
 Instead of spraying untyped `CustomEvent`s onto `document`, components communicate through **typed channels** provided via DI:
@@ -317,20 +568,22 @@ interface NavigationEvents {
 const NavigationChannel = createChannel<NavigationEvents>('Navigation');
 
 // ---- Provider (app root) ----
-const BacklogApp = defineComponent('backlog-app', (host) => {
+const BacklogApp = component('backlog-app', (host) => {
   provide(NavigationChannel);
   // ...
 });
 
 // ---- Producer (task-item) ----
-const TaskItem = defineComponent('task-item', (host) => {
+interface TaskItemProps { task: Task; }
+
+const TaskItem = component<TaskItemProps>('task-item', (host, props) => {
   const nav = inject(NavigationChannel);
   const onSelect = () => nav.emit('select', { id: host.dataset.id! });
   // ...
 });
 
 // ---- Consumer (task-list) ----
-const TaskList = defineComponent('task-list', (host) => {
+const TaskList = component('task-list', (host) => {
   const nav = inject(NavigationChannel);
 
   // Subscribe — auto-disposed on disconnect
@@ -388,21 +641,21 @@ The template engine works in two phases:
 1. When a signal fires, only the `Binding` objects subscribed to it execute
 2. A text binding does `textNode.data = newValue` — one DOM operation
 3. An attribute binding does `element.setAttribute(name, newValue)` — one DOM operation
-4. A class binding does `element.classList.toggle(name, bool)` — one DOM operation
+4. A `class:name` binding does `element.classList.toggle(name, bool)` — one DOM operation
 5. No diffing, no tree walking, no innerHTML
 
-**List rendering** uses a keyed `repeat()` helper:
+**List rendering** uses `.map()` with keyed reconciliation:
 ```typescript
 html`
   <div class="task-list">
-    ${repeat(tasks, task => task.id, task => html`
-      <task-item data-id="${task.id}" ...></task-item>
+    ${tasks.map(t => html`
+      <task-item key=${t.id} task=${t}></task-item>
     `)}
   </div>
 `
 ```
 
-`repeat()` uses key-based reconciliation: adds new items, removes deleted items, reorders moved items — but never recreates items whose data merely changed. Existing items receive signal updates through their bindings.
+`.map()` uses key-based reconciliation: adds new items, removes deleted items, reorders moved items — but never recreates items whose data merely changed. Existing items receive signal updates through their bindings.
 
 ### Dependency Injection (`injector.ts`) — Pure Functions
 
@@ -420,7 +673,7 @@ const FilterChannel = createChannel<FilterEvents>('Filter');
 const ResourceChannel = createChannel<ResourceEvents>('Resource');
 
 // Provider (app root setup)
-const BacklogApp = defineComponent('backlog-app', (host) => {
+const BacklogApp = component('backlog-app', (host) => {
   provide(SidebarScope, () => new SidebarScopeService());
   provide(BacklogAPI, () => new BacklogAPIService());
   provide(SSEEvents, () => new SSEService());
@@ -431,7 +684,7 @@ const BacklogApp = defineComponent('backlog-app', (host) => {
 });
 
 // Consumer (any descendant setup)
-const TaskList = defineComponent('task-list', (host) => {
+const TaskList = component('task-list', (host) => {
   const scope = inject(SidebarScope);
   const nav = inject(NavigationChannel);
   const filters = inject(FilterChannel);
@@ -447,10 +700,22 @@ const TaskList = defineComponent('task-list', (host) => {
 
 This separation makes intent explicit: if a component injects a channel, it's communicating with siblings/ancestors. If it injects a service, it's accessing shared infrastructure.
 
+### Data Flow Summary
+
+Three data-in primitives, each returning signals:
+
+| Primitive | Source | Type | Use case |
+|---|---|---|---|
+| `signal(initial)` | Component-local state | Read/write Signal | Internal state |
+| `props.name` (via interface generic) | Parent component | Read-only Signal | Typed data from parent |
+| `inject(Token)` | DI tree | Service or Channel | Shared services, cross-tree communication |
+
+The mental model: **props** for data from parents (typed via interface), **signals** for local UI state, **inject** for shared services/channels. All props are signals. All three work in templates without `.value`.
+
 ### Migration Path
 
 Components can be migrated one at a time:
-1. Old `HTMLElement` components and new `defineComponent` components coexist in the same DOM
+1. Old `HTMLElement` components and new `component()` components coexist in the same DOM
 2. `inject()` falls back to existing singleton imports when no ancestor provider is found
 3. `html` tagged templates and `innerHTML` can coexist during the transition
 4. No changes to the build system — esbuild handles everything as-is
@@ -459,8 +724,14 @@ Components can be migrated one at a time:
 ### Strengths
 - Zero-overhead updates: signal → exact DOM node, no diffing
 - **Pure functions everywhere** — no `this`, no class authoring, no inheritance
+- **Typed props via interface** — `component<Props>()` with full TypeScript inference, no magic strings
+- **Auto-resolved prop/attr passing** — framework knows what's a prop, no `.prop` syntax needed
 - **Events colocated with elements** — `@click=${handler}` ON the element, not via detached selector
 - **Typed channels** replace `document.dispatchEvent(new CustomEvent(...))` pollution
+- **`.map()` + `key`** for lists — universally known, no custom `repeat()` API
+- **`class:name` directive** for conditional Tailwind classes — no ternary soup
+- **Error boundaries** — one broken component doesn't crash the app
+- **Computed views** for multi-branch rendering — just `if`/`else` returning templates
 - **Composable** — extract shared logic into plain functions (like React hooks but no rules)
 - **Implicit signals in templates** — `${title}` just works, `.value` only needed in JS logic
 - Signals work standalone (in services, tests, modules) — not coupled to components
@@ -470,10 +741,10 @@ Components can be migrated one at a time:
 
 ### Weaknesses
 - Tagged template engine + `@event` processing is the most complex piece (~250 lines) — needs careful implementation
-- List reconciliation (repeat/keyed) is inherently tricky
+- List reconciliation (keyed `.map()`) is inherently tricky
 - Channels add an indirection layer vs direct function calls between components
 - Setup context pattern may confuse contributors unfamiliar with Angular/Solid/Vue 3
-- `signal()` reads require `()` in JS code (fundamental JS limitation — no way around this without a compiler)
+- `signal()` reads require `.value` in JS code (fundamental JS limitation — no way around this without a compiler)
 
 ---
 
@@ -486,7 +757,7 @@ Components can be migrated one at a time:
 ```
 viewer/framework/
 ├── reactive.ts        # Proxy-based reactive state with dirty tracking
-├── component.ts       # defineComponent() with reactive state
+├── component.ts       # component() with reactive state
 ├── morph.ts           # Minimal DOM morph (real DOM → real DOM diff)
 ├── events.ts          # listen() — same pure function approach as Proposal A
 ├── injector.ts        # inject()/provide() — same as Proposal A
@@ -497,9 +768,9 @@ viewer/framework/
 ### Reactive Properties (`reactive.ts`)
 
 ```typescript
-import { defineComponent, reactive, inject } from './framework';
+import { component, reactive, inject } from './framework';
 
-const TaskItem = defineComponent('task-item', (host) => {
+const TaskItem = component('task-item', (host) => {
   const state = reactive({
     title: '',
     status: 'open',
@@ -567,9 +838,9 @@ This is the approach used by Turbo/Stimulus (via idiomorph), htmx, and Phoenix L
 ### How It Works
 
 ```typescript
-import { defineComponent, signal, computed, inject } from './framework';
+import { component, signal, computed, inject } from './framework';
 
-const TaskItem = defineComponent('task-item', (host) => {
+const TaskItem = component('task-item', (host) => {
   const title = signal('');
   const status = signal('open');
   const selected = signal(false);
@@ -617,7 +888,7 @@ Beyond the core framework, there are architectural improvements that become poss
 
 **Current problem**: When a `task_changed` SSE event arrives, `task-list.ts` re-fetches ALL tasks from the API and re-renders the entire list. Every SSE event = full network round-trip + full DOM rebuild.
 
-**With signals + channels**: The SSE service can emit granular events on a typed channel. Individual task-item components subscribe to changes for their specific ID. When TASK-0042 changes, only the `<task-item data-id="TASK-0042">` component updates — no re-fetch, no list rebuild.
+**With signals + channels**: The SSE service can emit granular events on a typed channel. Individual task-item components subscribe to changes for their specific ID. When TASK-0042 changes, only the `<task-item>` for that task updates — no re-fetch, no list rebuild.
 
 ```typescript
 // SSE service bridges backend events into typed channels
@@ -627,13 +898,10 @@ const SSEChannel = createChannel<{
   taskDeleted: { id: string };
 }>('SSE');
 
-// Inside task-item setup:
+// Inside task-list setup — surgical updates via channel
 const sse = inject(SSEChannel);
 sse.on('taskChanged', ({ id, patch }) => {
-  if (id === host.dataset.id) {
-    if (patch.title) title.value = patch.title;
-    if (patch.status) status.value = patch.status;
-  }
+  tasks.value = tasks.value.map(t => t.id === id ? { ...t, ...patch } : t);
 });
 ```
 
@@ -750,8 +1018,8 @@ Tagged template literals with implicit signal reads are the **best option in the
 ```typescript
 // What you write — almost identical to JSX + Tailwind
 return html`
-  <div class="flex items-center gap-2 p-3 rounded hover:bg-white/5
-              ${selected} ? 'bg-blue-500/20' : ''"
+  <div class="flex items-center gap-2 p-3 rounded hover:bg-white/5"
+       class:bg-blue-500/20=${selected}
        @click=${onSelect}>
     <task-badge task-id="${id}"></task-badge>
     <span class="flex-1 truncate text-sm">${title}</span>
@@ -788,8 +1056,10 @@ this.innerHTML = `<div class="task-item selected">...`;
 
 // After: just component.ts (one file, complete picture)
 return html`
-  <div class="flex items-center gap-2 px-3 py-2
-              ${selected} ? 'bg-white/10 border-l-2 border-blue-400' : ''">
+  <div class="flex items-center gap-2 px-3 py-2"
+       class:bg-white/10=${selected}
+       class:border-l-2=${selected}
+       class:border-blue-400=${selected}>
 `;
 ```
 
@@ -833,14 +1103,15 @@ Build performance: v4's Oxide engine is 3.5-10x faster than v3, incremental buil
 | **SSE update cost** | Update 1 task = patch 1 row | Update 1 task = morph entire list | Update 1 task = morph entire list |
 | **Template style** | Tagged `html` + implicit signals | Plain string + explicit reads | Plain string + explicit `signal()` calls |
 | **AI coherence** | High — `${title}` just works in templates | Medium — `${state.title}` | Medium — `${title.value}` or `[object Object]` |
-| **Framework code size** | ~570 lines (~3KB min) | ~400 lines (~2KB min) | ~500 lines (~2.5KB min) |
-| **Implementation risk** | Higher (binding engine, repeat) | Lower (morph is well-understood) | Medium |
+| **Props** | Typed via interface generic | Untyped / manual | Untyped / manual |
+| **Framework code size** | ~620 lines (~3KB min) | ~400 lines (~2KB min) | ~500 lines (~2.5KB min) |
+| **Implementation risk** | Higher (binding engine, keyed lists) | Lower (morph is well-understood) | Medium |
 | **Migration effort** | Medium (new template syntax) | Low (templates stay as strings) | Medium (add signals, keep strings) |
 | **Ceiling for optimization** | Very high (surgical updates) | Limited (always walks tree) | Limited (always walks tree) |
 | **State management** | Signals (computed, effect, batch) | Proxy (simple get/set) | Signals (computed, effect, batch) |
 | **Composability** | High — extract to shared functions | Medium — reactive() is component-tied | High — signals are standalone |
 | **Testability** | High (signals are pure, inject mocks) | Medium (need DOM for proxy) | High (signals are pure, inject mocks) |
-| **Component authoring** | `defineComponent()` + pure functions | `defineComponent()` + pure functions | `defineComponent()` + pure functions |
+| **Component authoring** | `component()` + pure functions | `component()` + pure functions | `component()` + pure functions |
 | **Inter-component events** | Typed channels via DI | Typed channels via DI | Typed channels via DI |
 | **DOM event binding** | Inline `@click` in template | `onclick` attr or post-morph query | `onclick` attr or post-morph query |
 | **Event colocation** | Events on element (visible in template) | Detached from template | Detached from template |
@@ -856,17 +1127,19 @@ Build performance: v4's Oxide engine is 3.5-10x faster than v3, incremental buil
 
 2. **Implicit signals in templates maximize human-AI coherence**. In Proposal A's tagged templates, `${title}` just works — the tag function detects the signal and subscribes automatically. In JS code, `.value` is enforced by TypeScript — forgetting it is a compile error, not a silent runtime bug. In Proposal B, `${state.title}` works but proxies have edge cases with destructuring. In Proposal C, plain strings require `${title.value}` everywhere — forgetting it renders `[object Object]`. Only Proposal A gives you implicit reads where it matters most (templates) AND type safety where it matters most (JS logic).
 
-3. **Pure functions are the right default**. `signal()`, `inject()`, `listen()` don't need a class. Making them standalone functions means they compose naturally — extract shared logic into a `useSelection()` or `useSSE()` function, call it from any component's `setup()`. No mixins, no multiple inheritance, no decorator magic. This is the same insight that drove React hooks, Vue 3 Composition API, and Angular's functional `inject()`.
+3. **Typed props via interface eliminate an entire class of bugs**. `component<TaskItemProps>('task-item', (host, props) => ...)` gives full TypeScript inference on the `props` object. No magic string prop declarations, no runtime type mismatches. The parent template auto-resolves props vs attributes based on the child's registered interface — no `.prop` syntax to learn or forget.
 
-4. **Tailwind + tagged templates = complete components in one function**. An LLM (or human) can produce a fully styled, reactive component without leaving the setup function. No separate CSS file, no invented class names, no context-switching. The component source is the single source of truth for behavior, state, and appearance.
+4. **Pure functions are the right default**. `signal()`, `inject()`, `listen()` don't need a class. Making them standalone functions means they compose naturally — extract shared logic into a `useSelection()` or `useSSE()` function, call it from any component's `setup()`. No mixins, no multiple inheritance, no decorator magic. This is the same insight that drove React hooks, Vue 3 Composition API, and Angular's functional `inject()`.
 
-5. **The complexity is front-loaded, not ongoing**. The binding engine in `template.ts` is ~200 lines of code written once. After that, every component author gets fine-grained reactivity for free by writing natural-looking tagged templates. Morphdom is simpler to implement but imposes O(n) cost on every component, forever.
+5. **Tailwind + tagged templates = complete components in one function**. An LLM (or human) can produce a fully styled, reactive component without leaving the setup function. No separate CSS file, no invented class names, no context-switching. The component source is the single source of truth for behavior, state, and appearance.
 
-6. **Signals are the industry direction**. TC39 has a signals proposal. Angular, Solid, Preact, Qwik, and Vue all converge on this model. Building on signals means the mental model will be familiar to anyone who has touched modern frontend in the last two years.
+6. **The complexity is front-loaded, not ongoing**. The binding engine in `template.ts` is ~200 lines of code written once. After that, every component author gets fine-grained reactivity for free by writing natural-looking tagged templates. Morphdom is simpler to implement but imposes O(n) cost on every component, forever.
 
-7. **The DI system pays for itself immediately**. Replacing 15 hard-coded singleton imports with injectable tokens via pure `inject()` makes every component testable in isolation — something currently impossible without mocking module imports.
+7. **Signals are the industry direction**. TC39 has a signals proposal. Angular, Solid, Preact, Qwik, and Vue all converge on this model. Building on signals means the mental model will be familiar to anyone who has touched modern frontend in the last two years.
 
-8. **Incremental adoption eliminates migration risk**. Old `HTMLElement` components keep working. New `defineComponent` components coexist in the same DOM tree. There is no "big bang" rewrite.
+8. **The DI system pays for itself immediately**. Replacing 15 hard-coded singleton imports with injectable tokens via pure `inject()` makes every component testable in isolation — something currently impossible without mocking module imports.
+
+9. **Incremental adoption eliminates migration risk**. Old `HTMLElement` components keep working. New `component()` components coexist in the same DOM tree. There is no "big bang" rewrite.
 
 ### Implementation Order
 
@@ -876,10 +1149,10 @@ Build performance: v4's Oxide engine is 3.5-10x faster than v3, incremental buil
 | 2 | `context.ts` — `runWithContext()`, `getCurrentComponent()` | Pure function DI/channels |
 | 3 | `injector.ts` — `createToken()`, `provide()`, `inject()` | Testability, decoupling |
 | 4 | `channel.ts` — `createChannel()`, typed emit/on/toSignal | Replace CustomEvent pollution |
-| 5 | `component.ts` — `defineComponent()` shell + lifecycle | Component authoring |
-| 6 | `template.ts` — Tagged `html` with binding engine + `@event` | Fine-grained rendering |
+| 5 | `component.ts` — `component()` shell + lifecycle + typed props + error boundaries | Component authoring |
+| 6 | `template.ts` — Tagged `html` with binding engine + `@event` + `class:name` + `.map()`/`key` | Fine-grained rendering |
 | 7 | Migrate `task-item` as proof-of-concept (smallest leaf) | Validate the approach |
-| 8 | Migrate `task-list` with `repeat()` (biggest pain point) | Prove list perf |
+| 8 | Migrate `task-list` with `.map()` + `key` (biggest pain point) | Prove list perf |
 | 9 | Add Tailwind v4 to build pipeline | Colocated styling |
 
 ### File Structure
@@ -888,23 +1161,30 @@ Build performance: v4's Oxide engine is 3.5-10x faster than v3, incremental buil
 viewer/framework/
 ├── signal.ts          # ~120 lines — signal(), computed(), effect(), batch
 ├── context.ts         # ~20 lines  — runWithContext(), getCurrentComponent()
-├── component.ts       # ~80 lines  — defineComponent(), lifecycle wiring
-├── template.ts        # ~250 lines — html tagged template, Binding, @event, repeat()
+├── component.ts       # ~100 lines — component(), lifecycle wiring, typed props, error boundaries
+├── template.ts        # ~270 lines — html tagged template, Binding, @event, class:name, .map()/key
 ├── channel.ts         # ~80 lines  — createChannel(), typed pub/sub
 ├── injector.ts        # ~60 lines  — createToken(), provide(), inject()
 └── index.ts           # ~10 lines  — Re-exports
 ```
 
-Total: ~620 lines of framework code, 0 external dependencies, 0 build plugins.
+Total: ~660 lines of framework code, 0 external dependencies, 0 build plugins.
 
 ## Consequences
 
 ### Positive
 - SSE updates patch individual task rows instead of rebuilding the entire list
 - **No `this` in component authoring** — pure functions all the way down
+- **Typed props via interface** — `component<Props>()` with full TypeScript inference, no magic strings
+- **Auto-resolved prop passing** — framework knows what's a prop vs attribute, no `.prop` syntax
 - **Implicit signal reads in templates** — `${title}` just works, `.value` only in JS logic
 - **Events colocated with elements** — `@click=${handler}` on the element, not detached via selectors
 - **Typed channels replace global event pollution** — no more `document.dispatchEvent(new CustomEvent(...))`
+- **`.map()` + `key` for lists** — universally known pattern, no custom API to learn
+- **`class:name` directive** — clean conditional Tailwind classes without ternary expressions
+- **Computed views for multi-branch rendering** — `if`/`else` in JS, single `${content}` in template
+- **Error boundaries** — broken components render fallbacks instead of crashing the app
+- **Canonical data loading pattern** — services via DI + signals for loading/error state
 - **Self-contained components** — Tailwind + tagged templates + inline events = complete component in one function
 - **Composable** — shared reactive logic extracted as plain functions, reusable across components
 - Signals work anywhere (services, tests, standalone modules) — not coupled to components
@@ -920,13 +1200,13 @@ Total: ~620 lines of framework code, 0 external dependencies, 0 build plugins.
 - Contributors must learn signals, tagged template bindings, channels, and the setup context pattern
 - The template binding engine + `@event` processing is the most complex piece and must be robust
 - Debugging reactive chains requires understanding the push-pull propagation model
-- Two component styles coexist during migration (raw HTMLElement and defineComponent)
+- Two component styles coexist during migration (raw HTMLElement and component())
 - `signal()` reads require `.value` in JS code — fundamental JS limitation, no way around without a compiler
 - Tailwind adds a dev dependency and esbuild plugin (though zero runtime cost)
 
 ### Risks
 - Tagged template performance: parsing + cloning must be fast. Mitigated by caching parsed templates per component class.
 - Memory: each binding holds a DOM node reference. Mitigated by cleanup in `disconnectedCallback`.
-- Channel over-abstraction: simple parent→child communication shouldn't need a channel. Mitigated by using signals/props for direct parent-child, channels only for cross-tree communication.
-- Edge cases in `repeat()` (reordering, nested lists). Mitigated by starting with simple append/remove and upgrading to keyed reconciliation.
+- Channel over-abstraction: simple parent→child communication shouldn't need a channel. Mitigated by using typed props for direct parent-child, channels only for cross-tree communication.
+- Edge cases in keyed `.map()` reconciliation (reordering, nested lists). Mitigated by starting with simple append/remove and upgrading to full keyed reconciliation.
 - Tailwind class verbosity in complex components. Mitigated by extracting common patterns into composable functions that return class strings.

@@ -89,6 +89,27 @@ This means:
 - **Styles inline with structure** — an LLM should produce a complete component in one function
 - **Predictable patterns** — every component follows the same shape, no variations
 
+### Design Principle: Hard to Write Wrong
+
+AI generates large volumes of code. The human review bottleneck is attention. Every error the compiler catches is one the human doesn't have to find in a code review.
+
+This means:
+- **Compile-time prop checking** — factory composition catches missing, misspelled, and wrongly-typed props at compile time, not as silent runtime `undefined`
+- **Signal-typed props** — factory props require `Signal<T>`, making lost reactivity a compile error instead of a stale-data bug
+- **One canonical way** — factory for components, `html` for internal DOM. Two valid ways to do the same thing = inconsistent codebase over time
+- **Refactoring works** — renaming a prop in the interface updates all factory call sites via Find All References. HTML string attributes require regex search
+
+### Design Principle: Framework Internals Are Maintainable by AI
+
+The ~660 lines of framework code in `viewer/framework/` will also need bug fixes, optimizations, and new features — and those will be AI-assisted. The template binding engine (~270 lines) is the densest, most complex code in the system. A bug in the framework affects every component.
+
+This means:
+- **No cleverness** — framework code should read like a tutorial, not code golf
+- **Named functions, not anonymous closures** — stack traces should be readable
+- **Comment the "why" aggressively** — especially in the binding engine and signal graph
+- **No micro-optimizations that obscure intent** — clarity beats saving 2μs
+- **Each file is self-contained** — a developer (or LLM) can understand one framework file without reading all the others
+
 ### Constraints
 
 - No build-time compiler or code transformation (beyond what esbuild already does)
@@ -111,7 +132,8 @@ This means:
 ```
 viewer/framework/
 ├── signal.ts          # signal(), computed(), effect() — pure functions
-├── component.ts       # component() + minimal BaseComponent shell
+├── query.ts           # query() — declarative async data loading with cache
+├── component.ts       # component() + minimal BaseComponent shell + typed factory
 ├── template.ts        # html tagged template → DOM binding engine + @event
 ├── emitter.ts         # Emitter<T> base class — typed pub/sub for services
 ├── injector.ts        # provide(), inject() — class-as-token, auto-singleton
@@ -214,9 +236,13 @@ html`<span>${count}</span>`                       // implicit — just works
 
 **Batch updates**: Multiple synchronous `.value` writes coalesce into one microtask flush via `queueMicrotask`. `a.value = 1; b.value = 2; c.value = 3` triggers one update pass, not three.
 
-### Component Model (`component.ts`) — Typed Props via Generic Interface
+### Component Model (`component.ts`) — Typed Props, Factory Composition, Two-Layer Rendering
 
-The `component()` function is the single entry point for defining a web component. Props are declared as a TypeScript interface and passed as a generic — fully typed, no magic strings:
+The `component()` function is the single entry point for defining a web component. It serves two purposes: (1) registers a custom element, and (2) returns a **typed factory function** for compile-time-safe composition. Props are declared as a TypeScript interface and passed as a generic — fully typed, no magic strings.
+
+#### Props-First Signature
+
+The setup function receives `(props, host)` — props first, host second. Props are the primary data interface (used in 95% of components). `host` is the raw `HTMLElement` escape hatch for imperative DOM access (`scrollIntoView()`, `focus()`, third-party library interop). By making it second, the API signals what matters:
 
 ```typescript
 import { component, html, signal, computed, inject, when } from './framework';
@@ -227,24 +253,21 @@ interface TaskItemProps {
   selected: boolean;
 }
 
-const TaskItem = component<TaskItemProps>('task-item', (host, props) => {
+const TaskItem = component<TaskItemProps>('task-item', (props, host) => {
   // props.task → Signal<Task>        — fully typed, no strings
   // props.selected → Signal<boolean>  — framework creates signals internally
+  // host → HTMLElement               — escape hatch, rarely needed
 
   // Inject services from DI — auto-singleton, no registration needed
   const navigation = inject(NavigationEvents);
-  const scope = inject(SidebarScopeService);
 
   // Derived state
   const title = computed(() => props.task.value.title);
   const status = computed(() => props.task.value.status.replace('_', ' '));
+  const id = computed(() => props.task.value.id);
 
-  // Handlers — plain functions, no event ceremony
-  const onSelect = () => navigation.emit('select', { id: host.dataset.id! });
-  const onDrillIn = (e: Event) => {
-    e.stopPropagation();
-    scope.set(host.dataset.id!);
-  };
+  // Handlers — plain functions, read from typed props, not host.dataset
+  const onSelect = () => navigation.emit('select', { id: id.value });
 
   // Template — events INLINE with @, signals IMPLICIT
   return html`
@@ -254,12 +277,11 @@ const TaskItem = component<TaskItemProps>('task-item', (host, props) => {
          class:border-l-2=${props.selected}
          class:border-blue-400=${props.selected}
          @click=${onSelect}>
-      <task-badge task-id="${host.dataset.id}"></task-badge>
+      <task-badge task-id="${id}"></task-badge>
       <span class="flex-1 truncate text-sm">${title}</span>
       <span class="text-xs px-2 py-0.5 rounded-full bg-white/10">${status}</span>
       ${when(props.task.value.childCount,
-        html`<span class="text-xs text-gray-400"
-                   @click=${onDrillIn}>${props.task.value.childCount}</span>`
+        html`<span class="text-xs text-gray-400">${props.task.value.childCount}</span>`
       )}
     </div>
   `;
@@ -275,6 +297,7 @@ Notice what's NOT in this component:
 - No `.value` or `()` in the template
 - No separate CSS file
 - No magic string prop declarations — the TypeScript interface IS the contract
+- No `host.dataset` reads — data flows through typed props, not data-attributes
 
 #### How Props Work — Typed, Auto-Resolved
 
@@ -286,28 +309,125 @@ type ReactiveProps<P> = { [K in keyof P]: Signal<P[K]> };
 
 Every prop becomes a read-only `Signal`. The framework creates these signals internally and wires up property setters on the custom element class. No `prop('name')` calls, no `attr('name', default)` — the interface IS the declaration.
 
-**Auto-resolution — no `.prop` syntax needed**: When a parent template renders `<task-detail task=${selectedTask}>`, the template engine looks up `task-detail`'s registered props (stored on the custom element class at definition time):
-- If `task` is a declared prop → sets `element.task = selectedTask` (JS property, preserves object reference)
-- If it's NOT a declared prop → falls back to `element.setAttribute(...)` (HTML attribute, for interop with vanilla elements)
+#### Two-Layer Rendering Model — Factory at Boundaries, Templates Inside
 
-This means the parent template uses **one syntax for everything**:
+Component composition and internal DOM rendering serve different needs. The architecture uses a **two-layer model** that matches the right tool to each:
+
+| Layer | What it does | Tool | Type safety |
+|---|---|---|---|
+| **Component composition** | Parent instantiates child components | Typed factory function | Compile-time — TypeScript checks every prop |
+| **Internal DOM** | Component renders its own `<div>`, `<span>`, etc. | `html` tagged template | Runtime — HTML strings are untyped |
+
+This split exists because: (1) component boundaries are where most bugs hide (wrong props, missing props, wrong types), so they need compile-time enforcement; (2) internal DOM structure is where readability matters most (layout, nesting, attributes), so it needs HTML-like syntax.
+
+**Factory composition — how parents instantiate children**:
+
+`component()` returns a **typed factory function** alongside registering the custom element. The factory is the canonical way to compose components:
 
 ```typescript
-// Parent — same syntax regardless of prop type
+// component() returns a callable factory
+const TaskItem = component<TaskItemProps>('task-item', (props, host) => { ... });
+
+// Parent uses the factory — TypeScript checks every prop
 html`
-  <task-detail task=${selectedTask} expanded=${isOpen}></task-detail>
-  <legacy-widget title="hello" data-id="42"></legacy-widget>
+  <div class="task-list">
+    ${tasks.map(t => TaskItem({ task: currentTask, selected: isSelected }))}
+  </div>
 `
+
+// Missing prop → compile-time error:
+TaskItem({ task: currentTask })
+//         ^ Error: Property 'selected' is missing in type...
+
+// Wrong prop type → compile-time error:
+TaskItem({ task: currentTask, selected: signal("yes") })
+//                                      ^ Error: Signal<string> is not assignable to Signal<boolean>
+
+// Typo in prop name → compile-time error:
+TaskItem({ task: currentTask, selcted: isSelected })
+//                             ^^^^^^ Error: Object literal may only specify known properties
 ```
 
-The first line passes a `Task` object and a `boolean` to a framework component (via properties). The second line passes strings to a legacy vanilla component (via attributes). Same syntax. The developer doesn't think about it. No `.prop` prefix, no invented conventions.
+The factory returns a `TemplateResult` — the same type that `html` templates produce. The DOM still has a real `<task-item>` custom element. The factory is just the type-safe way to produce it.
+
+**Why factory props require `Signal<T>`, not plain `T`**:
+
+In a signal-based framework without re-renders, reactivity must be explicit. When a parent passes a prop, the child needs to stay reactive to changes — not receive a frozen snapshot. The factory enforces this:
+
+```typescript
+// ✅ Correct — passes signal, child stays reactive
+const currentTask = signal<Task>(initialTask);
+const isSelected = signal(false);
+TaskItem({ task: currentTask, selected: isSelected })
+
+// ❌ Compile error — passing .value loses reactivity
+TaskItem({ task: currentTask.value, selected: true })
+//         ^ Error: Task is not assignable to Signal<Task>
+
+// For truly static props, wrap in signal() — explicit and intentional
+TaskItem({ task: signal(staticTask), selected: signal(false) })
+```
+
+This is a deliberate design choice. In React, passing a plain value is safe because the parent re-runs on every state change, producing fresh prop values. We don't re-run — our setup function executes once. If a parent passes `currentTask.value` (a snapshot) instead of `currentTask` (a signal), the child renders stale data forever. Making the factory require `Signal<T>` turns this foot-gun into a compile-time error.
+
+The small ergonomic cost of `signal(staticValue)` for rare static props is worth the safety win of catching lost reactivity at compile time.
+
+**HTML tag syntax — the escape hatch for interop**:
+
+The custom element registration still works. `<task-item>` is a real HTML element in the browser registry. HTML tag syntax is available for:
+- Vanilla HTML elements: `html\`<div class="...">\``
+- Legacy component interop during migration: `html\`<old-component attr="val">\``
+- Cases where children/slots make factories awkward (see Children/Slots below)
+
+```typescript
+// HTML tag syntax — still works, but untyped (no compile-time prop checking)
+html`<task-item task=${currentTask} selected=${isSelected}></task-item>`
+// Auto-resolution still applies: framework detects registered props and uses
+// JS properties instead of setAttribute(). But missing/misspelled props are silent.
+```
+
+The rule is simple: **factory for framework components (type-safe), HTML tags for vanilla elements and interop (convenient).**
+
+#### Children and Slots in Factory Composition
+
+Most components are leaf components (task-item, task-badge, filter-bar) that don't have children. For the structural/layout components that do:
+
+```typescript
+// Default children — second argument to the factory
+CardLayout({ title: signal('Tasks') }, html`
+  ${TaskList({ scope: scopeId })}
+  ${TaskDetail({ task: selected })}
+`)
+
+// Named slots — typed props, compile-time checked
+interface SplitPaneProps {
+  left: TemplateResult;
+  right: TemplateResult;
+  ratio: number;
+}
+
+const SplitPane = component<SplitPaneProps>('split-pane', (props) => { ... });
+
+// Parent — TypeScript checks slot names and types
+SplitPane({
+  left: signal(html`${TaskList({ scope: scopeId })}`),
+  right: signal(html`${TaskDetail({ task: selected })}`),
+  ratio: signal(0.4),
+})
+
+// Typo → compile-time error:
+SplitPane({ lft: signal(html`...`), right: signal(html`...`), ratio: signal(0.4) })
+//          ^^^ Error: Object literal may only specify known properties
+```
+
+Named slots as typed props is actually **better** than HTML `<slot name="...">` syntax — the compiler checks slot names, types, and completeness. HTML slots with `slot="lft"` would be a silent runtime bug.
 
 #### Components Without Props
 
-For components that don't take any props (pure internal state), skip the generic:
+For components that don't take any props (pure internal state), skip the generic. No props, no host — clean:
 
 ```typescript
-const ThemeToggle = component('theme-toggle', (host) => {
+const ThemeToggle = component('theme-toggle', () => {
   const dark = signal(false);
   const toggle = () => { dark.value = !dark.value; };
 
@@ -319,7 +439,15 @@ const ThemeToggle = component('theme-toggle', (host) => {
 });
 ```
 
-No generic, no props parameter. Same simple signature.
+No generic, no props parameter, no host. When you need the raw element (rare):
+
+```typescript
+const AutoFocus = component('auto-focus', (_props, host) => {
+  // host is the escape hatch — use it for imperative DOM APIs
+  host.focus();
+  // ...
+});
+```
 
 #### Why the Tag Name String Stays
 
@@ -330,13 +458,14 @@ It's the **only** magic string in the entire API. Everything else is typed.
 **What `component()` does internally**:
 1. Creates a class extending `HTMLElement` (you never write `class ... extends` yourself)
 2. Registers property setters for each key in the props interface, each backed by a `Signal`
-3. In `connectedCallback`, calls `runWithContext(this, setupFn)` — the only moment the context exists
-4. The `setup()` function's pure function calls (`signal()`, `inject()`) register against the context
-5. `setup()` returns an `html` template result, which gets mounted — including `@event` bindings
-6. In `disconnectedCallback`, all subscriptions, effects, and event bindings are disposed automatically
-7. If the setup function throws, the error boundary catches it and renders a fallback (see Error Boundaries below)
+3. Returns a **typed factory function** that creates `TemplateResult` nodes with prop bindings
+4. In `connectedCallback`, calls `runWithContext(this, setupFn)` — the only moment the context exists
+5. The `setup()` function's pure function calls (`signal()`, `inject()`) register against the context
+6. `setup()` returns an `html` template result, which gets mounted — including `@event` bindings
+7. In `disconnectedCallback`, all subscriptions, effects, and event bindings are disposed automatically
+8. If the setup function throws, the error boundary catches it and renders a fallback (see Error Boundaries below)
 
-The component author never touches `connectedCallback`, `disconnectedCallback`, `attributeChangedCallback`, or `this`. The setup function receives `host` (the raw element) for reading `dataset`, `id`, etc.
+The component author never touches `connectedCallback`, `disconnectedCallback`, `attributeChangedCallback`, or `this`. Props are the primary interface; `host` is the escape hatch for imperative DOM access.
 
 ### Inline Events via `@event` — Events Live Where Elements Live
 
@@ -382,7 +511,7 @@ html`
 For anything with 2+ branches, use `computed()` to select the right template in JavaScript — where `if`/`else` works naturally:
 
 ```typescript
-const TaskDetail = component<TaskDetailProps>('task-detail', (host, props) => {
+const TaskDetail = component<TaskDetailProps>('task-detail', (props) => {
   const loading = signal(true);
   const error = signal<string | null>(null);
 
@@ -453,7 +582,7 @@ In the template slot, `tasks.map(fn)` returns a `ReactiveList` object that the t
 `component()` wraps the setup function in a try/catch. If the setup function (or any effect within it) throws, the error boundary catches it and renders a fallback:
 
 ```typescript
-const TaskItem = component<TaskItemProps>('task-item', (host, props) => {
+const TaskItem = component<TaskItemProps>('task-item', (props) => {
   // If anything here throws, the component renders an error state
   // instead of crashing the entire app
   const api = inject(BacklogAPI);
@@ -464,7 +593,7 @@ const TaskItem = component<TaskItemProps>('task-item', (host, props) => {
 The default fallback renders a minimal error indicator. Components can opt into custom error handling:
 
 ```typescript
-const TaskDetail = component<TaskDetailProps>('task-detail', (host, props) => {
+const TaskDetail = component<TaskDetailProps>('task-detail', (props) => {
   // ...
 }, {
   onError: (error, host) => html`<div class="text-red-400 p-2">Failed to load task</div>`
@@ -473,7 +602,7 @@ const TaskDetail = component<TaskDetailProps>('task-detail', (host, props) => {
 
 Errors are caught at the component boundary — one broken component doesn't take down sibling or parent components. This is critical for resilience when AI-generated components may have bugs.
 
-### API Requests and Side Effects — Services via DI
+### Declarative Data Loading — `query()` Primitive
 
 Data fetching lives in **services**, injected via DI. Components orchestrate, services execute. Clear separation:
 
@@ -487,56 +616,174 @@ class BacklogAPI {
 
 No `createToken()`. The class constructor is already a unique JavaScript object reference — it works as a `Map` key. It's already typed. It already has a name. There's nothing a token adds that the class doesn't already have.
 
-Components use services via `inject()`, manage loading/error state with signals, and use `computed()` for view selection:
+#### The Problem with Manual Data Loading
+
+Without a data loading primitive, every component that fetches data writes this:
 
 ```typescript
+// ❌ Manual pattern — 15 lines of identical plumbing per component
+const tasks = signal<Task[]>([]);
+const loading = signal(true);
+const error = signal<string | null>(null);
+
+const load = async () => {
+  loading.value = true;
+  error.value = null;
+  try {
+    tasks.value = await api.getTasks(props.scopeId.value);
+  } catch (e) {
+    error.value = e.message;
+  }
+  loading.value = false;
+};
+
+load();
+effect(() => { props.scopeId.value; load(); }); // re-fetch when scope changes
+```
+
+This boilerplate will appear in every data-fetching component. The LLM will write it. It'll get it *slightly wrong* each time — forgetting to reset error, forgetting the re-fetch effect, forgetting `loading.value = false` in the catch branch. Humans reviewing will skim past it because it looks like the same pattern. And none of these bugs produce compile-time errors.
+
+#### `query()` — React Query-Adjacent, Signal-Native
+
+`query()` is a declarative async primitive that absorbs this boilerplate. It's ~50 lines of framework code, built on top of signals:
+
+```typescript
+import { query } from './framework';
+
+// Declarative — one line replaces 15 lines of boilerplate
+const tasks = query(
+  () => ['tasks', props.scopeId.value],           // cache key (auto-tracks signals)
+  () => api.getTasks(props.scopeId.value),         // fetcher
+);
+
+// Fully typed return — all fields are signals
+tasks.data      // Signal<Task[] | undefined>  — the resolved data
+tasks.loading   // Signal<boolean>             — true while fetching
+tasks.error     // Signal<Error | null>        — the caught error, if any
+tasks.refetch() // () => void                  — manual re-trigger
+
+// Use in templates — implicit signal reads
+const content = computed(() => {
+  if (tasks.loading.value) return html`<skeleton-list></skeleton-list>`;
+  if (tasks.error.value) return html`<div class="text-red-400">${tasks.error}</div>`;
+  if (!tasks.data.value?.length) return html`<empty-state></empty-state>`;
+  return html`${tasks.data.value.map(t => TaskItem({ key: t.id, task: signal(t), selected: isSelected }))}`;
+});
+```
+
+**What `query()` handles that manual code forgets:**
+
+| Concern | Manual pattern | `query()` |
+|---|---|---|
+| Loading state management | Developer must set/reset in try/catch/finally | Automatic |
+| Error state management | Developer must reset before fetch, set in catch | Automatic |
+| Re-fetch on dependency change | Developer must wire up effect manually | Automatic — signal reads in key function are tracked |
+| Race conditions (stale responses) | Developer must track request IDs | Automatic — stale responses are discarded |
+| Deduplication | Not handled — same request fires multiple times | Same cache key = single in-flight request |
+| Cache | Not handled | Results cached by key, configurable staleness |
+
+#### Cache Key Design
+
+The first argument to `query()` is a **key function** that returns an array. This serves two purposes:
+
+1. **Dependency tracking**: Any signals read inside the key function are automatically tracked. When they change, the query re-fetches.
+2. **Cache identity**: Queries with the same key share cached results. If two components both call `query(() => ['tasks', scopeId.value], ...)` with the same `scopeId`, only one network request fires.
+
+```typescript
+// Key function reads scopeId — auto-refetches when scope changes
+const tasks = query(
+  () => ['tasks', props.scopeId.value],
+  () => api.getTasks(props.scopeId.value),
+);
+
+// Key function reads filter AND scope — refetches when either changes
+const filtered = query(
+  () => ['tasks', props.scopeId.value, filter.value],
+  () => api.getTasks(props.scopeId.value, filter.value),
+);
+```
+
+This is the same key-based cache model as React Query / TanStack Query — proven at massive scale, immediately familiar to any developer (or LLM) who has used it.
+
+#### `query()` Options
+
+```typescript
+const tasks = query(
+  () => ['tasks', scopeId.value],
+  () => api.getTasks(scopeId.value),
+  {
+    staleTime: 30_000,       // cache is fresh for 30s (default: 0 — always refetch)
+    retry: 2,                // retry failed requests up to 2 times (default: 0)
+    enabled: () => !!scopeId.value,  // skip fetch when scope is null
+    initialData: [],         // synchronous initial value before first fetch
+    onSuccess: (data) => {}, // callback after successful fetch
+    onError: (err) => {},    // callback after failed fetch
+  }
+);
+```
+
+All options are optional. The zero-config default (`query(key, fetcher)`) handles 90% of use cases. Options exist for the 10% that needs caching, conditional fetching, or retry logic.
+
+#### `QueryClient` — Global Cache via DI
+
+The cache lives in a `QueryClient` service, injected via DI like everything else:
+
+```typescript
+class QueryClient {
+  invalidate(keyPrefix: unknown[]): void;  // invalidate matching queries
+  prefetch(key: unknown[], fetcher: () => Promise<unknown>): void;
+  clear(): void;
+}
+
+// Invalidate all task queries after a mutation
+const client = inject(QueryClient);
+await api.updateTask(id, patch);
+client.invalidate(['tasks']);  // all queries whose key starts with ['tasks'] refetch
+
+// In tests — provide a mock or isolated client
+provide(QueryClient, () => new QueryClient());
+```
+
+`QueryClient` is auto-singleton (like all DI services). Components don't import it directly unless they need cache manipulation. `query()` uses it internally via the setup context.
+
+#### Full TaskList Example — Before and After
+
+```typescript
+// ✅ With query() — clean, declarative, no boilerplate
 interface TaskListProps {
   scopeId: string | null;
 }
 
-const TaskList = component<TaskListProps>('task-list', (host, props) => {
-  const api = inject(BacklogAPI);
+const TaskList = component<TaskListProps>('task-list', (props) => {
   const nav = inject(NavigationEvents);
   const sse = inject(SSEEvents);
 
-  const tasks = signal<Task[]>([]);
-  const loading = signal(true);
-  const error = signal<string | null>(null);
+  const tasks = query(
+    () => ['tasks', props.scopeId.value],
+    () => inject(BacklogAPI).getTasks(props.scopeId.value),
+  );
 
-  const load = async () => {
-    loading.value = true;
-    error.value = null;
-    try {
-      tasks.value = await api.getTasks(props.scopeId.value);
-    } catch (e) {
-      error.value = e.message;
-    }
-    loading.value = false;
-  };
-
-  // Load on mount
-  load();
-
-  // Reload when filter changes via channel
-  nav.on('filter', () => load());
-
-  // Surgical SSE updates (no refetch needed)
+  // Surgical SSE updates — patch the cache, no refetch needed
   sse.on('taskChanged', ({ id, patch }) => {
-    tasks.value = tasks.value.map(t => t.id === id ? { ...t, ...patch } : t);
+    if (!tasks.data.value) return;
+    tasks.data.value = tasks.data.value.map(t => t.id === id ? { ...t, ...patch } : t);
   });
 
+  // Refetch when filter changes
+  nav.on('filter', () => tasks.refetch());
+
   const content = computed(() => {
-    if (loading.value) return html`<skeleton-list></skeleton-list>`;
-    if (error.value) return html`<div class="text-red-400 p-4">${error}</div>`;
-    if (!tasks.value.length) return html`<empty-state></empty-state>`;
-    return html`${tasks.map(t => html`
-      <task-item key=${t.id} task=${t}></task-item>
-    `)}`;
+    if (tasks.loading.value) return html`<skeleton-list></skeleton-list>`;
+    if (tasks.error.value) return html`<div class="text-red-400 p-4">${tasks.error}</div>`;
+    if (!tasks.data.value?.length) return html`<empty-state></empty-state>`;
+    return html`${tasks.data.value.map(t =>
+      TaskItem({ key: t.id, task: signal(t), selected: isSelected })
+    )}`;
   });
 
   return html`
     <div class="flex flex-col gap-1 p-2">
-      <list-header count=${tasks.value.length}></list-header>
+      <list-header count=${computed(() => tasks.data.value?.length ?? 0)}></list-header>
       ${content}
     </div>
   `;
@@ -544,13 +791,11 @@ const TaskList = component<TaskListProps>('task-list', (host, props) => {
 ```
 
 **The pattern**:
-- **Services** handle API calls (injected, never imported directly)
-- **Emitters** trigger reloads (filter changed, SSE event arrived)
-- **Signals** hold the data + loading/error states
-- **`computed()`** selects the right template based on state
-- **`.map()` + `key`** for lists
-
-No special `query()` primitive. No `useEffect`. Just signals and services — primitives we already have, composed in a canonical pattern documented as THE way to load data.
+- **`query()`** handles fetch, loading, error, cache, re-fetch — declaratively
+- **Services** define the API calls (injected, never imported directly)
+- **Emitters** trigger manual refetches or cache mutations (SSE events, filter changes)
+- **`computed()`** selects the right template based on query state
+- **Factory functions** compose child components with compile-time prop checking
 
 ### Typed Event Emitters — Replace `document.dispatchEvent`
 
@@ -569,14 +814,14 @@ class NavigationEvents extends Emitter<{
 // ---- Producer (task-item) ----
 interface TaskItemProps { task: Task; }
 
-const TaskItem = component<TaskItemProps>('task-item', (host, props) => {
+const TaskItem = component<TaskItemProps>('task-item', (props) => {
   const nav = inject(NavigationEvents);  // auto-singleton, same as any service
-  const onSelect = () => nav.emit('select', { id: host.dataset.id! });
+  const onSelect = () => nav.emit('select', { id: props.task.value.id });
   // ...
 });
 
 // ---- Consumer (task-list) ----
-const TaskList = component('task-list', (host) => {
+const TaskList = component('task-list', () => {
   const nav = inject(NavigationEvents);  // same instance as producer
 
   // Subscribe — auto-disposed on disconnect
@@ -612,8 +857,8 @@ function useSelection(nav: NavigationEvents, getId: () => string) {
   return computed(() => selectedId.value === getId());
 }
 
-// Used in TaskItem setup:
-const selected = useSelection(nav, () => host.dataset.id!);
+// Used in TaskItem setup — reads from typed props, not host.dataset:
+const selected = useSelection(nav, () => props.task.value.id);
 
 // Used in TaskDetail setup:
 const selected = useSelection(nav, () => currentTaskId.value);
@@ -678,7 +923,7 @@ class NavigationEvents extends Emitter<{
 }> {}
 
 // ---- Consumer — inject() just works, auto-singleton ----
-const TaskList = component('task-list', (host) => {
+const TaskList = component('task-list', () => {
   const api = inject(BacklogAPI);         // auto-created on first inject()
   const nav = inject(NavigationEvents);   // same instance everywhere
   const sse = inject(SSEEvents);          // typed, no ceremony
@@ -686,7 +931,7 @@ const TaskList = component('task-list', (host) => {
 });
 
 // ---- Testing — provide() overrides the auto-singleton ----
-const TestHarness = component('test-harness', (host) => {
+const TestHarness = component('test-harness', () => {
   provide(BacklogAPI, () => new MockBacklogAPI());  // children get the mock
   // ...
 });
@@ -1111,8 +1356,10 @@ Build performance: v4's Oxide engine is 3.5-10x faster than v3, incremental buil
 | **SSE update cost** | Update 1 task = patch 1 row | Update 1 task = morph entire list | Update 1 task = morph entire list |
 | **Template style** | Tagged `html` + implicit signals | Plain string + explicit reads | Plain string + explicit `signal()` calls |
 | **AI coherence** | High — `${title}` just works in templates | Medium — `${state.title}` | Medium — `${title.value}` or `[object Object]` |
-| **Props** | Typed via interface generic | Untyped / manual | Untyped / manual |
-| **Framework code size** | ~610 lines (~3KB min) | ~400 lines (~2KB min) | ~500 lines (~2.5KB min) |
+| **Props** | Typed via interface generic + factory composition (compile-time checked) | Untyped / manual | Untyped / manual |
+| **Consumer type safety** | Compile-time — missing/wrong props caught by TypeScript | None — silent runtime undefined | None — silent runtime undefined |
+| **Data loading** | `query()` — declarative, cached, auto-refetch | Manual boilerplate | Manual boilerplate |
+| **Framework code size** | ~680 lines (~3.5KB min) | ~400 lines (~2KB min) | ~500 lines (~2.5KB min) |
 | **Implementation risk** | Higher (binding engine, keyed lists) | Lower (morph is well-understood) | Medium |
 | **Migration effort** | Medium (new template syntax) | Low (templates stay as strings) | Medium (add signals, keep strings) |
 | **Ceiling for optimization** | Very high (surgical updates) | Limited (always walks tree) | Limited (always walks tree) |
@@ -1135,7 +1382,7 @@ Build performance: v4's Oxide engine is 3.5-10x faster than v3, incremental buil
 
 2. **Implicit signals in templates maximize human-AI coherence**. In Proposal A's tagged templates, `${title}` just works — the tag function detects the signal and subscribes automatically. In JS code, `.value` is enforced by TypeScript — forgetting it is a compile error, not a silent runtime bug. In Proposal B, `${state.title}` works but proxies have edge cases with destructuring. In Proposal C, plain strings require `${title.value}` everywhere — forgetting it renders `[object Object]`. Only Proposal A gives you implicit reads where it matters most (templates) AND type safety where it matters most (JS logic).
 
-3. **Typed props via interface eliminate an entire class of bugs**. `component<TaskItemProps>('task-item', (host, props) => ...)` gives full TypeScript inference on the `props` object. No magic string prop declarations, no runtime type mismatches. The parent template auto-resolves props vs attributes based on the child's registered interface — no `.prop` syntax to learn or forget.
+3. **Typed props via interface eliminate an entire class of bugs**. `component<TaskItemProps>('task-item', (props) => ...)` gives full TypeScript inference on the `props` object. The returned factory function gives consumers compile-time checking on every prop. Missing props, misspelled props, and wrong types are all compile-time errors — not silent runtime `undefined`.
 
 4. **Pure functions are the right default**. `signal()`, `inject()`, `listen()` don't need a class. Making them standalone functions means they compose naturally — extract shared logic into a `useSelection()` or `useSSE()` function, call it from any component's `setup()`. No mixins, no multiple inheritance, no decorator magic. This is the same insight that drove React hooks, Vue 3 Composition API, and Angular's functional `inject()`.
 
@@ -1157,44 +1404,50 @@ Build performance: v4's Oxide engine is 3.5-10x faster than v3, incremental buil
 | 2 | `context.ts` — `runWithContext()`, `getCurrentComponent()` | Pure function DI |
 | 3 | `emitter.ts` — `Emitter<T>` base class, typed emit/on/toSignal | Replace CustomEvent pollution |
 | 4 | `injector.ts` — `inject()`, `provide()`, class-as-token, auto-singleton | Testability, decoupling |
-| 5 | `component.ts` — `component()` shell + lifecycle + typed props + error boundaries | Component authoring |
+| 5 | `component.ts` — `component()` shell + lifecycle + typed props + typed factory + error boundaries | Component authoring + type-safe composition |
 | 6 | `template.ts` — Tagged `html` with binding engine + `@event` + `class:name` + `.map()`/`key` | Fine-grained rendering |
-| 7 | Migrate `task-item` as proof-of-concept (smallest leaf) | Validate the approach |
-| 8 | Migrate `task-list` with `.map()` + `key` (biggest pain point) | Prove list perf |
-| 9 | Add Tailwind v4 to build pipeline | Colocated styling |
+| 7 | `query.ts` — `query()` + `QueryClient` for declarative async data loading | Eliminate data loading boilerplate |
+| 8 | Migrate `task-item` as proof-of-concept (smallest leaf, factory composition) | Validate the approach |
+| 9 | Migrate `task-list` with `.map()` + `key` + `query()` (biggest pain point) | Prove list perf + data loading |
+| 10 | Add Tailwind v4 to build pipeline | Colocated styling |
 
 ### File Structure
 
 ```
 viewer/framework/
 ├── signal.ts          # ~120 lines — signal(), computed(), effect(), batch
+├── query.ts           # ~50 lines  — query(), QueryClient, cache-key dedup, auto-refetch
 ├── context.ts         # ~20 lines  — runWithContext(), getCurrentComponent()
-├── component.ts       # ~100 lines — component(), lifecycle wiring, typed props, error boundaries
+├── component.ts       # ~120 lines — component(), lifecycle wiring, typed props, typed factory, error boundaries
 ├── template.ts        # ~270 lines — html tagged template, Binding, @event, class:name, .map()/key
 ├── emitter.ts         # ~30 lines  — Emitter<T> base class, typed emit/on/toSignal
 ├── injector.ts        # ~60 lines  — inject(), provide(), class-as-token, auto-singleton
 └── index.ts           # ~10 lines  — Re-exports
 ```
 
-Total: ~610 lines of framework code, 0 external dependencies, 0 build plugins.
+Total: ~680 lines of framework code, 0 external dependencies, 0 build plugins.
 
 ## Consequences
 
 ### Positive
 - SSE updates patch individual task rows instead of rebuilding the entire list
 - **No `this` in component authoring** — pure functions all the way down
-- **Typed props via interface** — `component<Props>()` with full TypeScript inference, no magic strings
-- **Auto-resolved prop passing** — framework knows what's a prop vs attribute, no `.prop` syntax
+- **Typed factory composition** — `component<Props>()` returns a factory that gives compile-time errors for missing, misspelled, or wrongly-typed props
+- **Signal-typed props** — factory requires `Signal<T>`, making lost reactivity a compile error instead of a stale-data bug
+- **Two-layer rendering model** — factory at component boundaries (type-safe), `html` templates inside (readable)
+- **Props-first signature** — `(props, host)` signals that props are the primary interface; `host` is the escape hatch
 - **Implicit signal reads in templates** — `${title}` just works, `.value` only in JS logic
 - **Events colocated with elements** — `@click=${handler}` on the element, not detached via selectors
 - **Typed emitters replace global event pollution** — no more `document.dispatchEvent(new CustomEvent(...))`
+- **`query()` primitive** — declarative async data loading eliminates 15-line boilerplate per component, handles loading/error/cache/refetch
 - **`.map()` + `key` for lists** — universally known pattern, no custom API to learn
 - **`class:name` directive** — clean conditional Tailwind classes without ternary expressions
 - **Computed views for multi-branch rendering** — `if`/`else` in JS, single `${content}` in template
 - **Error boundaries** — broken components render fallbacks instead of crashing the app
-- **Canonical data loading pattern** — services via DI + signals for loading/error state
+- **Children/slots as typed props** — named slots are compile-time checked, unlike HTML `<slot name="...">` which fails silently
 - **Self-contained components** — Tailwind + tagged templates + inline events = complete component in one function
 - **Composable** — shared reactive logic extracted as plain functions, reusable across components
+- **Refactoring works** — renaming a prop updates all factory call sites via Find All References; HTML attribute strings require regex
 - Signals work anywhere (services, tests, standalone modules) — not coupled to components
 - State is explicit (signals) instead of implicit (scattered private fields)
 - Components become testable via `inject()` (provide mock services)
@@ -1203,13 +1456,15 @@ Total: ~610 lines of framework code, 0 external dependencies, 0 build plugins.
 - Framework code lives in one folder, clearly separated from application code
 - No new build tooling beyond Tailwind esbuild plugin — tagged templates work natively
 - **High AI coherence** — an LLM can produce correct, styled, reactive components naturally
+- **Hard to write wrong** — the primary authoring paths (factory, query, inject) all produce compile-time errors for common mistakes
 
 ### Negative
-- Contributors must learn signals, tagged template bindings, emitters, and the setup context pattern
-- The template binding engine + `@event` processing is the most complex piece and must be robust
-- Debugging reactive chains requires understanding the push-pull propagation model
+- Contributors must learn signals, tagged template bindings, emitters, query, and the setup context pattern
+- The template binding engine + `@event` processing + factory binding is the most complex piece and must be robust
+- Debugging reactive chains requires understanding the push-pull propagation model (Phase 2: dev tooling — see below)
 - Two component styles coexist during migration (raw HTMLElement and component())
 - `signal()` reads require `.value` in JS code — fundamental JS limitation, no way around without a compiler
+- Static props in factories need `signal(value)` wrapping — small ergonomic cost for reactivity safety
 - Tailwind adds a dev dependency and esbuild plugin (though zero runtime cost)
 
 ### Risks
@@ -1217,4 +1472,16 @@ Total: ~610 lines of framework code, 0 external dependencies, 0 build plugins.
 - Memory: each binding holds a DOM node reference. Mitigated by cleanup in `disconnectedCallback`.
 - Emitter over-use: simple parent→child communication shouldn't need an emitter. Mitigated by using typed props for direct parent-child, emitters only for cross-tree communication.
 - Edge cases in keyed `.map()` reconciliation (reordering, nested lists). Mitigated by starting with simple append/remove and upgrading to full keyed reconciliation.
+- `query()` cache staleness: stale data served when it shouldn't be. Mitigated by default `staleTime: 0` (always refetch) and explicit `invalidate()` after mutations.
 - Tailwind class verbosity in complex components. Mitigated by extracting common patterns into composable functions that return class strings.
+
+### Phase 2: Developer Tooling (Post-Framework)
+
+The signal-based architecture enables tooling that's impossible with the current scattered-state approach. These are not blockers for the initial framework, but should follow shortly after:
+
+- **`debugSignal(name, signal)`** — logs reads and writes with stack traces; useful for tracing why a computed isn't updating
+- **Signal graph visualization** — dev mode that dumps the dependency graph (which signal feeds which computed/effect)
+- **Stale effect warnings** — dev mode that warns when an effect never re-runs (likely a missing signal read)
+- **Query devtools** — show all active queries, their cache state, and loading timelines (similar to React Query devtools)
+
+These are small utilities (~20-50 lines each) that can be tree-shaken in production builds.

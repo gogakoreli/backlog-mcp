@@ -68,6 +68,7 @@ Reference these guidelines when:
 - `tmpl-event-colocated` - Use `@click=${handler}` on the element, not detached listeners
 - `tmpl-event-modifiers` - Use `.stop`, `.prevent`, `.once`, `.enter`, `.escape` modifiers
 - `tmpl-class-directive` - Use `class:name=${signal}` for conditional classes, not ternary soup
+- `tmpl-class-attribute-safe` - Reactive class attributes use classList, safe alongside class:name directives (ADR 0007)
 - `tmpl-computed-views` - Use `computed()` for multi-branch conditional rendering
 - `tmpl-when-simple` - Use `when()` only for simple single-branch toggles
 - `tmpl-xss-safe` - Text bindings use `textNode.data`; never parse user input as HTML
@@ -113,7 +114,7 @@ Reference these guidelines when:
 - `migration-same-events` - Dispatch document CustomEvents until all listeners migrate
 - `migration-same-api` - Maintain public method signatures via `(host as any).method = ...`
 - `migration-hack-tags` - Tag every backward-compat hack: `HACK:EXPOSE`, `HACK:DOC_EVENT`, `HACK:REF`
-- `migration-auto-resolve` - Template auto-resolves `_setProp` vs `setAttribute` on framework elements
+- `migration-auto-resolve` - Template auto-resolves `_setProp` vs `setAttribute`; `class` uses classList (ADR 0007)
 - `migration-skip-leaf` - Skip migration for attribute-driven leaf components (svg-icon, task-badge)
 
 ### 9. Testing (LOW-MEDIUM)

@@ -28,9 +28,6 @@ export const TaskItem = component<{
 
   // ── Derived state ────────────────────────────────────────────────
   const config = computed(() => getTypeConfig(props.type.value || 'task'));
-  // Static base class — evaluated once so class attribute has no markers,
-  // which allows class:selected and class:current-epic to work alongside it.
-  const baseClass = `task-item type-${props.type.value || 'task'}`;
 
   host.className = 'task-item-wrapper';
 
@@ -75,7 +72,7 @@ export const TaskItem = component<{
 
   // ── Template — all signals implicit ──────────────────────────────
   return html`
-    <div class="${baseClass}" class:selected="${props.selected}" class:current-epic="${props.currentEpic}" @click="${handleItemClick}">
+    <div class="task-item type-${props.type}" class:selected="${props.selected}" class:current-epic="${props.currentEpic}" @click="${handleItemClick}">
       <task-badge task-id="${props.id}"></task-badge>
       <span class="task-title">${props.title}</span>
       ${dueDateHtml}

@@ -149,6 +149,42 @@ describe('class:name directive', () => {
     const host2 = mount(result2);
     expect(host2.querySelector('div')?.classList.contains('hidden')).toBe(false);
   });
+
+  it('survives when reactive class attribute changes (classList vs setAttribute)', () => {
+    const type = signal('task');
+    const selected = signal(true);
+    const result = html`<div class="task-item type-${type}" class:selected="${selected}"></div>`;
+    const host = mount(result);
+    const div = host.querySelector('div')!;
+
+    expect(div.classList.contains('type-task')).toBe(true);
+    expect(div.classList.contains('selected')).toBe(true);
+
+    // Changing the class attribute's signal must NOT wipe class:name classes
+    type.value = 'epic';
+    flushEffects();
+    expect(div.classList.contains('type-epic')).toBe(true);
+    expect(div.classList.contains('type-task')).toBe(false);
+    expect(div.classList.contains('selected')).toBe(true);
+  });
+
+  it('multiple class:name directives survive class attribute signal changes', () => {
+    const type = signal('task');
+    const selected = signal(true);
+    const currentEpic = signal(true);
+    const result = html`<div class="item type-${type}" class:selected="${selected}" class:current-epic="${currentEpic}"></div>`;
+    const host = mount(result);
+    const div = host.querySelector('div')!;
+
+    expect(div.classList.contains('selected')).toBe(true);
+    expect(div.classList.contains('current-epic')).toBe(true);
+
+    type.value = 'epic';
+    flushEffects();
+    expect(div.classList.contains('type-epic')).toBe(true);
+    expect(div.classList.contains('selected')).toBe(true);
+    expect(div.classList.contains('current-epic')).toBe(true);
+  });
 });
 
 // ── @event bindings ─────────────────────────────────────────────────

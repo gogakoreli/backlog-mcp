@@ -408,10 +408,17 @@ function bindAttribute(
   bindings: Binding[],
   disposers: (() => void)[],
 ): void {
+  // class attribute gets special handling to avoid conflicts with
+  // class:name directives (see bindClassAttribute for details).
+  if (name === 'class') {
+    bindClassAttribute(el, value, bindings, disposers);
+    return;
+  }
+
   // Auto-resolution: framework components get _setProp for custom props
-  // (preserves types). Standard HTML attributes (class, id, style, data-*,
+  // (preserves types). Standard HTML attributes (id, style, data-*,
   // aria-*) always use setAttribute even on framework components.
-  const isHtmlAttr = name === 'class' || name === 'id' || name === 'style'
+  const isHtmlAttr = name === 'id' || name === 'style'
     || name === 'slot' || name.startsWith('data-') || name.startsWith('aria-');
   const hasPropSetter = !isHtmlAttr && typeof (el as any)._setProp === 'function';
 
@@ -454,6 +461,66 @@ function bindAttribute(
     } else {
       el.setAttribute(name, String(value));
     }
+  }
+}
+
+/**
+ * Bind a reactive class attribute using classList.add/remove instead of
+ * setAttribute('class', ...). This prevents the class attribute binding
+ * from overwriting classes toggled by class:name directives.
+ *
+ * The problem: setAttribute('class', 'foo bar') replaces ALL classes,
+ * wiping out any classes added by classList.toggle() from class:name
+ * bindings. By tracking which classes "belong" to the class attribute
+ * and using classList operations, we only manage our own classes.
+ */
+function bindClassAttribute(
+  el: Element,
+  value: unknown,
+  bindings: Binding[],
+  disposers: (() => void)[],
+): void {
+  // On first call, we must clear the parser-set class attribute which
+  // contains raw marker text (e.g. "badge status-<!--bk-0-->").
+  // We snapshot any non-marker classes set by the parser before clearing.
+  let initialized = false;
+  let prevClasses: string[] = [];
+
+  const applyClasses = (raw: unknown) => {
+    if (!initialized) {
+      // Clear the parser's class attribute (contains marker text)
+      el.setAttribute('class', '');
+      initialized = true;
+    }
+    const str = raw == null || raw === false ? '' : String(raw);
+    const next = str.split(/\s+/).filter(Boolean);
+
+    // Remove classes no longer in the attribute value
+    for (const cls of prevClasses) {
+      if (!next.includes(cls)) {
+        el.classList.remove(cls);
+      }
+    }
+    // Add new classes
+    for (const cls of next) {
+      if (!prevClasses.includes(cls)) {
+        el.classList.add(cls);
+      }
+    }
+    prevClasses = next;
+  };
+
+  if (isSignal(value)) {
+    const binding: AttributeBinding = { type: 'attribute', element: el, name: 'class' };
+    bindings.push(binding);
+
+    const dispose = effect(() => {
+      applyClasses((value as ReadonlySignal<unknown>).value);
+    });
+    binding.dispose = dispose;
+    disposers.push(dispose);
+  } else {
+    applyClasses(value);
   }
 }
 

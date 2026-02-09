@@ -1,26 +1,35 @@
 /**
- * task-item.ts — Migrated to the reactive framework (Phase 9)
+ * task-item.ts — Migrated to the reactive framework (Phase 9, updated Phase 11)
  *
- * Data comes from data-* attributes (set by parent task-list via innerHTML).
- * When task-list is migrated, this will switch to reactive props.
+ * Accepts props from parent (task-list) via _setProp.
+ * Emits bubbling `task-select` and `scope-enter` events — no more
+ * document.querySelector hacks.
  *
  * Uses: component, html template, @click handlers
  */
 import { component } from '../framework/component.js';
 import { html } from '../framework/template.js';
 import { getTypeConfig } from '../type-registry.js';
-import { sidebarScope } from '../utils/sidebar-scope.js';
 
-export const TaskItem = component('task-item', (_props, host) => {
-  // ── Read data from attributes (set by parent before mount) ────────
-  const id = host.dataset.id || '';
-  const title = host.dataset.title || '';
-  const status = host.dataset.status || 'open';
-  const type = host.dataset.type || 'task';
-  const isCurrentEpic = host.dataset.currentEpic === 'true';
-  const isSelected = host.hasAttribute('selected');
-  const childCount = host.dataset.childCount || '0';
-  const dueDate = host.dataset.dueDate || '';
+export const TaskItem = component<{
+  id: string;
+  title: string;
+  status: string;
+  type: string;
+  childCount: number;
+  dueDate: string;
+  selected: boolean;
+  currentEpic: boolean;
+}>('task-item', (props, host) => {
+  // ── Read props (signals from parent) ─────────────────────────────
+  const id = props.id.value || '';
+  const title = props.title.value || '';
+  const status = props.status.value || 'open';
+  const type = props.type.value || 'task';
+  const isCurrentEpic = !!props.currentEpic.value;
+  const isSelected = !!props.selected.value;
+  const childCount = props.childCount.value || 0;
+  const dueDate = props.dueDate.value || '';
   const config = getTypeConfig(type);
 
   host.className = 'task-item-wrapper';
@@ -30,32 +39,19 @@ export const TaskItem = component('task-item', (_props, host) => {
   function handleEnterClick(e: Event) {
     e.stopPropagation();
     if (id) {
-      sidebarScope.set(id);
+      host.dispatchEvent(new CustomEvent('scope-enter', {
+        bubbles: true,
+        detail: { scopeId: id },
+      }));
     }
   }
 
   function handleItemClick() {
     if (!id) return;
-
-    // HACK:CROSS_QUERY — toggle selected across all task-items
-    document.querySelectorAll('task-item .task-item').forEach(item => {
-      item.classList.toggle('selected', (item.closest('task-item') as HTMLElement)?.dataset.id === id);
-    });
-
-    // HACK:CROSS_QUERY — call loadTask on task-detail
-    const detailPane = document.querySelector('task-detail');
-    if (detailPane) {
-      (detailPane as any).loadTask(id);
-    }
-
-    // HACK:DOC_EVENT — migrate to Emitter when all listeners are migrated
-    document.dispatchEvent(new CustomEvent('task-selected', { detail: { taskId: id } }));
-
-    // HACK:CROSS_QUERY — call setSelected on task-list
-    const taskList = document.querySelector('task-list');
-    if (taskList) {
-      (taskList as any).setSelected(id);
-    }
+    host.dispatchEvent(new CustomEvent('task-select', {
+      bubbles: true,
+      detail: { taskId: id },
+    }));
   }
 
   // ── Template ─────────────────────────────────────────────────────

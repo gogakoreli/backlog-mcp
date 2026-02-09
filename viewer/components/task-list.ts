@@ -1,3 +1,15 @@
+/**
+ * task-list.ts — Migrated to the reactive framework (Phase 11)
+ *
+ * Owns: task fetching, filtering, sorting, scoping, selection.
+ * Renders task-item children via effect-driven list (no innerHTML).
+ * Passes props to task-item instead of data-* attributes.
+ *
+ * Uses: signal, computed, effect, component, html template
+ */
+import { signal, computed, effect } from '../framework/signal.js';
+import { component } from '../framework/component.js';
+import { html } from '../framework/template.js';
 import { fetchTasks, type Task } from '../utils/api.js';
 import { backlogEvents } from '../services/event-source-client.js';
 import { sidebarScope } from '../utils/sidebar-scope.js';
@@ -5,214 +17,251 @@ import { getTypeConfig, getParentId } from '../type-registry.js';
 import './breadcrumb.js';
 import { ringIcon } from '../icons/index.js';
 
-function escapeAttr(text: string | undefined): string {
-  if (!text) return '';
-  return text.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
 const SORT_STORAGE_KEY = 'backlog:sort';
 
-export class TaskList extends HTMLElement {
-  private currentFilter: string = 'active';
-  private currentType: string = 'all';
-  private currentSort: string = 'updated';
-  private selectedTaskId: string | null = null;
-  private currentQuery: string | null = null;
-  private allTasks: Task[] = [];
-  private pendingAutoScope = false;
+function loadSavedSort(): string {
+  try {
+    const saved = localStorage.getItem(SORT_STORAGE_KEY);
+    if (saved) return saved;
+  } catch { /* localStorage unavailable */ }
+  return 'updated';
+}
 
-  connectedCallback() {
-    const params = new URLSearchParams(window.location.search);
-    this.selectedTaskId = params.get('id') || params.get('task');
+function sortTasks(tasks: Task[], sort: string): Task[] {
+  const sorted = [...tasks];
+  switch (sort) {
+    case 'created_desc':
+      return sorted.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    case 'created_asc':
+      return sorted.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    default:
+      return sorted.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+  }
+}
 
-    // Restore sort from localStorage
-    const savedSort = localStorage.getItem(SORT_STORAGE_KEY);
-    if (savedSort) {
-      this.currentSort = savedSort;
+export const TaskList = component('task-list', (_props, host) => {
+  // ── Reactive state ───────────────────────────────────────────────
+  const params = new URLSearchParams(window.location.search);
+
+  const filter = signal(params.get('filter') || 'active');
+  const typeFilter = signal('all');
+  const sort = signal(loadSavedSort());
+  const selectedId = signal<string | null>(params.get('id') || params.get('task'));
+  const query = signal<string | null>(null);
+  const allTasks = signal<Task[]>([]);
+  const scopeId = signal<string | null>(sidebarScope.get());
+  const error = signal<string | null>(null);
+  const pendingAutoScope = signal(false);
+
+  // ── Derived: visible tasks ───────────────────────────────────────
+  const visibleTasks = computed(() => {
+    let tasks = allTasks.value;
+
+    // Type filter
+    if (typeFilter.value !== 'all') {
+      tasks = tasks.filter(t => (t.type ?? 'task') === typeFilter.value);
     }
 
-    this.loadTasks();
+    // Sort
+    tasks = sortTasks(tasks, sort.value);
 
-    // Real-time updates via centralized event service
-    backlogEvents.onChange((event) => {
-      if (event.type === 'task_changed' || event.type === 'task_created' || event.type === 'task_deleted' || event.type === 'resource_changed') {
-        this.loadTasks();
-      }
-    });
+    const scope = scopeId.value;
 
-    document.addEventListener('filter-change', ((e: CustomEvent) => {
-      this.currentFilter = e.detail.filter;
-      this.currentType = e.detail.type ?? 'all';
-      this.loadTasks();
-    }) as EventListener);
-
-    document.addEventListener('sort-change', ((e: CustomEvent) => {
-      this.currentSort = e.detail.sort;
-      this.loadTasks();
-    }) as EventListener);
-
-    document.addEventListener('search-change', ((e: CustomEvent) => {
-      this.currentQuery = e.detail.query || null;
-      this.loadTasks();
-    }) as EventListener);
-
-    document.addEventListener('task-selected', ((e: CustomEvent) => {
-      this.setSelected(e.detail.taskId);
-    }) as EventListener);
-
-    // Sidebar scope changes (from arrow clicks, breadcrumb, etc.)
-    document.addEventListener('scope-change', (() => {
-      this.loadTasks();
-    }) as EventListener);
-  }
-
-  setState(filter: string, type: string, id: string | null, query: string | null) {
-    this.currentFilter = filter;
-    this.currentType = type;
-    this.selectedTaskId = id;
-    this.currentQuery = query;
-    this.pendingAutoScope = !!id;
-    this.loadTasks();
-  }
-
-  private get currentScopeId(): string | null {
-    return sidebarScope.get();
-  }
-
-  private sortTasks(tasks: Task[]): Task[] {
-    const sorted = [...tasks];
-    switch (this.currentSort) {
-      case 'created_desc':
-        return sorted.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-      case 'created_asc':
-        return sorted.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-      case 'updated':
-      default:
-        return sorted.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
-    }
-  }
-
-  async loadTasks() {
-    try {
-      let tasks = await fetchTasks(this.currentFilter as any, this.currentQuery || undefined);
-      this.allTasks = tasks;
-
-      // Auto-scope for leaf entities on URL navigation
-      if (this.pendingAutoScope && this.selectedTaskId) {
-        this.pendingAutoScope = false;
-        const selectedTask = tasks.find(t => t.id === this.selectedTaskId);
-        if (selectedTask) {
-          const config = getTypeConfig(selectedTask.type ?? 'task');
-          if (!config.isContainer) {
-            const parentId = getParentId(selectedTask);
-            sidebarScope.set(parentId || null);
-          }
-        }
-      }
-
-      // Type filter
-      if (this.currentType !== 'all') {
-        tasks = tasks.filter(t => (t.type ?? 'task') === this.currentType);
-      }
-
-      // Apply sort
-      tasks = this.sortTasks(tasks);
-
-      const scopeId = this.currentScopeId;
-
-      // Container navigation filter (works for epics, folders, milestones)
-      if (scopeId) {
-        const currentContainer = tasks.find(t => t.id === scopeId);
-        const children = tasks.filter(t => getParentId(t) === scopeId);
-        tasks = currentContainer ? [currentContainer, ...children] : children;
-      } else {
-        // Home page: root containers and orphan items (no parent)
-        const containers = tasks.filter(t => {
-          const config = getTypeConfig(t.type ?? 'task');
-          return config.isContainer && !getParentId(t);
-        });
-        const orphans = tasks.filter(t => {
-          const config = getTypeConfig(t.type ?? 'task');
-          return !config.isContainer && !getParentId(t);
-        });
-        tasks = [...containers, ...orphans];
-      }
-
-      this.render(tasks);
-
-      const breadcrumb = this.querySelector('epic-breadcrumb');
-      if (breadcrumb) {
-        (breadcrumb as any).setData(scopeId, this.allTasks);
-      }
-    } catch (error) {
-      this.innerHTML = `<div class="error">Failed to load tasks: ${(error as Error).message}</div>`;
-    }
-  }
-
-  render(tasks: Task[]) {
-    const scopeId = this.currentScopeId;
-    const isEmpty = tasks.length === 0;
-    const isInsideContainer = !!scopeId;
-    const currentContainer = isInsideContainer ? tasks.find(t => t.id === scopeId) : null;
-    const hasOnlyContainer = isInsideContainer && tasks.length === 1 && currentContainer;
-
-    if (isEmpty) {
-      this.innerHTML = `
-        <epic-breadcrumb></epic-breadcrumb>
-        <div class="empty-state">
-          <div class="empty-state-icon">—</div>
-          <div>No tasks found</div>
-        </div>
-      `;
-      const breadcrumb = this.querySelector('epic-breadcrumb');
-      if (breadcrumb) {
-        (breadcrumb as any).setData(scopeId, this.allTasks);
-      }
-      return;
+    // Scope filter
+    if (scope) {
+      const container = tasks.find(t => t.id === scope);
+      const children = tasks.filter(t => getParentId(t) === scope);
+      tasks = container ? [container, ...children] : children;
+    } else {
+      // Home: root containers + orphan leaves
+      const containers = tasks.filter(t => {
+        const config = getTypeConfig(t.type ?? 'task');
+        return config.isContainer && !getParentId(t);
+      });
+      const orphans = tasks.filter(t => {
+        const config = getTypeConfig(t.type ?? 'task');
+        return !config.isContainer && !getParentId(t);
+      });
+      tasks = [...containers, ...orphans];
     }
 
     // Group: containers first, then leaves
     const containers = tasks.filter(t => getTypeConfig(t.type ?? 'task').isContainer);
     const leaves = tasks.filter(t => !getTypeConfig(t.type ?? 'task').isContainer);
-    const grouped = [...containers, ...leaves];
+    return [...containers, ...leaves];
+  });
 
-    this.innerHTML = `
-      <epic-breadcrumb></epic-breadcrumb>
-      <div class="task-list">
-        ${grouped.map((task) => {
-          const type = task.type ?? 'task';
-          const config = getTypeConfig(type);
-          const childCount = config.isContainer
-            ? this.allTasks.filter(t => getParentId(t) === task.id).length
-            : 0;
-          const isCurrentContainer = scopeId === task.id;
-          return `
-            <task-item
-              data-id="${task.id}"
-              data-title="${escapeAttr(task.title)}"
-              data-status="${task.status}"
-              data-type="${type}"
-              data-child-count="${childCount}"
-              ${task.due_date ? `data-due-date="${task.due_date}"` : ''}
-              ${this.selectedTaskId === task.id ? 'selected' : ''}
-              ${isCurrentContainer ? 'data-current-epic="true"' : ''}
-            ></task-item>
-            ${isCurrentContainer ? `<div class="epic-separator"><svg-icon class="separator-icon" src="${ringIcon}"></svg-icon></div>` : ''}
-          `;
-        }).join('')}
-        ${hasOnlyContainer ? '<div class="empty-state-inline"><div class="empty-state-icon">—</div><div>No items in this container</div></div>' : ''}
-      </div>
-    `;
+  // ── Fetch tasks ──────────────────────────────────────────────────
+  async function doFetch() {
+    try {
+      error.value = null;
+      const tasks = await fetchTasks(filter.value as any, query.value || undefined);
+      allTasks.value = tasks;
 
-    const breadcrumb = this.querySelector('epic-breadcrumb');
-    if (breadcrumb) {
-      (breadcrumb as any).setData(scopeId, this.allTasks);
+      // Auto-scope for leaf entities on URL navigation
+      if (pendingAutoScope.value && selectedId.value) {
+        pendingAutoScope.value = false;
+        const selected = tasks.find(t => t.id === selectedId.value);
+        if (selected) {
+          const config = getTypeConfig(selected.type ?? 'task');
+          if (!config.isContainer) {
+            const parentId = getParentId(selected);
+            sidebarScope.set(parentId || null);
+            scopeId.value = parentId || null;
+          }
+        }
+      }
+    } catch (e) {
+      error.value = (e as Error).message;
     }
   }
 
-  setSelected(taskId: string) {
-    this.selectedTaskId = taskId;
-  }
-}
+  // Initial fetch
+  doFetch();
 
-customElements.define('task-list', TaskList);
+  // Real-time updates
+  backlogEvents.onChange((event) => {
+    if (event.type === 'task_changed' || event.type === 'task_created' ||
+        event.type === 'task_deleted' || event.type === 'resource_changed') {
+      doFetch();
+    }
+  });
+
+  // ── External event listeners (HACK:DOC_EVENT — until backlog-app migrated) ──
+  document.addEventListener('filter-change', ((e: CustomEvent) => {
+    filter.value = e.detail.filter;
+    typeFilter.value = e.detail.type ?? 'all';
+    doFetch();
+  }) as EventListener);
+
+  document.addEventListener('sort-change', ((e: CustomEvent) => {
+    sort.value = e.detail.sort;
+  }) as EventListener);
+
+  document.addEventListener('search-change', ((e: CustomEvent) => {
+    query.value = e.detail.query || null;
+    doFetch();
+  }) as EventListener);
+
+  document.addEventListener('scope-change', (() => {
+    scopeId.value = sidebarScope.get();
+  }) as EventListener);
+
+  // ── Handle bubbling events from child task-items ──────────────────
+  host.addEventListener('task-select', ((e: CustomEvent) => {
+    const taskId = e.detail.taskId;
+    selectedId.value = taskId;
+
+    // HACK:DOC_EVENT — backlog-app listens for this to update task-detail + URL
+    document.dispatchEvent(new CustomEvent('task-selected', { detail: { taskId } }));
+
+    // HACK:CROSS_QUERY — update task-detail directly until backlog-app is migrated
+    const detailPane = document.querySelector('task-detail');
+    if (detailPane) (detailPane as any).loadTask(taskId);
+  }) as EventListener);
+
+  host.addEventListener('scope-enter', ((e: CustomEvent) => {
+    const id = e.detail.scopeId;
+    sidebarScope.set(id);
+    scopeId.value = id;
+  }) as EventListener);
+
+  // HACK:EXPOSE — replace with props when backlog-app is migrated
+  (host as any).setState = (f: string, t: string, id: string | null, q: string | null) => {
+    filter.value = f;
+    typeFilter.value = t;
+    selectedId.value = id;
+    query.value = q;
+    pendingAutoScope.value = !!id;
+    doFetch();
+  };
+
+  (host as any).setSelected = (taskId: string) => {
+    selectedId.value = taskId;
+  };
+
+  // ── Render list via effect ───────────────────────────────────────
+  // The framework doesn't have a reactive list primitive yet,
+  // so we use an effect that rebuilds the list container.
+  effect(() => {
+    const tasks = visibleTasks.value;
+    const scope = scopeId.value;
+    const selected = selectedId.value;
+    const all = allTasks.value;
+    const err = error.value;
+
+    const container = host.querySelector('.task-list-container') as HTMLElement;
+    if (!container) return;
+
+    // Update breadcrumb
+    const breadcrumb = host.querySelector('epic-breadcrumb');
+    if (breadcrumb) (breadcrumb as any).setData(scope, all);
+
+    if (err) {
+      container.innerHTML = `<div class="error">Failed to load tasks: ${err}</div>`;
+      return;
+    }
+
+    if (tasks.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">—</div>
+          <div>No tasks found</div>
+        </div>
+      `;
+      return;
+    }
+
+    const isInsideContainer = !!scope;
+    const currentContainer = isInsideContainer ? tasks.find(t => t.id === scope) : null;
+    const hasOnlyContainer = isInsideContainer && tasks.length === 1 && currentContainer;
+
+    // Build DOM
+    container.innerHTML = '';
+    const listDiv = document.createElement('div');
+    listDiv.className = 'task-list';
+
+    for (const task of tasks) {
+      const type = task.type ?? 'task';
+      const config = getTypeConfig(type);
+      const childCount = config.isContainer
+        ? all.filter(t => getParentId(t) === task.id).length
+        : 0;
+      const isCurrentContainer = scope === task.id;
+
+      const item = document.createElement('task-item');
+      // Props via _setProp (auto-resolution path)
+      (item as any)._setProp('id', task.id);
+      (item as any)._setProp('title', task.title);
+      (item as any)._setProp('status', task.status);
+      (item as any)._setProp('type', type);
+      (item as any)._setProp('childCount', childCount);
+      (item as any)._setProp('dueDate', task.due_date || '');
+      (item as any)._setProp('selected', selected === task.id);
+      (item as any)._setProp('currentEpic', isCurrentContainer);
+      listDiv.appendChild(item);
+
+      if (isCurrentContainer) {
+        const sep = document.createElement('div');
+        sep.className = 'epic-separator';
+        sep.innerHTML = `<svg-icon class="separator-icon" src="${ringIcon}"></svg-icon>`;
+        listDiv.appendChild(sep);
+      }
+    }
+
+    if (hasOnlyContainer) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-state-inline';
+      empty.innerHTML = '<div class="empty-state-icon">—</div><div>No items in this container</div>';
+      listDiv.appendChild(empty);
+    }
+
+    container.appendChild(listDiv);
+  });
+
+  // ── Template (static shell) ──────────────────────────────────────
+  return html`
+    <epic-breadcrumb></epic-breadcrumb>
+    <div class="task-list-container"></div>
+  `;
+});

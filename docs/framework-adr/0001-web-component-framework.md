@@ -1520,6 +1520,125 @@ viewer/framework/
 
 Total: ~680 lines of framework code, 0 external dependencies, 0 build plugins.
 
+### Testing Strategy — Test Each Phase Before Starting the Next
+
+The framework is the foundation every component stands on. A bug in `signal.ts` or `template.ts` silently breaks every component. Each phase ships with its test file — no exceptions.
+
+**Infrastructure**: Vitest (already configured with globals, `vi.mock()`, fake timers). Phases 1-4 are pure logic — no DOM needed. Phases 5-7 require DOM — add `happy-dom` as a dev dependency with a per-file environment override (`// @vitest-environment happy-dom`).
+
+```
+viewer/framework/
+├── signal.ts
+├── signal.test.ts            # Phase 1 — MUST pass before Phase 2 begins
+├── context.ts
+├── context.test.ts           # Phase 2
+├── emitter.ts
+├── emitter.test.ts           # Phase 3
+├── injector.ts
+├── injector.test.ts          # Phase 4
+├── component.ts
+├── component.test.ts         # Phase 5 — needs happy-dom
+├── template.ts
+├── template.test.ts          # Phase 6 — needs happy-dom
+├── query.ts
+├── query.test.ts             # Phase 7
+└── index.ts
+```
+
+#### Phase 1: `signal.test.ts` — The Most Critical Tests
+
+Signals are the reactive core. Every other primitive depends on them being correct. These edge cases are where framework bugs hide:
+
+| Test | What it catches | Why it matters |
+|---|---|---|
+| **Diamond dependency**: A → B, A → C, B+C → D. Change A once. Assert D recomputes exactly once. | Glitches — D sees an inconsistent state where B updated but C hasn't yet | This is the #1 bug in every DIY signal implementation. If the push-pull topology sort is wrong, D computes twice or sees stale C. |
+| **Batching**: Set `a.value = 1; b.value = 2; c.value = 3` synchronously. Assert the effect tracking all three fires once, after microtask. | Over-notification — effects running per-write instead of per-batch | Without batching, changing 3 signals triggers 3 effect runs and 3 DOM updates instead of 1. |
+| **Computed caching**: Read `doubled.value` twice without changing `count`. Assert the compute function runs once. | Unnecessary recomputation | Computed values must be lazy and cached. Recomputing on every read defeats the purpose. |
+| **Conditional dependency tracking**: `computed(() => flag.value ? a.value : b.value)`. Toggle `flag`. Assert new deps are tracked, old deps are released. | Stale subscriptions — the computed reacts to a signal it no longer reads | Dynamic dependency tracking is what separates signals from manual subscriptions. |
+| **Nested signal write inside computed**: `computed(() => { other.value = count.value * 2; return count.value; })`. Assert this throws or is handled gracefully. | Infinite loops — computed triggers write, write triggers recompute | Computed must be side-effect-free. Writing to a signal inside computed is always a bug. |
+| **Effect cleanup**: Effect returns a cleanup function. Change the dependency. Assert cleanup runs before the effect re-runs. | Resource leaks — timers, subscriptions, or DOM references not cleaned up between runs | Effects that create resources (event listeners, intervals) need deterministic cleanup. |
+| **Effect disposal**: Call `dispose()` returned by `effect()`. Change the dependency. Assert the effect does NOT re-run. | Zombie effects — disposed effects still reacting to signal changes | Critical for `disconnectedCallback` — all effects must stop when a component unmounts. |
+| **Circular dependency detection**: A depends on B, B depends on A via computed. Assert a clear error is thrown — not an infinite loop. | Stack overflow / infinite loop | Must fail fast with an actionable error message, not hang the browser. |
+| **Microtask ordering**: Set `a.value = 1`, then in the same synchronous block read `computed.value` that depends on `a`. Assert the computed returns the updated value synchronously (pull), not the stale value. | Stale reads between write and flush | Push-pull hybrid means writes are lazy (push dirty flags) but reads are eager (pull fresh values). A synchronous read after a write must see the new value. |
+
+#### Phase 2: `context.test.ts`
+
+| Test | What it catches |
+|---|---|
+| `getCurrentComponent()` inside `runWithContext()` returns the component | Basic contract |
+| `getCurrentComponent()` outside any context throws with clear error message | Silent `null` propagation — inject() getting null and failing somewhere else |
+| Nested contexts: inner `runWithContext()` sees inner component, outer resumes after | Context leak between components — component A's setup accidentally registers effects on component B |
+| Context does not leak across microtasks: `runWithContext()` completes, `await`, then `getCurrentComponent()` throws | Async context leak — an awaited operation inside setup accidentally extends the context window |
+
+#### Phase 3: `emitter.test.ts`
+
+| Test | What it catches |
+|---|---|
+| `emit('select', { id: '1' })` calls `on('select')` subscriber with correct payload | Basic pub/sub contract |
+| Multiple subscribers on same event all fire | Subscriber list management |
+| `on()` returns unsubscribe function. Call it. Emit again. Subscriber does NOT fire. | Subscription leaks |
+| Emit during subscriber callback (re-entrancy): subscriber A emits another event, subscriber B of the second event fires | Corrupted subscriber iteration — if the emit loop uses array indices and a subscriber modifies the list, events get lost or duplicated |
+| `toSignal('select', e => e.id, null)`: emit, assert signal.value updated | Signal bridge — the glue between event-driven and reactive worlds |
+| Subscriber throws. Other subscribers for same event still fire. | One bad subscriber killing the entire event |
+
+#### Phase 4: `injector.test.ts`
+
+| Test | What it catches |
+|---|---|
+| `inject(MyService)` creates instance on first call, returns same instance on second | Auto-singleton contract |
+| `provide(MyService, () => new MockService())` then `inject(MyService)` returns mock | Test override mechanism |
+| `inject()` outside setup context throws with clear error | Silent undefined propagation |
+| Service constructor that throws: `inject(BrokenService)` surfaces the error clearly, doesn't cache a half-constructed instance | Corrupted singleton cache — subsequent `inject()` calls return undefined or a broken object |
+| Reset between tests: `resetInjector()` clears singleton cache | Test isolation — one test's singletons leaking into the next |
+
+#### Phase 5: `component.test.ts` (needs happy-dom)
+
+| Test | What it catches |
+|---|---|
+| `component('my-el', setup)` registers custom element. `document.createElement('my-el')` creates instance. Append to DOM → `connectedCallback` runs setup. | Basic lifecycle wiring |
+| Props via Proxy: set `el.task = newTask` → `props.task.value` updates inside the component | Proxy-based prop discovery |
+| `disconnectedCallback`: remove element from DOM → all effects and subscriptions disposed. Change a signal the component was watching → no error, no re-run. | Zombie component — removed from DOM but still reacting to signals |
+| Two components mount simultaneously: each gets its own setup context, signals don't cross-contaminate | Context isolation — concurrent mount is the real-world case (browser parses HTML, multiple custom elements upgrade) |
+| Setup function throws: error boundary renders fallback HTML, sibling components unaffected | Error containment |
+| Effect inside setup throws on re-run: component renders error fallback, other effects on same component continue | Runtime error resilience |
+| Factory function returns TemplateResult with correct props. Missing prop → TypeScript compile error (verified by type test). | Type-safe composition contract |
+
+#### Phase 6: `template.test.ts` (needs happy-dom) — The Second Most Critical Tests
+
+The binding engine is the densest code. Each binding type needs isolated tests:
+
+| Test | What it catches |
+|---|---|
+| **Text binding**: `html\`<span>${name}</span>\`` where `name` is a signal. Change signal → assert `textNode.data` updated. | Basic reactivity-to-DOM path |
+| **Attribute binding**: `html\`<div id="${id}">\`` where `id` is a signal. Change signal → assert `getAttribute('id')` updated. | Attribute vs property confusion |
+| **@event binding**: `html\`<button @click=${handler}>\``. Click button → handler fires. Remove element → handler detached (click again → no fire). | Event leak — listeners surviving element removal |
+| **class:name directive**: `html\`<div class:active=${isActive}>\``. Toggle signal → assert `classList.contains('active')` toggles. | classList.toggle correctness |
+| **Static parts cached**: Render same template twice. Assert the `<template>` element is parsed once (spy on DOMParser or innerHTML). | Performance — re-parsing on every render defeats caching |
+| **Multiple signals in one template**: `html\`<span>${first} ${last}</span>\``. Change only `first` → assert only first text node updates, `last` text node untouched. | Over-updating — one signal change triggers all bindings |
+| **Nested templates**: `html\`<div>${html\`<span>inner</span>\`}</div>\``. Assert inner fragment mounted correctly. | Template composition |
+| **`when()` conditional**: `html\`${when(show, html\`<span>visible</span>\`)}\``. Toggle `show` off → span removed. Toggle on → span re-added. | Conditional mount/unmount — DOM nodes must be added and removed, not just hidden |
+| **`.map()` + key — insert**: Array signal `[A, B]` → `[A, B, C]`. Assert C appended, A and B DOM nodes unchanged (same references). | Unnecessary recreation — existing items must be reused |
+| **`.map()` + key — remove**: `[A, B, C]` → `[A, C]`. Assert B's DOM node removed, A and C unchanged. | Stale DOM — removed items must be cleaned up |
+| **`.map()` + key — reorder**: `[A, B, C]` → `[C, A, B]`. Assert DOM nodes reordered, not recreated. (If v1 uses clear+recreate, assert items are at least correct.) | The hardest reconciliation case — document whether v1 handles moves or recreates |
+| **Signal in @event handler**: `html\`<button @click=${() => count.value++}>\``. Click → signal updates → dependent binding updates. | End-to-end reactivity through event → signal → DOM |
+
+#### Phase 7: `query.test.ts`
+
+| Test | What it catches |
+|---|---|
+| Basic lifecycle: `query(key, fetcher)` → `loading.value` is true → fetcher resolves → `data.value` is result, `loading.value` is false | Happy path |
+| Error lifecycle: fetcher rejects → `error.value` is the Error, `loading.value` is false, `data.value` is undefined | Error state management |
+| Dependency change re-fetches: signal in key function changes → new fetch fires → data updates | Auto-refetch |
+| Race condition: dependency changes twice quickly. First fetch resolves after second. Assert `data.value` is second result, not first. | Stale response — the most common async bug. Older response arriving after newer one overwrites correct data. |
+| Cache dedup: two components call `query()` with same key simultaneously → only one fetch fires | Network waste |
+| `invalidate(['tasks'])`: matching query refetches | Cache invalidation |
+| `enabled: () => false`: no fetch fires. Change to true → fetch fires. | Conditional fetching |
+| Disposal: component unmounts → in-flight fetch resolves → no signal write (component is gone) | Write-after-dispose — signal writes on an unmounted component |
+
+#### The Testing Principle
+
+**Test the framework like it's a library you're publishing** — because from every component's perspective, it is one. The 16 components don't care that `signal.ts` lives in the same repo. They depend on its contract being correct. Framework tests are the safety net that lets you move fast on everything built on top.
+
 ## Consequences
 
 ### Positive

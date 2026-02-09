@@ -64,11 +64,8 @@ export const TaskItem = component('task-item', (_props, host) => {
     ? html`<span class="due-date-badge">${new Date(dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>`
     : null;
 
-  const selectedClass = isSelected ? ' selected' : '';
-  const currentEpicClass = isCurrentEpic ? ' current-epic' : '';
-
   return html`
-    <div class="task-item${selectedClass}${currentEpicClass} type-${type}" @click="${handleItemClick}">
+    <div class="task-item type-${type}" class:selected="${isSelected}" class:current-epic="${isCurrentEpic}" @click="${handleItemClick}">
       <task-badge task-id="${id}"></task-badge>
       <span class="task-title">${title}</span>
       ${dueDateHtml}

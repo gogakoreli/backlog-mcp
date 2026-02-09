@@ -317,3 +317,84 @@ describe('complex scenarios', () => {
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 });
+
+// ── Auto-resolution: props vs attributes ────────────────────────────
+
+describe('mixed static + dynamic attributes', () => {
+  it('preserves static text around interpolations', () => {
+    const result = html`<div class="prefix-${`dynamic`} suffix"></div>`;
+    const host = mount(result);
+    expect(host.querySelector('div')?.getAttribute('class')).toBe('prefix-dynamic suffix');
+  });
+
+  it('handles multiple interpolations in one attribute', () => {
+    const a = 'hello';
+    const b = 'world';
+    const result = html`<div data-info="${a}-${b}"></div>`;
+    const host = mount(result);
+    expect(host.querySelector('div')?.getAttribute('data-info')).toBe('hello-world');
+  });
+
+  it('reactively updates when signal in mixed attribute changes', () => {
+    const status = signal('active');
+    const result = html`<div class="badge status-${status}"></div>`;
+    const host = mount(result);
+    const div = host.querySelector('div')!;
+    expect(div.getAttribute('class')).toBe('badge status-active');
+    status.value = 'closed';
+    flushEffects();
+    expect(div.getAttribute('class')).toBe('badge status-closed');
+  });
+});
+
+describe('auto-resolution', () => {
+  it('routes attribute bindings through _setProp on framework components', () => {
+    const setPropCalls: [string, unknown][] = [];
+    class FakeComponent extends HTMLElement {
+      _setProp(key: string, value: unknown) {
+        setPropCalls.push([key, value]);
+      }
+    }
+    customElements.define('fake-comp', FakeComponent);
+
+    const obj = { id: 1, title: 'Test' };
+    const result = html`<fake-comp task="${obj}" count="${42}"></fake-comp>`;
+    const host = mount(result);
+
+    expect(setPropCalls).toContainEqual(['task', obj]);
+    expect(setPropCalls).toContainEqual(['count', 42]);
+    // Object reference preserved — not serialized to string
+    const taskCall = setPropCalls.find(([k]) => k === 'task');
+    expect(taskCall![1]).toBe(obj);
+  });
+
+  it('routes signal bindings through _setProp reactively', () => {
+    const props = new Map<string, unknown>();
+    class FakeReactive extends HTMLElement {
+      _setProp(key: string, value: unknown) {
+        props.set(key, value);
+      }
+    }
+    customElements.define('fake-reactive', FakeReactive);
+
+    const title = signal('Hello');
+    const result = html`<fake-reactive title="${title}"></fake-reactive>`;
+    mount(result);
+    flushEffects();
+
+    expect(props.get('title')).toBe('Hello');
+
+    title.value = 'Updated';
+    flushEffects();
+    expect(props.get('title')).toBe('Updated');
+  });
+
+  it('falls back to setAttribute for vanilla elements', () => {
+    const result = html`<div data-id="${'42'}" title="${'hello'}"></div>`;
+    const host = mount(result);
+    const div = host.querySelector('div')!;
+
+    expect(div.getAttribute('data-id')).toBe('42');
+    expect(div.getAttribute('title')).toBe('hello');
+  });
+});

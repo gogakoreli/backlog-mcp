@@ -47,9 +47,11 @@ export const BacklogApp = component('backlog-app', (_props, host) => {
   queueMicrotask(() => {
     // Subscribe BEFORE init so we get the initial state
     urlState.subscribe((state) => {
+      // HACK:CROSS_QUERY — replace with props/emitter when children use DI
       const filterBar = host.querySelector('task-filter-bar') as any;
       filterBar?.setState?.(state.filter, state.type, state.q);
 
+      // HACK:CROSS_QUERY — replace with props/emitter when children use DI
       const taskList = host.querySelector('task-list') as any;
       taskList?.setState?.(state.filter, state.type, state.id, state.q);
 
@@ -60,6 +62,7 @@ export const BacklogApp = component('backlog-app', (_props, host) => {
           sidebarScope.set(state.id);
         }
 
+        // HACK:CROSS_QUERY — replace when task-detail is migrated
         const detail = host.querySelector('task-detail') as any;
         detail?.loadTask?.(state.id);
       }

@@ -1,14 +1,15 @@
 /**
  * task-item.test.ts — Tests for the migrated task-item component.
  *
- * Validates: rendering from props, click handlers,
- * bubbling event dispatch, conditional template elements.
+ * Validates: rendering from signal props, typed emitter events,
+ * conditional template elements via computed views.
  *
  * @vitest-environment happy-dom
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { flushEffects } from '../framework/signal.js';
-import { resetInjector } from '../framework/injector.js';
+import { signal, flushEffects } from '../framework/signal.js';
+import { resetInjector, provide } from '../framework/injector.js';
+import { NavigationEvents } from '../services/navigation-events.js';
 
 // ── Mock dependencies ────────────────────────────────────────────────
 
@@ -30,15 +31,16 @@ vi.mock('../type-registry.js', () => {
   };
 });
 
-vi.mock('../utils/sidebar-scope.js', () => ({
-  sidebarScope: { set: vi.fn(), get: vi.fn() },
-}));
-
+let navEvents: NavigationEvents;
 let imported = false;
 
 beforeEach(async () => {
   resetInjector();
   document.body.innerHTML = '';
+
+  // Provide fresh NavigationEvents before component inject() runs
+  navEvents = new NavigationEvents();
+  provide(NavigationEvents, () => navEvents);
 
   if (!imported) {
     await import('./task-badge.js');
@@ -145,47 +147,38 @@ describe('task-item rendering', () => {
 // ── Click behavior ───────────────────────────────────────────────────
 
 describe('task-item click behavior', () => {
-  it('clicking item dispatches task-select bubbling event', () => {
+  it('clicking item emits task-select via NavigationEvents', () => {
     const el = createTaskItem({ id: 'TASK-0099' });
     const handler = vi.fn();
-    // Listen on document — event should bubble up
-    document.addEventListener('task-select', handler);
+    navEvents.on('task-select', handler);
 
     const inner = el.querySelector('.task-item') as HTMLElement;
     inner.click();
 
     expect(handler).toHaveBeenCalledTimes(1);
-    const detail = (handler.mock.calls[0][0] as CustomEvent).detail;
-    expect(detail.taskId).toBe('TASK-0099');
-
-    document.removeEventListener('task-select', handler);
+    expect(handler).toHaveBeenCalledWith({ taskId: 'TASK-0099' });
   });
 
-  it('clicking enter icon dispatches scope-enter bubbling event', () => {
+  it('clicking enter icon emits scope-enter via NavigationEvents', () => {
     const el = createTaskItem({ type: 'epic', id: 'EPIC-0001' });
     const handler = vi.fn();
-    document.addEventListener('scope-enter', handler);
+    navEvents.on('scope-enter', handler);
 
     const enter = el.querySelector('.enter-icon') as HTMLElement;
     enter.click();
 
     expect(handler).toHaveBeenCalledTimes(1);
-    const detail = (handler.mock.calls[0][0] as CustomEvent).detail;
-    expect(detail.scopeId).toBe('EPIC-0001');
-
-    document.removeEventListener('scope-enter', handler);
+    expect(handler).toHaveBeenCalledWith({ scopeId: 'EPIC-0001' });
   });
 
-  it('clicking enter icon does not trigger task-select', () => {
+  it('clicking enter icon does not emit task-select', () => {
     const el = createTaskItem({ type: 'epic', id: 'EPIC-0001' });
     const handler = vi.fn();
-    document.addEventListener('task-select', handler);
+    navEvents.on('task-select', handler);
 
     const enter = el.querySelector('.enter-icon') as HTMLElement;
     enter.click();
 
     expect(handler).not.toHaveBeenCalled();
-
-    document.removeEventListener('task-select', handler);
   });
 });

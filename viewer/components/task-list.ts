@@ -2,17 +2,20 @@
  * task-list.ts — Migrated to the reactive framework (Phase 11)
  *
  * Owns: task fetching, filtering, sorting, scoping, selection.
- * Renders task-item children via effect-driven list using TaskItem factory.
+ * Uses TaskItem factory for type-safe child composition.
+ * Subscribes to NavigationEvents emitter for task-select/scope-enter.
  *
- * Uses: signal, computed, effect, component, html template, TaskItem factory
+ * Uses: signal, computed, effect, component, html, inject, Emitter, TaskItem factory
  */
 import { signal, computed, effect } from '../framework/signal.js';
 import { component } from '../framework/component.js';
 import { html } from '../framework/template.js';
+import { inject } from '../framework/injector.js';
 import { fetchTasks, type Task } from '../utils/api.js';
 import { backlogEvents } from '../services/event-source-client.js';
 import { sidebarScope } from '../utils/sidebar-scope.js';
 import { getTypeConfig, getParentId } from '../type-registry.js';
+import { NavigationEvents } from '../services/navigation-events.js';
 import { TaskItem } from './task-item.js';
 import './breadcrumb.js';
 import { ringIcon } from '../icons/index.js';
@@ -40,6 +43,8 @@ function sortTasks(tasks: Task[], sort: string): Task[] {
 }
 
 export const TaskList = component('task-list', (_props, host) => {
+  const nav = inject(NavigationEvents);
+
   // ── Reactive state ───────────────────────────────────────────────
   const params = new URLSearchParams(window.location.search);
 
@@ -57,23 +62,19 @@ export const TaskList = component('task-list', (_props, host) => {
   const visibleTasks = computed(() => {
     let tasks = allTasks.value;
 
-    // Type filter
     if (typeFilter.value !== 'all') {
       tasks = tasks.filter(t => (t.type ?? 'task') === typeFilter.value);
     }
 
-    // Sort
     tasks = sortTasks(tasks, sort.value);
 
     const scope = scopeId.value;
 
-    // Scope filter
     if (scope) {
       const container = tasks.find(t => t.id === scope);
       const children = tasks.filter(t => getParentId(t) === scope);
       tasks = container ? [container, ...children] : children;
     } else {
-      // Home: root containers + orphan leaves
       const containers = tasks.filter(t => {
         const config = getTypeConfig(t.type ?? 'task');
         return config.isContainer && !getParentId(t);
@@ -85,7 +86,6 @@ export const TaskList = component('task-list', (_props, host) => {
       tasks = [...containers, ...orphans];
     }
 
-    // Group: containers first, then leaves
     const containers = tasks.filter(t => getTypeConfig(t.type ?? 'task').isContainer);
     const leaves = tasks.filter(t => !getTypeConfig(t.type ?? 'task').isContainer);
     return [...containers, ...leaves];
@@ -98,7 +98,6 @@ export const TaskList = component('task-list', (_props, host) => {
       const tasks = await fetchTasks(filter.value as any, query.value || undefined);
       allTasks.value = tasks;
 
-      // Auto-scope for leaf entities on URL navigation
       if (pendingAutoScope.value && selectedId.value) {
         pendingAutoScope.value = false;
         const selected = tasks.find(t => t.id === selectedId.value);
@@ -116,10 +115,8 @@ export const TaskList = component('task-list', (_props, host) => {
     }
   }
 
-  // Initial fetch
   doFetch();
 
-  // Real-time updates
   backlogEvents.onChange((event) => {
     if (event.type === 'task_changed' || event.type === 'task_created' ||
         event.type === 'task_deleted' || event.type === 'resource_changed') {
@@ -127,7 +124,24 @@ export const TaskList = component('task-list', (_props, host) => {
     }
   });
 
-  // ── External event listeners (HACK:DOC_EVENT — until filter-bar uses shared signals) ──
+  // ── Emitter subscriptions (auto-dispose via emitter-auto-dispose) ──
+  nav.on('task-select', ({ taskId }) => {
+    selectedId.value = taskId;
+
+    // HACK:DOC_EVENT — backlog-app listens for this to update URL
+    document.dispatchEvent(new CustomEvent('task-selected', { detail: { taskId } }));
+
+    // HACK:CROSS_QUERY — update task-detail directly until it's migrated
+    const detailPane = document.querySelector('task-detail');
+    if (detailPane) (detailPane as any).loadTask(taskId);
+  });
+
+  nav.on('scope-enter', ({ scopeId: id }) => {
+    sidebarScope.set(id);
+    scopeId.value = id;
+  });
+
+  // ── External event listeners (HACK:DOC_EVENT — until filter-bar uses emitter) ──
   document.addEventListener('filter-change', ((e: CustomEvent) => {
     filter.value = e.detail.filter;
     typeFilter.value = e.detail.type ?? 'all';
@@ -147,25 +161,6 @@ export const TaskList = component('task-list', (_props, host) => {
     scopeId.value = sidebarScope.get();
   }) as EventListener);
 
-  // ── Handle bubbling events from child task-items ──────────────────
-  host.addEventListener('task-select', ((e: CustomEvent) => {
-    const taskId = e.detail.taskId;
-    selectedId.value = taskId;
-
-    // HACK:DOC_EVENT — backlog-app listens for this to update task-detail + URL
-    document.dispatchEvent(new CustomEvent('task-selected', { detail: { taskId } }));
-
-    // HACK:CROSS_QUERY — update task-detail directly until it's migrated
-    const detailPane = document.querySelector('task-detail');
-    if (detailPane) (detailPane as any).loadTask(taskId);
-  }) as EventListener);
-
-  host.addEventListener('scope-enter', ((e: CustomEvent) => {
-    const id = e.detail.scopeId;
-    sidebarScope.set(id);
-    scopeId.value = id;
-  }) as EventListener);
-
   // HACK:EXPOSE — replace with props when backlog-app passes state down
   (host as any).setState = (f: string, t: string, id: string | null, q: string | null) => {
     filter.value = f;
@@ -180,9 +175,10 @@ export const TaskList = component('task-list', (_props, host) => {
     selectedId.value = taskId;
   };
 
-  // ── Render list via effect ───────────────────────────────────────
-  // Uses TaskItem factory for type-safe composition.
-  // Effect rebuilds list when visibleTasks/selectedId/scopeId change.
+  // ── HACK:STATIC_LIST — Render list via effect ────────────────────
+  // Rebuilds task-item elements when visibleTasks/selectedId/scopeId change.
+  // Uses TaskItem factory for type-safe composition (comp-factory-composition).
+  // Replace with each() when reactive list primitive is implemented.
   effect(() => {
     const tasks = visibleTasks.value;
     const scope = scopeId.value;
@@ -193,22 +189,26 @@ export const TaskList = component('task-list', (_props, host) => {
     const container = host.querySelector('.task-list-container') as HTMLElement;
     if (!container) return;
 
-    // Update breadcrumb
+    // HACK:REF — update breadcrumb via querySelector until ref() exists
     const breadcrumb = host.querySelector('epic-breadcrumb');
     if (breadcrumb) (breadcrumb as any).setData(scope, all);
 
     if (err) {
-      container.innerHTML = `<div class="error">Failed to load tasks: ${err}</div>`;
+      container.replaceChildren();
+      const errDiv = document.createElement('div');
+      errDiv.className = 'error';
+      errDiv.textContent = `Failed to load tasks: ${err}`;
+      container.appendChild(errDiv);
       return;
     }
 
     if (tasks.length === 0) {
-      container.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-state-icon">—</div>
-          <div>No tasks found</div>
-        </div>
-      `;
+      container.replaceChildren();
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.appendChild(Object.assign(document.createElement('div'), { className: 'empty-state-icon', textContent: '—' }));
+      empty.appendChild(Object.assign(document.createElement('div'), { textContent: 'No tasks found' }));
+      container.appendChild(empty);
       return;
     }
 
@@ -216,8 +216,7 @@ export const TaskList = component('task-list', (_props, host) => {
     const currentContainer = isInsideContainer ? tasks.find(t => t.id === scope) : null;
     const hasOnlyContainer = isInsideContainer && tasks.length === 1 && currentContainer;
 
-    // Build DOM using TaskItem factory
-    container.innerHTML = '';
+    // Build DOM using TaskItem factory (comp-factory-composition)
     const listDiv = document.createElement('div');
     listDiv.className = 'task-list';
 
@@ -229,7 +228,7 @@ export const TaskList = component('task-list', (_props, host) => {
         : 0;
       const isCurrentContainer = scope === task.id;
 
-      // Factory composition — type-safe props
+      // Factory composition — type-safe, signals required (comp-props-signals)
       const result = TaskItem({
         id: signal(task.id),
         title: signal(task.title),
@@ -241,8 +240,7 @@ export const TaskList = component('task-list', (_props, host) => {
         currentEpic: signal(isCurrentContainer),
       });
 
-      // Mount factory result — the factory returns a descriptor,
-      // we create the element and wire props through _setProp
+      // Mount factory result into DOM
       const factoryResult = result as unknown as {
         tagName: string;
         props: Record<string, unknown>;
@@ -256,7 +254,10 @@ export const TaskList = component('task-list', (_props, host) => {
       if (isCurrentContainer) {
         const sep = document.createElement('div');
         sep.className = 'epic-separator';
-        sep.innerHTML = `<svg-icon class="separator-icon" src="${ringIcon}"></svg-icon>`;
+        const icon = document.createElement('svg-icon');
+        icon.className = 'separator-icon';
+        icon.setAttribute('src', ringIcon);
+        sep.appendChild(icon);
         listDiv.appendChild(sep);
       }
     }
@@ -264,11 +265,12 @@ export const TaskList = component('task-list', (_props, host) => {
     if (hasOnlyContainer) {
       const empty = document.createElement('div');
       empty.className = 'empty-state-inline';
-      empty.innerHTML = '<div class="empty-state-icon">—</div><div>No items in this container</div>';
+      empty.appendChild(Object.assign(document.createElement('div'), { className: 'empty-state-icon', textContent: '—' }));
+      empty.appendChild(Object.assign(document.createElement('div'), { textContent: 'No items in this container' }));
       listDiv.appendChild(empty);
     }
 
-    container.appendChild(listDiv);
+    container.replaceChildren(listDiv);
   });
 
   // ── Template (static shell) ──────────────────────────────────────

@@ -309,6 +309,8 @@ type ReactiveProps<P> = { [K in keyof P]: Signal<P[K]> };
 
 Every prop becomes a read-only `Signal`. The framework creates these signals internally and wires up property setters on the custom element class. No `prop('name')` calls, no `attr('name', default)` — the interface IS the declaration.
 
+**Runtime prop discovery**: TypeScript interfaces are erased at compile time — you can't iterate `keyof TaskItemProps` in JavaScript. The framework uses a `Proxy` on the element instance to intercept property sets and create signals on-demand. When a parent (via factory or HTML tag) first sets a property, the Proxy trap detects it, creates a backing `Signal`, and registers the property name. Subsequent sets update the signal's `.value`. This means prop names are discovered at first use, not declared in a separate runtime schema. The factory's TypeScript generic ensures only valid prop names reach the element — the Proxy is the bridge from type-safe compile-time contract to runtime signal creation.
+
 #### Two-Layer Rendering Model — Factory at Boundaries, Templates Inside
 
 Component composition and internal DOM rendering serve different needs. The architecture uses a **two-layer model** that matches the right tool to each:
@@ -601,6 +603,14 @@ const TaskDetail = component<TaskDetailProps>('task-detail', (props) => {
 ```
 
 Errors are caught at the component boundary — one broken component doesn't take down sibling or parent components. This is critical for resilience when AI-generated components may have bugs.
+
+**Runtime error handling**: Setup-time try/catch only covers synchronous initialization. Errors also occur in `effect()` callbacks (signal changes trigger re-computation), async operations (`query()` failures after mount), and `@event` handlers (`@click` handler throws). The framework handles each:
+
+- **Effect errors**: `effect()` wraps each execution in try/catch. If an effect throws, it logs the error, renders the component's error fallback, and disposes the effect to prevent infinite re-throws. Other effects on the same component continue running.
+- **Event handler errors**: The `@event` binding wraps handlers in try/catch. A throwing handler logs the error and prevents propagation — the component stays mounted.
+- **Async errors via `query()`**: `query()` catches fetcher rejections and surfaces them via `tasks.error` signal. Components use `computed()` views to render error states reactively (see the TaskList example above). This systematizes the existing pattern in `task-list.ts` where `loadTasks()` has try/catch with fallback HTML.
+
+The principle: errors are **contained** (one component can't crash another), **visible** (error state renders, not silent failure), and **recoverable** (signals can update and re-trigger rendering after an error).
 
 ### Declarative Data Loading — `query()` Primitive
 
@@ -949,6 +959,19 @@ const config = inject(AppConfig);
 ```
 
 But for the 99% case — service classes and emitters — the class IS the token, `inject()` auto-creates, and there's nothing to register. One concept, zero ceremony.
+
+**Bootstrap services — eager instantiation**: Auto-singleton means a service doesn't exist until the first `inject()` call. Most services are fine with this — they're created when the first component that needs them mounts. But some services must exist *before* the component tree mounts: `SSEEvents` must connect to the backend and buffer events during page load, before any component calls `inject(SSEEvents)`. These **bootstrap services** are eagerly instantiated in the app entry point:
+
+```typescript
+// main.ts — bootstrap services created before any component mounts
+const sse = inject(SSEEvents);    // eagerly create + connect
+sse.connect();                     // starts receiving events immediately
+
+// Components that mount later get the same singleton instance
+// and receive events that arrived during page load via buffered replay
+```
+
+This mirrors the current `backlogEvents.connect()` pattern in `main.ts`. The rule: **lazy by default, eager for services that must not miss events during startup.** Document bootstrap services in `main.ts` with a comment block.
 
 **Everything is a service.** API clients, storage adapters, SSE connections, typed event emitters — they're all just classes. Some extend `Emitter<T>` for pub/sub, some don't. The DI system doesn't care. `inject(AnyClass)` always works the same way.
 
@@ -1347,6 +1370,44 @@ Build performance: v4's Oxide engine is 3.5-10x faster than v3, incremental buil
 
 ---
 
+## Why Not Lit?
+
+The most obvious question: why build a custom framework when Lit exists? Lit (~5KB) uses the same core approach — tagged `html` templates with targeted DOM binding, `@event` syntax, reactive properties, no virtual DOM. It's maintained by Google and battle-tested across YouTube, Chrome DevTools, and thousands of production apps.
+
+We evaluated Lit seriously. Proposal A's design is directly informed by studying Lit's architecture. Here's why we build the parts we need rather than adopt Lit wholesale:
+
+### 1. Shadow DOM Default Fights Tailwind
+
+Lit defaults to Shadow DOM. To use light DOM, every component must override `createRenderRoot() { return this; }`. This project uses light DOM exclusively — all 16 components use `this.innerHTML`. Shadow DOM creates a styling boundary that blocks Tailwind utility classes from reaching component internals. Opting into light DOM also disables Lit's `static styles` CSS mechanism, losing one of Lit's features just to get the DOM model we already have.
+
+### 2. Four Binding Prefixes (The Sigil Tax)
+
+Lit requires developers to choose the correct prefix for every binding: `attr=${val}` (attribute), `.prop=${val}` (property), `?hidden=${bool}` (boolean attribute), `@click=${fn}` (event). Get it wrong and you get silent bugs — `<my-el data=${complexObject}>` serializes to `[object Object]` (should use `.data`), `<div hidden=${false}>` sets `hidden=""` which is still truthy (should use `?hidden`). Proposal A eliminates this with auto-resolution: the framework detects registered props and uses JS properties automatically. One syntax, framework figures it out.
+
+### 3. Class Ceremony and Lifecycle Complexity
+
+Lit requires class-based components with `this` everywhere. Its reactive update cycle has 7+ hooks: `constructor`, `connectedCallback`, `shouldUpdate`, `willUpdate`, `update`, `render`, `updated`, `firstUpdated` — plus `scheduleUpdate`, `performUpdate`, `getUpdateComplete`, `requestUpdate`. Derived state requires manual `changedProperties.has()` checking. Proposal A replaces all of this with a single setup function and `computed()` for derived state.
+
+### 4. No Native Signals
+
+Lit's reactivity is property-based: `@property()` and `@state()` decorators on class fields, scoped to the component. Properties can't be shared across components or used in standalone services. Lit's signals support (`@lit-labs/signals`) is explicitly experimental ("not recommended for production use"), requires a `SignalWatcher` mixin, a separate `watch()` directive, and depends on an unstable TC39 polyfill. Proposal A has signals as the core primitive — templates detect them implicitly, no mixin or directive needed.
+
+### 5. No Dependency Injection
+
+Lit has no DI. Lit Context (based on the community protocol) requires explicit `createContext()` tokens, `@provide`/`@consume` decorators, and DOM-tree-based scoping. For a service like `BacklogAPI` that every component needs, that's 6+ lines of ceremony per consumer. Proposal A: `inject(BacklogAPI)` — one line, auto-singleton, class IS the token.
+
+### 6. Separate `repeat()` API for Keyed Lists
+
+Lit's `.map()` doesn't do keyed reconciliation. For keyed lists, you need `repeat()` from `lit/directives/repeat.js` with a different API shape. Proposal A uses `.map()` + `key` attribute — the universally known pattern.
+
+### The Honest Trade-off
+
+Lit's template engine is battle-tested across years of edge-case fixes. Our `template.ts` will encounter bugs Lit already solved. But the scope is fundamentally different: Lit handles Shadow DOM, SSR, streaming, async rendering, and edge cases for millions of users across thousands of apps. We have 16 components with known use cases. The complexity budget is not comparable. And adopting Lit would mean building signals + DI + typed emitters on top of it anyway — the novel parts of this framework aren't in the template engine.
+
+**The constraint "no external UI framework dependencies" exists because**: a UI framework dependency means every component inherits that framework's opinions, lifecycle model, and upgrade cadence. The project's 14 runtime dependencies (fastify, orama, marked, etc.) are backend/content-processing — none affect the viewer's component architecture. Adding a UI framework is a categorically different kind of dependency.
+
+---
+
 ## Comparison Matrix
 
 | Criterion | A: Signals + Targeted Binding | B: Proxy + Morphdom | C: Signals + Morphdom |
@@ -1371,6 +1432,38 @@ Build performance: v4's Oxide engine is 3.5-10x faster than v3, incremental buil
 | **DOM event binding** | Inline `@click` in template | `onclick` attr or post-morph query | `onclick` attr or post-morph query |
 | **Event colocation** | Events on element (visible in template) | Detached from template | Detached from template |
 | **CSS strategy** | Tailwind (all proposals) | Tailwind (all proposals) | Tailwind (all proposals) |
+
+---
+
+## Scored Rubric (1-5, higher is better)
+
+| Anchor | A: Signals + Binding | B: Proxy + Morph | C: Signals + Morph | Justification |
+|---|---|---|---|---|
+| **Time-to-ship** | 3 | 4 | 3 | A has the most complex single piece (template.ts). B is the smallest conceptual leap. C is between. |
+| **Risk** | 3 | 4 | 3 | A's binding engine and keyed reconciliation are the highest-risk pieces. B's morph is well-understood. Mitigated by scoping list reconciliation to insert/remove for v1. |
+| **Testability** | 5 | 3 | 4 | A's signals are pure and standalone — testable without DOM. DI enables mock injection. B's proxy requires a DOM context. C's signals are testable but morph isn't. |
+| **Future flexibility** | 5 | 2 | 3 | A's O(1) update model has no performance ceiling. B's O(n) morph is a permanent constraint. C gets signal composability but morph limits DOM performance. |
+| **Operational complexity** | 4 | 5 | 4 | A has ~680 lines of framework code to maintain. B has ~400 lines. C has ~500 lines. All are small enough for one developer to own. |
+| **Blast radius** | 4 | 4 | 4 | All three support incremental migration — old and new components coexist. No big-bang rewrite. |
+| **Weighted total** | **24** | **22** | **21** | A wins on testability and future flexibility — the dimensions that compound over time. B wins on time-to-ship and operational simplicity — dimensions that matter once. |
+
+**Note on weighting**: For a project that will be maintained long-term with AI-assisted development, testability and future flexibility carry more weight than initial time-to-ship. A framework that's harder to build but produces better components forever is preferable to one that's easier to build but imposes permanent performance and ergonomic constraints.
+
+---
+
+## Assumptions (For This Decision to Be Correct)
+
+For Proposal A to be the right choice, the following must be true:
+
+1. **The template binding engine can be implemented correctly in ~270 lines without critical bugs.** Specifically: text bindings, attribute bindings, `@event` bindings, `class:name` directives, nested template composition, `when()` conditional rendering, and keyed list insert/remove (without move detection in v1). If this proves significantly harder than estimated, the fallback is Proposal C (signals + morph) which preserves all primitives except fine-grained DOM patching.
+
+2. **The maintenance burden of ~680 lines of owned framework code is lower than tracking Lit's upgrade cadence and working around its defaults.** Lit releases 2-3 minor versions per year. Each version may change behavior in the template engine, reactive properties, or lifecycle hooks. Our framework code changes only when we decide to change it.
+
+3. **The project will continue to grow and the 16 components represent a minimum, not a maximum.** If the project stayed frozen at 16 components, the framework investment would be marginal. The value compounds as components are added, because each new component gets signals, DI, typed props, and fine-grained rendering for free.
+
+4. **Keyed list reconciliation with insert/remove (no move detection) is sufficient for the task list's actual operations (filter, sort, scope, SSE update).** The task list is <100 items. If profiling reveals move detection matters, it can be added later without changing the component API.
+
+5. **AI-assisted development continues to be the primary authoring mode.** The design choices around compile-time safety (`.value`, typed factory props, `Signal<T>` requirements) are optimized for catching AI-generated mistakes at compile time rather than code review. If AI stops being the primary author, these choices are still good engineering but the "Human-AI Coherence" framing becomes less relevant.
 
 ---
 
@@ -1474,6 +1567,8 @@ Total: ~680 lines of framework code, 0 external dependencies, 0 build plugins.
 - Edge cases in keyed `.map()` reconciliation (reordering, nested lists). Mitigated by starting with simple append/remove and upgrading to full keyed reconciliation.
 - `query()` cache staleness: stale data served when it shouldn't be. Mitigated by default `staleTime: 0` (always refetch) and explicit `invalidate()` after mutations.
 - Tailwind class verbosity in complex components. Mitigated by extracting common patterns into composable functions that return class strings.
+- Bootstrap service timing: emitters created via lazy `inject()` may miss events dispatched during page load. Mitigated by eagerly instantiating bootstrap services in `main.ts` before the component tree mounts (documented pattern above).
+- Runtime errors in effects and event handlers could crash or leave components in inconsistent state. Mitigated by wrapping effect executions and `@event` handlers in try/catch with error boundary fallback rendering (documented in Error Boundaries above).
 
 ### Phase 2: Developer Tooling (Post-Framework)
 

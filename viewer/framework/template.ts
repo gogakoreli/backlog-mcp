@@ -13,6 +13,7 @@
 import {
   isSignal,
   effect,
+  computed,
   type Signal,
   type ReadonlySignal,
 } from './signal.js';
@@ -238,11 +239,21 @@ function processAttributes(
 
     // Check for regular attribute bindings with markers
     if (attrValue.includes(MARKER_PREFIX)) {
-      const markerMatch = attrValue.match(/<!--bk-(\d+)-->/);
-      if (markerMatch) {
-        const index = Number(markerMatch[1]);
-        const value = values[index];
-        bindAttribute(el, name, value, bindings, disposers);
+      const markers = [...attrValue.matchAll(/<!--bk-(\d+)-->/g)];
+      if (markers.length) {
+        // Single expression = entire value: preserve raw type and signal
+        if (markers.length === 1 && attrValue === markers[0][0]) {
+          bindAttribute(el, name, values[Number(markers[0][1])], bindings, disposers);
+        } else {
+          // Mixed static + dynamic: resolve markers into string
+          const resolve = () => attrValue.replace(/<!--bk-(\d+)-->/g, (_, i) => {
+            const v = values[Number(i)];
+            const raw = isSignal(v) ? (v as ReadonlySignal<unknown>).value : v;
+            return raw == null || raw === false ? '' : String(raw);
+          });
+          const hasSignals = markers.some(m => isSignal(values[Number(m[1])]));
+          bindAttribute(el, name, hasSignals ? computed(resolve) : resolve(), bindings, disposers);
+        }
       }
       continue;
     }
@@ -340,6 +351,28 @@ function bindAttribute(
   bindings: Binding[],
   disposers: (() => void)[],
 ): void {
+  // Auto-resolution: framework components get _setProp for custom props
+  // (preserves types). Standard HTML attributes (class, id, style, data-*,
+  // aria-*) always use setAttribute even on framework components.
+  const isHtmlAttr = name === 'class' || name === 'id' || name === 'style'
+    || name === 'slot' || name.startsWith('data-') || name.startsWith('aria-');
+  const hasPropSetter = !isHtmlAttr && typeof (el as any)._setProp === 'function';
+
+  if (hasPropSetter) {
+    if (isSignal(value)) {
+      const binding: AttributeBinding = { type: 'attribute', element: el, name };
+      bindings.push(binding);
+      const dispose = effect(() => {
+        (el as any)._setProp(name, (value as ReadonlySignal<unknown>).value);
+      });
+      binding.dispose = dispose;
+      disposers.push(dispose);
+    } else {
+      (el as any)._setProp(name, value);
+    }
+    return;
+  }
+
   if (isSignal(value)) {
     const binding: AttributeBinding = { type: 'attribute', element: el, name };
     bindings.push(binding);

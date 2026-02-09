@@ -12,17 +12,23 @@ import { resetInjector } from '../framework/injector.js';
 
 // ── Mock dependencies ────────────────────────────────────────────────
 
-vi.mock('../type-registry.js', () => ({
-  getTypeConfig: (type: string) => {
-    const configs: Record<string, any> = {
-      task: { prefix: 'TASK', label: 'Task', icon: '', gradient: '', isContainer: false, hasStatus: true },
-      epic: { prefix: 'EPIC', label: 'Epic', icon: '', gradient: '', isContainer: true, hasStatus: true },
-      milestone: { prefix: 'MLST', label: 'Milestone', icon: '', gradient: '', isContainer: true, hasStatus: true },
-      folder: { prefix: 'FLDR', label: 'Folder', icon: '', gradient: '', isContainer: true, hasStatus: false },
-    };
-    return configs[type] || configs.task;
-  },
-}));
+vi.mock('../type-registry.js', () => {
+  const configs: Record<string, any> = {
+    task: { prefix: 'TASK', label: 'Task', icon: '', gradient: '', isContainer: false, hasStatus: true },
+    epic: { prefix: 'EPIC', label: 'Epic', icon: '', gradient: '', isContainer: true, hasStatus: true },
+    milestone: { prefix: 'MLST', label: 'Milestone', icon: '', gradient: '', isContainer: true, hasStatus: true },
+    folder: { prefix: 'FLDR', label: 'Folder', icon: '', gradient: '', isContainer: true, hasStatus: false },
+  };
+  return {
+    getTypeFromId: (id: string) => {
+      for (const [type, config] of Object.entries(configs)) {
+        if (id.startsWith(config.prefix + '-')) return type;
+      }
+      return 'task';
+    },
+    getTypeConfig: (type: string) => configs[type] || configs.task,
+  };
+});
 
 const mockSidebarScope = { set: vi.fn(), get: vi.fn() };
 vi.mock('../utils/sidebar-scope.js', () => ({

@@ -2,10 +2,9 @@
  * task-list.ts — Migrated to the reactive framework (Phase 11)
  *
  * Owns: task fetching, filtering, sorting, scoping, selection.
- * Renders task-item children via effect-driven list (no innerHTML).
- * Passes props to task-item instead of data-* attributes.
+ * Renders task-item children via effect-driven list using TaskItem factory.
  *
- * Uses: signal, computed, effect, component, html template
+ * Uses: signal, computed, effect, component, html template, TaskItem factory
  */
 import { signal, computed, effect } from '../framework/signal.js';
 import { component } from '../framework/component.js';
@@ -14,6 +13,7 @@ import { fetchTasks, type Task } from '../utils/api.js';
 import { backlogEvents } from '../services/event-source-client.js';
 import { sidebarScope } from '../utils/sidebar-scope.js';
 import { getTypeConfig, getParentId } from '../type-registry.js';
+import { TaskItem } from './task-item.js';
 import './breadcrumb.js';
 import { ringIcon } from '../icons/index.js';
 
@@ -127,7 +127,7 @@ export const TaskList = component('task-list', (_props, host) => {
     }
   });
 
-  // ── External event listeners (HACK:DOC_EVENT — until backlog-app migrated) ──
+  // ── External event listeners (HACK:DOC_EVENT — until filter-bar uses shared signals) ──
   document.addEventListener('filter-change', ((e: CustomEvent) => {
     filter.value = e.detail.filter;
     typeFilter.value = e.detail.type ?? 'all';
@@ -155,7 +155,7 @@ export const TaskList = component('task-list', (_props, host) => {
     // HACK:DOC_EVENT — backlog-app listens for this to update task-detail + URL
     document.dispatchEvent(new CustomEvent('task-selected', { detail: { taskId } }));
 
-    // HACK:CROSS_QUERY — update task-detail directly until backlog-app is migrated
+    // HACK:CROSS_QUERY — update task-detail directly until it's migrated
     const detailPane = document.querySelector('task-detail');
     if (detailPane) (detailPane as any).loadTask(taskId);
   }) as EventListener);
@@ -166,7 +166,7 @@ export const TaskList = component('task-list', (_props, host) => {
     scopeId.value = id;
   }) as EventListener);
 
-  // HACK:EXPOSE — replace with props when backlog-app is migrated
+  // HACK:EXPOSE — replace with props when backlog-app passes state down
   (host as any).setState = (f: string, t: string, id: string | null, q: string | null) => {
     filter.value = f;
     typeFilter.value = t;
@@ -181,8 +181,8 @@ export const TaskList = component('task-list', (_props, host) => {
   };
 
   // ── Render list via effect ───────────────────────────────────────
-  // The framework doesn't have a reactive list primitive yet,
-  // so we use an effect that rebuilds the list container.
+  // Uses TaskItem factory for type-safe composition.
+  // Effect rebuilds list when visibleTasks/selectedId/scopeId change.
   effect(() => {
     const tasks = visibleTasks.value;
     const scope = scopeId.value;
@@ -216,7 +216,7 @@ export const TaskList = component('task-list', (_props, host) => {
     const currentContainer = isInsideContainer ? tasks.find(t => t.id === scope) : null;
     const hasOnlyContainer = isInsideContainer && tasks.length === 1 && currentContainer;
 
-    // Build DOM
+    // Build DOM using TaskItem factory
     container.innerHTML = '';
     const listDiv = document.createElement('div');
     listDiv.className = 'task-list';
@@ -229,17 +229,29 @@ export const TaskList = component('task-list', (_props, host) => {
         : 0;
       const isCurrentContainer = scope === task.id;
 
-      const item = document.createElement('task-item');
-      // Props via _setProp (auto-resolution path)
-      (item as any)._setProp('id', task.id);
-      (item as any)._setProp('title', task.title);
-      (item as any)._setProp('status', task.status);
-      (item as any)._setProp('type', type);
-      (item as any)._setProp('childCount', childCount);
-      (item as any)._setProp('dueDate', task.due_date || '');
-      (item as any)._setProp('selected', selected === task.id);
-      (item as any)._setProp('currentEpic', isCurrentContainer);
-      listDiv.appendChild(item);
+      // Factory composition — type-safe props
+      const result = TaskItem({
+        id: signal(task.id),
+        title: signal(task.title),
+        status: signal(task.status),
+        type: signal(type),
+        childCount: signal(childCount),
+        dueDate: signal(task.due_date || ''),
+        selected: signal(selected === task.id),
+        currentEpic: signal(isCurrentContainer),
+      });
+
+      // Mount factory result — the factory returns a descriptor,
+      // we create the element and wire props through _setProp
+      const factoryResult = result as unknown as {
+        tagName: string;
+        props: Record<string, unknown>;
+      };
+      const el = document.createElement(factoryResult.tagName);
+      for (const [key, val] of Object.entries(factoryResult.props)) {
+        (el as any)._setProp(key, (val as any).value ?? val);
+      }
+      listDiv.appendChild(el);
 
       if (isCurrentContainer) {
         const sep = document.createElement('div');

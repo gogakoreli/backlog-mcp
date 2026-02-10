@@ -81,16 +81,18 @@ export const CopyButton = component<{ text: string; content?: TemplateResult }>(
     }
   };
 
-  // HACK:EXPOSE — task-detail and system-info-modal set .text imperatively
+  // HACK:EXPOSE — task-detail pane header (HACK:CROSS_QUERY) and split-pane's
+  // createUriRow still set .text imperatively. Remove when pane header is
+  // refactored to use factory composition and split-pane is migrated.
   (host as any).text = '';
   Object.defineProperty(host, 'text', {
     set: (v: string) => { props.text.value = v; },
     get: () => props.text.value,
   });
 
-  // HACK:MOUNT_APPEND — mountTemplate appends instead of replacing host children (ADR 0008 Gap 5).
-  // Unmigrated consumers (task-detail, system-info-modal) create children via innerHTML that persist.
-  // Template only appends the icon; stale children provide the visible label.
+  // HACK:MOUNT_APPEND — mountTemplate appends instead of replacing host children.
+  // task-detail pane header (HACK:CROSS_QUERY) and split-pane create children
+  // via innerHTML that persist. Remove when all consumers use factory composition.
   host.addEventListener('click', onClick);
 
   const icon = SvgIcon({ src: signal(copyIcon) });

@@ -1,12 +1,16 @@
 /**
  * backlog-app.ts — Root component.
  *
- * Thin shell: mounts children, initializes layout services, and bridges
- * AppState to unmigrated components (task-detail) via effects.
- *
+ * Thin shell: mounts children, initializes layout services.
  * All state flows through AppState (ADR 0007 shared services).
+ *
+ * task-detail and system-info-modal are now reactive — they read AppState
+ * directly. No bridge effects needed.
+ *
+ * HACK:CROSS_QUERY — spotlight-search open/close still called imperatively.
+ * Remove when spotlight-search is migrated to framework with AppState signal.
  */
-import { effect, batch, signal } from '../framework/signal.js';
+import { batch, signal } from '../framework/signal.js';
 import { component } from '../framework/component.js';
 import { html } from '../framework/template.js';
 import { inject } from '../framework/injector.js';
@@ -35,6 +39,7 @@ export const BacklogApp = component('backlog-app', (_props, host) => {
   }
 
   function handleSpotlightClick() {
+    // HACK:CROSS_QUERY — spotlight-search not yet migrated
     const spotlight = host.querySelector('spotlight-search') as any;
     spotlight?.open();
   }
@@ -44,18 +49,8 @@ export const BacklogApp = component('backlog-app', (_props, host) => {
   }
 
   function handleSystemInfoClick() {
-    const modal = host.querySelector('system-info-modal') as any;
-    modal?.open();
+    app.isSystemInfoOpen.value = true;
   }
-
-  // ── Bridge to unmigrated task-detail ─────────────────────────────
-  effect(() => {
-    const id = app.selectedTaskId.value;
-    if (!id) return;
-    // HACK:CROSS_QUERY — remove when task-detail is migrated to framework
-    const detail = host.querySelector('task-detail') as any;
-    detail?.loadTask?.(id);
-  });
 
   // ── Initialize layout services (runs once after mount) ───────────
   queueMicrotask(() => {

@@ -201,15 +201,20 @@ component('svg-icon', (props) => {
 
 | # | Component | LOC | Status | Framework features exercised | Backward-compat hacks needed |
 |---|---|---|---|---|---|
-| 1 | task-filter-bar | 120→130 | **DONE** | signal, computed, effect, html, component, class:active | host.setState/getSort, document events, querySelector in effect |
-| 2 | svg-icon | 73 | **SKIP** | N/A — attribute-driven leaf, no internal state | Framework lacks observedAttributes → signal bridge |
-| 3 | task-badge | 27 | **SKIP** | N/A — attribute-driven leaf, no internal state | Framework lacks observedAttributes → signal bridge |
+| 1 | task-filter-bar | 120→130 | **DONE** (Phase 8) | signal, computed, effect, html, component, class:active | None remaining (hacks removed in later phases) |
+| 2 | svg-icon | 73 | **DONE** (Phase 9) | component, effect, html, PropInput | `HACK:EXPOSE` (attr bridge for unmigrated consumers) |
+| 3 | task-badge | 27 | **DONE** (Phase 9) | component, computed, effect, html, SvgIcon factory | None |
 | 4 | md-block | 306 | **SKIP** | N/A — third-party wrapper, async rendering | Too many external deps (marked, DOMPurify, Prism) |
-| 5 | task-item | 82 | Pending | component, html, signal, @click, inject | host.loadTask, document events, cross-component querySelector |
-| 6 | task-list | 219 | Pending | signal, computed, effect, html, inject, emitter | host.setState/setSelected/loadTasks, document events, **needs each()** |
-| 7 | task-detail | 168 | Pending | signal, effect, html, inject | host.loadTask, global DOM access, dynamic child creation |
-| 8 | backlog-app | 118 | Pending (last) | component, inject, effect | Calls methods on all children |
-| 9 | activity-panel | 545 | Pending | signal, computed, effect, html, inject | scroll preservation, event delegation, **needs each()** |
+| 5 | copy-button | ~100 | **DONE** (Phase 10) | component, html, SvgIcon factory | `HACK:EXPOSE`, `HACK:MOUNT_APPEND` (for pane header, split-pane) |
+| 6 | task-item | 82 | **DONE** (Phase 10) | component, html, computed, when, inject, AppState | None remaining |
+| 7 | task-list | 219 | **DONE** (Phase 11) | signal, computed, effect, html, inject, query, each, when | None remaining |
+| 8 | breadcrumb | ~60 | **DONE** (Phase 11) | component, computed, each, html, inject | None |
+| 9 | backlog-app | 118 | **DONE** (Phase 11) | component, inject, effect, html, SvgIcon factory | `HACK:CROSS_QUERY` (spotlight open) |
+| 10 | **system-info-modal** | 104→131 | **DONE** (Phase 12) | component, computed, html, query, inject, onMount, CopyButton factory | None |
+| 11 | **task-detail** | 168→258 | **DONE** (Phase 12) | component, signal, computed, effect, html, query, each, when, inject, onCleanup, CopyButton/TaskBadge/SvgIcon factory | `HACK:CROSS_QUERY` (pane header), `HACK:DOC_EVENT` (activity-open) |
+| 12 | spotlight-search | 629 | Pending | — | Blocked by Gap 3 (ADR 0010) |
+| 13 | resource-viewer | 227 | Pending | — | Blocked by Gap 2 (ADR 0010) |
+| 14 | activity-panel | 545 | Pending | — | Blocked by Gap 2 (ADR 0010) |
 
 ### Key decisions
 
@@ -234,42 +239,51 @@ This section tracks every backward-compat hack introduced. When a framework gap 
 | `document.dispatchEvent(new CustomEvent('sort-change', ...))` | `HACK:DOC_EVENT` | Gap 3 — when task-list migrated |
 | `host.querySelector('.filter-sort-select')` in effect | `HACK:REF` | Gap 2 resolved |
 
-### svg-icon (SKIP)
+### svg-icon (migrated Phase 9)
 
-Not migrated. Pure attribute-driven leaf component — no state, no events, no reactivity.
-Framework lacks `observedAttributes` → signal bridge (Gap 6).
-
-### task-badge (SKIP)
-
-Not migrated. Pure attribute-driven leaf component — no state, no events, no reactivity.
-Framework lacks `observedAttributes` → signal bridge (Gap 6).
-
-### task-item (pending)
-
-| Expected hack | Tag | Cleanup trigger |
+| Hack | Tag | Cleanup trigger |
 |---|---|---|
-| `document.querySelector('task-detail')` to call loadTask | `HACK:CROSS_QUERY` | Gap 1 + service extraction |
-| `document.querySelector('task-list')` to call setSelected | `HACK:CROSS_QUERY` | Gap 1 + service extraction |
-| `document.dispatchEvent('task-selected')` | `HACK:DOC_EVENT` | Gap 3 |
+| Attribute → signal bridge for unmigrated consumers | `HACK:EXPOSE` | When all consumers use factory composition |
 
-### task-list (pending)
+### task-badge (migrated Phase 9)
 
-| Expected hack | Tag | Cleanup trigger |
+No hacks. Clean migration.
+
+### copy-button (migrated Phase 10)
+
+| Hack | Tag | Cleanup trigger |
 |---|---|---|
-| `(host as any).setState = ...` | `HACK:EXPOSE` | Gap 1 resolved |
-| `(host as any).setSelected = ...` | `HACK:EXPOSE` | Gap 1 resolved |
-| `(host as any).loadTasks = ...` | `HACK:EXPOSE` | Gap 1 resolved |
-| Document event listeners (filter-change, sort-change, etc.) | `HACK:DOC_EVENT` | Gap 3 |
-| Static array rendering (no keyed reconciliation) | `HACK:STATIC_LIST` | Gap 4 resolved |
+| `.text` property setter for unmigrated consumers | `HACK:EXPOSE` | When pane header + split-pane use factory |
+| innerHTML children persist alongside template | `HACK:MOUNT_APPEND` | When all consumers use factory composition |
 
-### task-detail (pending)
+### task-item (migrated Phase 10)
 
-| Expected hack | Tag | Cleanup trigger |
+No hacks remaining. Uses AppState.selectTask() for navigation.
+
+### task-list (migrated Phase 11)
+
+No hacks remaining. Uses query() + each() + AppState signals.
+
+### breadcrumb (migrated Phase 11)
+
+No hacks. Clean migration.
+
+### backlog-app (migrated Phase 11)
+
+| Hack | Tag | Cleanup trigger |
 |---|---|---|
-| `(host as any).loadTask = ...` | `HACK:EXPOSE` | Gap 1 resolved |
-| `document.querySelector('#task-pane-header')` | `HACK:CROSS_QUERY` | Redesign to use props/slots |
-| `document.getElementById(...)` for global DOM | `HACK:CROSS_QUERY` | Redesign |
-| `setTimeout()` for deferred event binding | `HACK:DEFERRED_BIND` | Gap 2 (ref) or template lifecycle hook |
+| `querySelector('spotlight-search').open()` | `HACK:CROSS_QUERY` | When spotlight-search uses AppState signal |
+
+### system-info-modal (migrated Phase 12)
+
+No hacks. Uses AppState.isSystemInfoOpen signal for open/close.
+
+### task-detail (migrated Phase 12)
+
+| Hack | Tag | Cleanup trigger |
+|---|---|---|
+| `document.getElementById('task-pane-header')` innerHTML update | `HACK:CROSS_QUERY` | ADR 0010 Gap 1 — move header into task-detail |
+| `document.dispatchEvent('activity-open')` | `HACK:DOC_EVENT` | ADR 0010 Gap 2 — when split-pane is reactive |
 
 ### activity-panel (pending)
 

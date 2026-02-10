@@ -37,8 +37,9 @@ import { component } from '../framework/component.js';
 import { html } from '../framework/template.js';
 
 export const SvgIcon = component<{ src: string; size?: string; class?: string }>('svg-icon', (props, host) => {
-  // HACK:EXPOSE — unmigrated consumers create <svg-icon src="..." size="..." class="...">
-  // via innerHTML; bridge attributes to signals
+  // HACK:EXPOSE — task-detail pane header (HACK:CROSS_QUERY), activity-panel,
+  // and spotlight-search create <svg-icon> via innerHTML; bridge attributes to signals.
+  // Remove when those consumers are migrated to factory composition.
   for (const attr of ['src', 'size', 'class'] as const) {
     const v = host.getAttribute(attr);
     if (v && !props[attr]?.value) props[attr]!.value = v;

@@ -1,61 +1,75 @@
-import type { Task } from '../utils/api.js';
+/**
+ * breadcrumb.ts — Reactive breadcrumb for scoped navigation.
+ *
+ * Reads scopeId from AppState, receives tasks as prop from task-list.
+ * Uses each() for the path segments, @click to set scope.
+ */
+import { computed, batch, type ReadonlySignal } from '../framework/signal.js';
+import { component } from '../framework/component.js';
+import { html, each } from '../framework/template.js';
+import { inject } from '../framework/injector.js';
 import { getTypeConfig, getParentId } from '../type-registry.js';
-import { sidebarScope } from '../utils/sidebar-scope.js';
+import { AppState } from '../services/app-state.js';
+import { SvgIcon } from './svg-icon.js';
+import type { Task } from '../utils/api.js';
 
-export class Breadcrumb extends HTMLElement {
-  private currentScopeId: string | null = null;
-  private tasks: Task[] = [];
-
-  setData(currentScopeId: string | null, tasks: Task[]) {
-    this.currentScopeId = currentScopeId;
-    this.tasks = tasks;
-    this.render();
-  }
-
-  private buildPath(): Task[] {
-    if (!this.currentScopeId) return [];
-    
-    const path: Task[] = [];
-    let currentId: string | null = this.currentScopeId;
-    const seen = new Set<string>();
-    
-    while (currentId && !seen.has(currentId)) {
-      seen.add(currentId);
-      const item = this.tasks.find(t => t.id === currentId);
-      if (!item) break;
-      path.unshift(item);
-      currentId = getParentId(item) || null;
-    }
-    
-    return path;
-  }
-
-  private render() {
-    const path = this.buildPath();
-    
-    this.innerHTML = `
-      <div class="breadcrumb">
-        <button class="breadcrumb-segment" data-scope-id="" title="All Items">All Items</button>
-        ${path.map(item => {
-          const config = getTypeConfig(item.type ?? 'task');
-          return `
-            <span class="breadcrumb-separator">›</span>
-            <button class="breadcrumb-segment" data-scope-id="${item.id}" title="${item.title}">
-              <svg-icon src="${config.icon}" class="breadcrumb-type-icon type-${item.type ?? 'task'}" size="12px"></svg-icon>
-              ${item.title}
-            </button>
-          `;
-        }).join('')}
-      </div>
-    `;
-
-    this.querySelectorAll('.breadcrumb-segment').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const scopeId = (btn as HTMLElement).dataset.scopeId || null;
-        sidebarScope.set(scopeId);
-      });
-    });
-  }
+interface BreadcrumbProps {
+  tasks: Task[];
 }
 
-customElements.define('epic-breadcrumb', Breadcrumb);
+type Segment = { id: string; title: string; type: string };
+
+export const Breadcrumb = component<BreadcrumbProps>('epic-breadcrumb', (props) => {
+  const app = inject(AppState);
+
+  const path = computed<Segment[]>(() => {
+    const scopeId = app.scopeId.value;
+    const tasks = props.tasks.value;
+    if (!scopeId) return [];
+
+    const segments: Segment[] = [];
+    let currentId: string | null = scopeId;
+    const seen = new Set<string>();
+
+    while (currentId && !seen.has(currentId)) {
+      seen.add(currentId);
+      const item = tasks.find(t => t.id === currentId);
+      if (!item) break;
+      segments.unshift({ id: item.id, title: item.title, type: item.type ?? 'task' });
+      currentId = getParentId(item) || null;
+    }
+    return segments;
+  });
+
+  function handleSegmentClick(segmentId: string | null) {
+    if (segmentId) {
+      app.selectTask(segmentId);
+    } else {
+      batch(() => {
+        app.scopeId.value = null;
+        app.selectedTaskId.value = null;
+      });
+    }
+  }
+
+  const segments = each(path, s => s.id, (seg) => {
+    const title = computed(() => seg.value.title);
+    const type = computed(() => seg.value.type);
+    const icon = SvgIcon({ src: computed(() => getTypeConfig(seg.value.type).icon), size: computed(() => '12px') });
+    return html`
+      <span class="breadcrumb-separator">›</span>
+      <button class="breadcrumb-segment" title="${title}"
+              @click="${() => handleSegmentClick(seg.value.id)}">
+        ${icon}
+        ${title}
+      </button>
+    `;
+  });
+
+  return html`
+    <div class="breadcrumb">
+      <button class="breadcrumb-segment" title="All Items" @click="${() => handleSegmentClick(null)}">All Items</button>
+      ${segments}
+    </div>
+  `;
+});

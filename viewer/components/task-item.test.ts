@@ -8,8 +8,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { signal, flushEffects } from '../framework/signal.js';
-import { resetInjector, provide } from '../framework/injector.js';
-import { NavigationEvents } from '../services/navigation-events.js';
+import { resetInjector, provide, inject } from '../framework/injector.js';
+import { AppState } from '../services/app-state.js';
 
 // ── Mock dependencies ────────────────────────────────────────────────
 
@@ -31,16 +31,16 @@ vi.mock('../type-registry.js', () => {
   };
 });
 
-let navEvents: NavigationEvents;
+let app: AppState;
 let imported = false;
 
 beforeEach(async () => {
   resetInjector();
   document.body.innerHTML = '';
 
-  // Provide fresh NavigationEvents before component inject() runs
-  navEvents = new NavigationEvents();
-  provide(NavigationEvents, () => navEvents);
+  // Provide fresh AppState before component inject() runs
+  app = new AppState();
+  provide(AppState, () => app);
 
   if (!imported) {
     await import('./task-badge.js');
@@ -84,7 +84,7 @@ describe('task-item rendering', () => {
   it('renders task-badge with correct id', () => {
     const el = createTaskItem({ id: 'TASK-0042' });
     const badge = el.querySelector('task-badge');
-    expect(badge?.getAttribute('task-id')).toBe('TASK-0042');
+    expect(badge?.querySelector('.task-badge-id')?.textContent).toBe('TASK-0042');
   });
 
   it('renders status badge for status-bearing types', () => {
@@ -148,38 +148,31 @@ describe('task-item rendering', () => {
 // ── Click behavior ───────────────────────────────────────────────────
 
 describe('task-item click behavior', () => {
-  it('clicking item emits task-select via NavigationEvents', () => {
+  it('clicking item sets AppState.selectedTaskId', () => {
     const el = createTaskItem({ id: 'TASK-0099' });
-    const handler = vi.fn();
-    navEvents.on('task-select', handler);
 
     const inner = el.querySelector('.task-item') as HTMLElement;
     inner.click();
 
-    expect(handler).toHaveBeenCalledTimes(1);
-    expect(handler).toHaveBeenCalledWith({ taskId: 'TASK-0099' });
+    expect(app.selectedTaskId.value).toBe('TASK-0099');
   });
 
-  it('clicking enter icon emits scope-enter via NavigationEvents', () => {
+  it('clicking enter icon sets AppState.scopeId', () => {
     const el = createTaskItem({ type: 'epic', id: 'EPIC-0001' });
-    const handler = vi.fn();
-    navEvents.on('scope-enter', handler);
 
     const enter = el.querySelector('.enter-icon') as HTMLElement;
     enter.click();
 
-    expect(handler).toHaveBeenCalledTimes(1);
-    expect(handler).toHaveBeenCalledWith({ scopeId: 'EPIC-0001' });
+    expect(app.scopeId.value).toBe('EPIC-0001');
   });
 
-  it('clicking enter icon does not emit task-select', () => {
+  it('clicking enter icon does not set selectedTaskId', () => {
     const el = createTaskItem({ type: 'epic', id: 'EPIC-0001' });
-    const handler = vi.fn();
-    navEvents.on('task-select', handler);
+    app.selectedTaskId.value = null;
 
     const enter = el.querySelector('.enter-icon') as HTMLElement;
     enter.click();
 
-    expect(handler).not.toHaveBeenCalled();
+    expect(app.selectedTaskId.value).toBeNull();
   });
 });

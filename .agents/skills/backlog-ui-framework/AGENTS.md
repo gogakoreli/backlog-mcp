@@ -63,31 +63,36 @@ component<TaskItemProps>('task-item', (props) => {
 });
 ```
 
-### `comp-factory-composition` — Use factory for framework-to-framework boundaries
+### `comp-factory-composition` — ALL custom elements MUST use factory composition
 
-`component()` returns a typed factory function. Use it for composing framework components — TypeScript checks every prop at compile time.
+`component()` returns a typed factory function. ALL custom elements — whether framework components or migrated vanilla elements — MUST be consumed via their factory. HTML tag syntax (`<my-element>`) is ONLY for native HTML elements (`div`, `span`, `button`, `input`, etc.).
 
 ```typescript
 const TaskItem = component<TaskItemProps>('task-item', (props) => { ... });
 
 // ✅ Factory — type-safe, compile-time checked
-html`<div>${tasks.map(t => TaskItem({ task: sig, selected: sel }))}</div>`
+html`<div>${TaskItem({ task: sig, selected: sel })}</div>`
 
-// Missing prop → compile error
-// Wrong type → compile error
-// Typo → compile error
+// ❌ WRONG — never use HTML tag syntax for custom elements
+html`<task-item task="${sig}" selected="${sel}"></task-item>`
 ```
 
-### `comp-html-for-vanilla` — Use `html` tag syntax for vanilla elements and interop
+### `comp-html-for-vanilla` — HTML tag syntax is ONLY for native elements
 
-HTML tag syntax is for vanilla elements and migration interop. Auto-resolution routes through `_setProp()` for framework elements and `setAttribute()` for vanilla elements.
+HTML tag syntax in templates is reserved for native HTML elements only. All custom elements must use factory composition for type safety and proper signal passing.
 
 ```typescript
-// ✅ Vanilla elements — setAttribute is correct
-html`<svg-icon src="${icon}" size="16"></svg-icon>`
+// ✅ Native elements — HTML tag syntax
+html`<div class="container"><span>${text}</span><button @click=${handler}>Go</button></div>`
 
-// ✅ Interop with unmigrated parent — auto-resolution handles it
-html`<task-item task="${taskSignal}"></task-item>`
+// ✅ Custom elements — factory composition
+const icon = SvgIcon({ src: signal(myIcon), size: signal('16px') });
+const badge = TaskBadge({ taskId: props.id });
+html`<div>${icon} ${badge}</div>`
+
+// ❌ WRONG — custom element via HTML tag
+html`<svg-icon src="${myIcon}" size="16px"></svg-icon>`
+html`<task-badge task-id="${props.id}"></task-badge>`
 ```
 
 ### `comp-no-this` — No `this` in components
@@ -678,12 +683,6 @@ Every hack must be tagged so they can be found and cleaned up later:
 ### `migration-auto-resolve` — Props auto-resolve on framework elements
 
 The template engine's `bindAttribute()` checks for `_setProp()` on the element. Framework components get prop routing; vanilla elements get `setAttribute()`. Standard HTML attributes (`id`, `style`, `slot`, `data-*`, `aria-*`) always use `setAttribute()`. The `class` attribute is handled specially by `bindClassAttribute()` (uses `classList` operations, see `tmpl-class-attribute-safe`).
-
-### `migration-skip-leaf` — Skip attribute-driven leaf components
-
-svg-icon, task-badge, md-block — these are pure attribute-driven leaf components or third-party wrappers. The framework adds no value. Leave them as plain HTMLElement subclasses.
-
----
 
 ## 9. Testing (LOW-MEDIUM)
 

@@ -19,7 +19,7 @@
  * **Usage:**
  * ```typescript
  * import { taskIcon } from '../icons/index.js';
- * this.innerHTML = `<svg-icon src="${taskIcon}"></svg-icon>`;
+ * const icon = SvgIcon({ src: signal(taskIcon), size: signal('16px') });
  * ```
  * 
  * **Styling:**
@@ -29,44 +29,27 @@
  * ```
  * 
  * @element svg-icon
- * @attr {string} src - Path to SVG file (from icon imports)
- * @attr {string} [size="1em"] - Icon size (any CSS unit)
+ * @prop {string} src - Path to SVG file (from icon imports)
+ * @prop {string} [size="1em"] - Icon size (any CSS unit)
  */
-export class SvgIcon extends HTMLElement {
-  connectedCallback() {
-    this.render();
-  }
+import { effect } from '../framework/signal.js';
+import { component } from '../framework/component.js';
+import { html } from '../framework/template.js';
 
-  static get observedAttributes() {
-    return ['src', 'size'];
+export const SvgIcon = component<{ src: string; size?: string; class?: string }>('svg-icon', (props, host) => {
+  // HACK:EXPOSE — unmigrated consumers create <svg-icon src="..." size="..." class="...">
+  // via innerHTML; bridge attributes to signals
+  for (const attr of ['src', 'size', 'class'] as const) {
+    const v = host.getAttribute(attr);
+    if (v && !props[attr]?.value) props[attr]!.value = v;
   }
-
-  attributeChangedCallback() {
-    this.render();
-  }
-
-  render() {
-    const src = this.getAttribute('src');
-    const size = this.getAttribute('size') || '1em';
-    
+  effect(() => {
+    const src = props.src.value;
+    const size = props.size?.value || '1em';
+    if (props.class?.value) host.className = props.class.value;
     if (!src) return;
-    
-    this.style.cssText = `
-      display: inline-block;
-      width: ${size};
-      height: ${size};
-      background-color: currentColor;
-      mask-image: url('${src}');
-      -webkit-mask-image: url('${src}');
-      mask-size: contain;
-      -webkit-mask-size: contain;
-      mask-repeat: no-repeat;
-      -webkit-mask-repeat: no-repeat;
-      mask-position: center;
-      -webkit-mask-position: center;
-      vertical-align: middle;
-    `;
-  }
-}
+    host.style.cssText = `display:inline-block;width:${size};height:${size};background-color:currentColor;mask-image:url('${src}');-webkit-mask-image:url('${src}');mask-size:contain;-webkit-mask-size:contain;mask-repeat:no-repeat;-webkit-mask-repeat:no-repeat;mask-position:center;-webkit-mask-position:center;vertical-align:middle;`;
+  });
 
-customElements.define('svg-icon', SvgIcon);
+  return html``;
+});

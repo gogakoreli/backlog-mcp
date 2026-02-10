@@ -44,8 +44,8 @@ Reference these guidelines when:
 
 - `comp-setup-sync` - Setup function MUST be synchronous; capture services sync, use them async
 - `comp-props-signals` - All props are `Signal<T>`; factory requires signals, not plain values
-- `comp-factory-composition` - Use factory functions for framework-to-framework component boundaries
-- `comp-html-for-vanilla` - Use `html` tag syntax for vanilla elements and migration interop
+- `comp-factory-composition` - ALL custom elements MUST use factory composition; HTML tag syntax is ONLY for native elements (div, span, button)
+- `comp-html-for-vanilla` - HTML tag syntax (`<tag>`) is ONLY for native HTML elements; never for custom elements
 - `comp-no-this` - No `this` in components; use pure functions with props and host
 - `comp-no-innerhtml` - Never use `innerHTML`; use `html` tagged templates for targeted DOM patching
 - `comp-host-escape-hatch` - `host` is the second param; use it only for imperative DOM access
@@ -115,7 +115,6 @@ Reference these guidelines when:
 - `migration-same-api` - Maintain public method signatures via `(host as any).method = ...`
 - `migration-hack-tags` - Tag every backward-compat hack: `HACK:EXPOSE`, `HACK:DOC_EVENT`, `HACK:REF`
 - `migration-auto-resolve` - Template auto-resolves `_setProp` vs `setAttribute`; `class` uses classList (ADR 0007)
-- `migration-skip-leaf` - Skip migration for attribute-driven leaf components (svg-icon, task-badge)
 
 ### 9. Testing (LOW-MEDIUM)
 

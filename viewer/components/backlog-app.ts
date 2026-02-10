@@ -1,31 +1,37 @@
 /**
- * backlog-app.ts — Migrated to the reactive framework (Phase 11)
+ * backlog-app.ts — Root component.
  *
- * Root component. Owns URL state subscription, service initialization,
- * and layout. Delegates to child components via querySelector (children
- * are still a mix of framework and vanilla components).
+ * Thin shell: mounts children, initializes layout services, and bridges
+ * AppState to unmigrated components (task-detail) via effects.
  *
- * Uses: component, html template, @click handlers
+ * All state flows through AppState (ADR 0007 shared services).
  */
+import { effect, batch, signal } from '../framework/signal.js';
 import { component } from '../framework/component.js';
 import { html } from '../framework/template.js';
+import { inject } from '../framework/injector.js';
 import { settingsIcon, activityIcon } from '../icons/index.js';
-import { urlState } from '../utils/url-state.js';
-import { sidebarScope } from '../utils/sidebar-scope.js';
+import { SvgIcon } from './svg-icon.js';
 import { splitPane } from '../utils/split-pane.js';
 import { resizeService } from '../utils/resize.js';
 import { layoutService } from '../utils/layout.js';
-import { getTypeConfig, getTypeFromId } from '../type-registry.js';
+import { AppState } from '../services/app-state.js';
 
 export const BacklogApp = component('backlog-app', (_props, host) => {
+  const app = inject(AppState);
   const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
   const shortcut = isMac ? '⌘J' : 'Ctrl+J';
 
   // ── Actions ──────────────────────────────────────────────────────
 
+  const activityIconEl = SvgIcon({ src: signal(activityIcon), size: signal('16px') });
+  const settingsIconEl = SvgIcon({ src: signal(settingsIcon), size: signal('16px') });
+
   function handleHomeClick() {
-    sidebarScope.set(null);
-    urlState.set({ id: null });
+    batch(() => {
+      app.scopeId.value = null;
+      app.selectedTaskId.value = null;
+    });
   }
 
   function handleSpotlightClick() {
@@ -42,38 +48,21 @@ export const BacklogApp = component('backlog-app', (_props, host) => {
     modal?.open();
   }
 
-  // ── Initialization (runs once after mount) ───────────────────────
-  // Use queueMicrotask to run after the template is mounted into the DOM
+  // ── Bridge to unmigrated task-detail ─────────────────────────────
+  effect(() => {
+    const id = app.selectedTaskId.value;
+    if (!id) return;
+    // HACK:CROSS_QUERY — remove when task-detail is migrated to framework
+    const detail = host.querySelector('task-detail') as any;
+    detail?.loadTask?.(id);
+  });
+
+  // ── Initialize layout services (runs once after mount) ───────────
   queueMicrotask(() => {
-    // Subscribe BEFORE init so we get the initial state
-    urlState.subscribe((state) => {
-      // HACK:CROSS_QUERY — replace with props/emitter when children use DI
-      const filterBar = host.querySelector('task-filter-bar') as any;
-      filterBar?.setState?.(state.filter, state.type, state.q);
-
-      // HACK:CROSS_QUERY — replace with props/emitter when children use DI
-      const taskList = host.querySelector('task-list') as any;
-      taskList?.setState?.(state.filter, state.type, state.id, state.q);
-
-      if (state.id) {
-        const type = getTypeFromId(state.id);
-        const config = getTypeConfig(type);
-        if (config.isContainer) {
-          sidebarScope.set(state.id);
-        }
-
-        // HACK:CROSS_QUERY — replace when task-detail is migrated
-        const detail = host.querySelector('task-detail') as any;
-        detail?.loadTask?.(state.id);
-      }
-    });
-
-    urlState.init();
     resizeService.init();
     layoutService.init();
     splitPane.init();
 
-    // Global keyboard shortcut
     document.addEventListener('keydown', (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'j') {
         e.preventDefault();
@@ -83,7 +72,6 @@ export const BacklogApp = component('backlog-app', (_props, host) => {
   });
 
   // ── Template ─────────────────────────────────────────────────────
-
   return html`
     <div class="app-container" id="app-container">
       <system-info-modal></system-info-modal>
@@ -103,10 +91,10 @@ export const BacklogApp = component('backlog-app', (_props, host) => {
               <kbd>${shortcut}</kbd>
             </button>
             <button class="btn-outline activity-btn" title="Recent Activity" @click="${handleActivityClick}">
-              <svg-icon src="${activityIcon}" size="16px"></svg-icon>
+              ${activityIconEl}
             </button>
             <button class="btn-outline system-info-btn" title="System Info" @click="${handleSystemInfoClick}">
-              <svg-icon src="${settingsIcon}" size="16px"></svg-icon>
+              ${settingsIconEl}
             </button>
           </div>
         </div>

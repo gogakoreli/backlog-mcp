@@ -8,8 +8,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { flushEffects } from '../framework/signal.js';
-import { resetInjector, provide } from '../framework/injector.js';
-import { FilterEvents } from '../services/filter-events.js';
+import { resetInjector, provide, inject } from '../framework/injector.js';
+import { AppState } from '../services/app-state.js';
 
 // ── Mock TYPE_REGISTRY before importing component ────────────────────
 
@@ -20,7 +20,7 @@ vi.mock('../type-registry.js', () => ({
   },
 }));
 
-let filterEvents: FilterEvents;
+let app: AppState;
 let imported = false;
 
 beforeEach(async () => {
@@ -28,8 +28,8 @@ beforeEach(async () => {
   document.body.innerHTML = '';
   localStorage.clear();
 
-  filterEvents = new FilterEvents();
-  provide(FilterEvents, () => filterEvents);
+  app = new AppState();
+  provide(AppState, () => app);
 
   if (!imported) {
     await import('./task-filter-bar.js');
@@ -109,21 +109,13 @@ describe('task-filter-bar filter interaction', () => {
     expect(activeBtn.classList.contains('active')).toBe(false);
   });
 
-  it('clicking a status filter emits filter-change via FilterEvents', () => {
+  it('clicking a status filter updates AppState.filter', () => {
     const el = createElement();
-    const handler = vi.fn();
-    filterEvents.on('filter-change', handler);
-
     const completedBtn = el.querySelector('[data-filter="completed"]') as HTMLElement;
     completedBtn.click();
     flushEffects();
 
-    expect(handler).toHaveBeenCalledTimes(1);
-    expect(handler).toHaveBeenCalledWith({
-      filter: 'completed',
-      type: 'all',
-      sort: 'updated',
-    });
+    expect(app.filter.value).toBe('completed');
   });
 
   it('clicking a type filter button updates active class', () => {
@@ -137,39 +129,27 @@ describe('task-filter-bar filter interaction', () => {
     expect(allBtn.classList.contains('active')).toBe(false);
   });
 
-  it('clicking a type filter emits filter-change via FilterEvents', () => {
+  it('clicking a type filter updates AppState.type', () => {
     const el = createElement();
-    const handler = vi.fn();
-    filterEvents.on('filter-change', handler);
-
     const epicBtn = el.querySelector('[data-type-filter="epic"]') as HTMLElement;
     epicBtn.click();
     flushEffects();
 
-    expect(handler).toHaveBeenCalledTimes(1);
-    expect(handler).toHaveBeenCalledWith({
-      filter: 'active',
-      type: 'epic',
-      sort: 'updated',
-    });
+    expect(app.type.value).toBe('epic');
   });
 });
 
 // ── Sort interaction ─────────────────────────────────────────────────
 
 describe('task-filter-bar sort interaction', () => {
-  it('changing sort emits sort-change via FilterEvents', () => {
+  it('changing sort updates AppState.sort', () => {
     const el = createElement();
-    const handler = vi.fn();
-    filterEvents.on('sort-change', handler);
-
     const select = el.querySelector('.filter-sort-select') as HTMLSelectElement;
     select.value = 'created_desc';
     select.dispatchEvent(new Event('change'));
     flushEffects();
 
-    expect(handler).toHaveBeenCalledTimes(1);
-    expect(handler).toHaveBeenCalledWith({ sort: 'created_desc' });
+    expect(app.sort.value).toBe('created_desc');
   });
 
   it('sort change persists to localStorage', () => {
@@ -185,48 +165,29 @@ describe('task-filter-bar sort interaction', () => {
   });
 });
 
-// ── Backward-compat public API ───────────────────────────────────────
-
-describe('task-filter-bar public API (backward compat)', () => {
-  it('setState() updates the active filter', () => {
-    const el = createElement() as any;
-    el.setState('completed', 'all', null);
-    flushEffects();
-
-    const completedBtn = el.querySelector('[data-filter="completed"]') as HTMLElement;
-    expect(completedBtn.classList.contains('active')).toBe(true);
-
-    const activeBtn = el.querySelector('[data-filter="active"]') as HTMLElement;
-    expect(activeBtn.classList.contains('active')).toBe(false);
-  });
-
-  it('getSort() returns current sort value', () => {
-    const el = createElement() as any;
-    expect(el.getSort()).toBe('updated');
-
-    const select = el.querySelector('.filter-sort-select') as HTMLSelectElement;
-    select.value = 'created_desc';
-    select.dispatchEvent(new Event('change'));
-    flushEffects();
-
-    expect(el.getSort()).toBe('created_desc');
-  });
-});
-
 // ── localStorage restore ─────────────────────────────────────────────
 
 describe('task-filter-bar localStorage', () => {
   it('restores sort from localStorage on mount', () => {
     localStorage.setItem('backlog:sort', 'created_asc');
 
-    const el = createElement() as any;
-    expect(el.getSort()).toBe('created_asc');
+    // AppState reads sort from localStorage
+    resetInjector();
+    app = new AppState();
+    provide(AppState, () => app);
+
+    const el = createElement();
+    expect(app.sort.value).toBe('created_asc');
   });
 
   it('ignores invalid localStorage sort values', () => {
     localStorage.setItem('backlog:sort', 'invalid_sort');
 
-    const el = createElement() as any;
-    expect(el.getSort()).toBe('updated');
+    resetInjector();
+    app = new AppState();
+    provide(AppState, () => app);
+
+    const el = createElement();
+    expect(app.sort.value).toBe('updated');
   });
 });

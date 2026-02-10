@@ -1,3 +1,7 @@
+import { signal, effect } from '../framework/signal.js';
+import { component } from '../framework/component.js';
+import { html, type TemplateResult } from '../framework/template.js';
+import { SvgIcon } from './svg-icon.js';
 import { copyIcon } from '../icons/index.js';
 
 // Shared tooltip for all copy buttons
@@ -26,75 +30,70 @@ function getTooltip(): HTMLDivElement {
   return sharedTooltip;
 }
 
-class CopyButton extends HTMLElement {
-  private _text: string = '';
+function showTooltip(anchor: HTMLElement, message: string) {
+  if (hideTimeout) clearTimeout(hideTimeout);
 
-  set text(value: string) {
-    this._text = value;
+  const tooltip = getTooltip();
+  const rect = anchor.getBoundingClientRect();
+  const tooltipWidth = 80;
+  const tooltipHeight = 32;
+
+  let left = rect.left + rect.width / 2;
+  let top = rect.top - 8;
+  let transform = 'translate(-50%, -100%)';
+
+  if (top - tooltipHeight < 0) {
+    top = rect.bottom + 8;
+    transform = 'translate(-50%, 0%)';
+  }
+  if (left + tooltipWidth / 2 > window.innerWidth) {
+    left = window.innerWidth - tooltipWidth / 2 - 8;
+  }
+  if (left - tooltipWidth / 2 < 0) {
+    left = tooltipWidth / 2 + 8;
   }
 
-  get text(): string {
-    return this._text;
-  }
+  tooltip.textContent = message;
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${top}px`;
+  tooltip.style.transform = transform;
+  tooltip.style.opacity = '1';
 
-  connectedCallback() {
-    const content = this.innerHTML;
-    
-    this.classList.add('btn-outline');
-    this.innerHTML = `${content} <svg-icon src="${copyIcon}"></svg-icon>`;
-    this.addEventListener('click', () => this.copy(this._text));
-  }
+  hideTimeout = window.setTimeout(() => { tooltip.style.opacity = '0'; }, 1500);
+}
 
-  private async copy(text: string) {
+export const CopyButton = component<{ text: string; content?: TemplateResult }>('copy-button', (props, host) => {
+  host.classList.add('btn-outline');
+
+  const onClick = async () => {
+    const text = props.text.value;
     try {
       await navigator.clipboard.writeText(text);
-      this.showTooltip('Copied!');
-      
+      showTooltip(host, 'Copied!');
       const liveRegion = document.getElementById('copy-live-region');
       if (liveRegion) {
         liveRegion.textContent = 'Copied to clipboard';
         setTimeout(() => liveRegion.textContent = '', 1500);
       }
     } catch (err) {
-      this.showTooltip('Failed to copy');
+      showTooltip(host, 'Failed to copy');
       console.error('Copy failed:', err);
     }
-  }
+  };
 
-  private showTooltip(message: string) {
-    if (hideTimeout) clearTimeout(hideTimeout);
+  // HACK:EXPOSE — task-detail and system-info-modal set .text imperatively
+  (host as any).text = '';
+  Object.defineProperty(host, 'text', {
+    set: (v: string) => { props.text.value = v; },
+    get: () => props.text.value,
+  });
 
-    const tooltip = getTooltip();
-    const rect = this.getBoundingClientRect();
-    const tooltipWidth = 80;
-    const tooltipHeight = 32;
+  // HACK:MOUNT_APPEND — mountTemplate appends instead of replacing host children (ADR 0008 Gap 5).
+  // Unmigrated consumers (task-detail, system-info-modal) create children via innerHTML that persist.
+  // Template only appends the icon; stale children provide the visible label.
+  host.addEventListener('click', onClick);
 
-    let left = rect.left + rect.width / 2;
-    let top = rect.top - 8;
-    let transform = 'translate(-50%, -100%)';
+  const icon = SvgIcon({ src: signal(copyIcon) });
 
-    if (top - tooltipHeight < 0) {
-      top = rect.bottom + 8;
-      transform = 'translate(-50%, 0%)';
-    }
-
-    if (left + tooltipWidth / 2 > window.innerWidth) {
-      left = window.innerWidth - tooltipWidth / 2 - 8;
-    }
-    if (left - tooltipWidth / 2 < 0) {
-      left = tooltipWidth / 2 + 8;
-    }
-
-    tooltip.textContent = message;
-    tooltip.style.left = `${left}px`;
-    tooltip.style.top = `${top}px`;
-    tooltip.style.transform = transform;
-    tooltip.style.opacity = '1';
-
-    hideTimeout = window.setTimeout(() => {
-      tooltip.style.opacity = '0';
-    }, 1500);
-  }
-}
-
-customElements.define('copy-button', CopyButton);
+  return html`${props.content} ${icon}`;
+});

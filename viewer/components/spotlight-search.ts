@@ -1,7 +1,8 @@
 import { Highlight } from '@orama/highlight';
 import type { Task } from '../utils/api.js';
 import { API_URL } from '../utils/api.js';
-import { urlState } from '../utils/url-state.js';
+import { inject } from '../framework/injector.js';
+import { AppState } from '../services/app-state.js';
 import { recentSearchesService, type RecentSearchItem } from '../services/recent-searches-service.js';
 
 const highlighter = new Highlight({ CSSClass: 'spotlight-match' });
@@ -160,10 +161,11 @@ class SpotlightSearch extends HTMLElement {
   }
 
   private selectTabItem(id: string, type: 'task' | 'epic' | 'resource') {
+    const app = inject(AppState);
     if (type === 'resource') {
       document.dispatchEvent(new CustomEvent('resource-open', { detail: { uri: id } }));
     } else {
-      urlState.set({ id });
+      app.selectTask(id);
     }
     this.close();
   }
@@ -585,7 +587,8 @@ class SpotlightSearch extends HTMLElement {
       const task = result.item as Task;
       const type = task.type || (task.id.startsWith('EPIC-') ? 'epic' : 'task');
       recentSearchesService.add({ id: task.id, title: task.title, type });
-      urlState.set({ id: task.id });
+      const app = inject(AppState);
+      app.selectTask(task.id);
     }
     this.close();
   }

@@ -12,7 +12,8 @@ import { component } from '../framework/component.js';
 import { html, when } from '../framework/template.js';
 import { inject } from '../framework/injector.js';
 import { getTypeConfig } from '../type-registry.js';
-import { NavigationEvents } from '../services/navigation-events.js';
+import { AppState } from '../services/app-state.js';
+import { TaskBadge } from './task-badge.js';
 
 export const TaskItem = component<{
   id: string;
@@ -24,7 +25,7 @@ export const TaskItem = component<{
   selected: boolean;
   currentEpic: boolean;
 }>('task-item', (props, host) => {
-  const nav = inject(NavigationEvents);
+  const app = inject(AppState);
 
   // ── Derived state ────────────────────────────────────────────────
   const config = computed(() => getTypeConfig(props.type.value || 'task'));
@@ -35,12 +36,12 @@ export const TaskItem = component<{
 
   function handleEnterClick() {
     const id = props.id.value;
-    if (id) nav.emit('scope-enter', { scopeId: id });
+    if (id) app.scopeId.value = id;
   }
 
   function handleItemClick() {
     const id = props.id.value;
-    if (id) nav.emit('task-select', { taskId: id });
+    if (id) app.selectTask(id);
   }
 
   // ── Computed views (tmpl-computed-views) ──────────────────────────
@@ -70,10 +71,12 @@ export const TaskItem = component<{
     return html`<span class="status-badge status-${s}">${s.replace('_', ' ')}</span>`;
   });
 
+  const badge = TaskBadge({ taskId: props.id });
+
   // ── Template — all signals implicit ──────────────────────────────
   return html`
     <div class="task-item type-${props.type}" class:selected="${props.selected}" class:current-epic="${props.currentEpic}" @click="${handleItemClick}">
-      <task-badge task-id="${props.id}"></task-badge>
+      ${badge}
       <span class="task-title">${props.title}</span>
       ${dueDateHtml}
       ${childCountHtml}

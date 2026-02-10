@@ -1,26 +1,19 @@
+/**
+ * task-badge.ts — Reactive badge showing type icon + task ID.
+ */
+import { computed, effect, signal } from '../framework/signal.js';
+import { component } from '../framework/component.js';
+import { html } from '../framework/template.js';
 import { getTypeFromId, getTypeConfig } from '../type-registry.js';
+import { SvgIcon } from './svg-icon.js';
 
-export class TaskBadge extends HTMLElement {
-  connectedCallback() {
-    this.render();
-  }
+export const TaskBadge = component<{ taskId: string }>('task-badge', (props, host) => {
+  const type = computed(() => getTypeFromId(props.taskId.value || ''));
+  const config = computed(() => getTypeConfig(type.value));
 
-  static get observedAttributes() {
-    return ['task-id'];
-  }
+  effect(() => { host.className = `task-badge type-${type.value}`; });
 
-  attributeChangedCallback() {
-    this.render();
-  }
+  const icon = SvgIcon({ src: computed(() => config.value.icon), class: signal('task-badge-icon') });
 
-  render() {
-    const id = this.getAttribute('task-id') || '';
-    const type = getTypeFromId(id);
-    const config = getTypeConfig(type);
-    
-    this.className = `task-badge type-${type}`;
-    this.innerHTML = `<svg-icon src="${config.icon}" class="task-badge-icon"></svg-icon><span class="task-badge-id">${id}</span>`;
-  }
-}
-
-customElements.define('task-badge', TaskBadge);
+  return html`${icon}<span class="task-badge-id">${props.taskId}</span>`;
+});

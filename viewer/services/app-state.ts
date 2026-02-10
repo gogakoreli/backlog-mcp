@@ -36,6 +36,7 @@ export class AppState {
   readonly sort = signal(loadSavedSort());
   readonly scopeId = signal<string | null>(null);
   readonly isSystemInfoOpen = signal(false);
+  readonly isSpotlightOpen = signal(false);
 
   constructor() {
     // Derive scope from initial URL id

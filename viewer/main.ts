@@ -14,48 +14,51 @@ import './components/copy-button.js';
 import './components/spotlight-search.js';
 import './components/activity-panel.js';
 import './components/backlog-app.js';
-import { splitPane } from './utils/split-pane.js';
 import { backlogEvents } from './services/event-source-client.js';
 import { inject } from './framework/injector.js';
 import { AppState } from './services/app-state.js';
+import { SplitPaneState } from './services/split-pane-state.js';
 
-// Bootstrap AppState singleton (di-bootstrap-eager)
+// Bootstrap singletons (di-bootstrap-eager)
 inject(AppState);
+const splitState = inject(SplitPaneState);
 
 // Connect to SSE for real-time updates
 backlogEvents.connect();
 
-// ── Document-level events for unmigrated components ────────────────
+// ── Document-level events ───────────────────────────────────────────
+// These bridge unmigrated components (resource-viewer, activity-panel,
+// task-detail) with the reactive SplitPaneState service.
+// Remove event listeners as components are migrated to read/write
+// SplitPaneState directly via inject().
 
 document.addEventListener('resource-open', ((e: CustomEvent) => {
   if (e.detail.uri) {
-    splitPane.openMcp(e.detail.uri);
+    splitState.openMcpResource(e.detail.uri);
   } else if (e.detail.path) {
-    splitPane.open(e.detail.path);
+    splitState.openResource(e.detail.path);
   }
 }) as EventListener);
 
 document.addEventListener('resource-close', () => {
-  splitPane.close();
+  splitState.close();
 });
 
 document.addEventListener('activity-close', () => {
-  splitPane.close();
+  splitState.close();
 });
 
 document.addEventListener('activity-open', ((e: CustomEvent) => {
-  splitPane.openActivity(e.detail?.taskId);
+  splitState.openActivity(e.detail?.taskId);
 }) as EventListener);
 
 document.addEventListener('activity-clear-filter', () => {
-  splitPane.openActivity();
+  splitState.clearActivityFilter();
 });
 
 document.addEventListener('resource-loaded', ((e: CustomEvent) => {
   const { title, fileUri, mcpUri } = e.detail;
-  if (fileUri && mcpUri) {
-    splitPane.setHeaderWithUris(title, fileUri, mcpUri);
-  } else if (fileUri) {
-    splitPane.setHeaderTitle(title, fileUri);
+  if (fileUri) {
+    splitState.setHeaderWithUris(title, fileUri, mcpUri);
   }
 }) as EventListener);

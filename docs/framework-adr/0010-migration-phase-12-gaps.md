@@ -172,14 +172,5 @@ content display.
 
 ### Summary: 11/14 components migrated (3 pending, 1 skipped)
 
-## Recommended Next Steps
-
-1. **Resolve Gap 2** (Split-Pane State Service) — this is the critical path.
-   It unblocks resource-viewer and activity-panel migration and eliminates
-   most remaining document events.
-2. **Resolve Gap 3** (spotlight open/close signal) — quick win, unblocks
-   spotlight-search migration.
-3. **Resolve Gap 1** (pane header ownership) — move header into task-detail
-   to eliminate last `HACK:CROSS_QUERY` in the component.
-4. **Migrate remaining 3 components** after gaps are resolved.
-5. **Remove all HACK tags** after final component migrations.
+**Update**: Gaps 2 and 3 were resolved in Phase 13. See
+[0011-migration-phase-13-gaps](./0011-migration-phase-13-gaps.md).

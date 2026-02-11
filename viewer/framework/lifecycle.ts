@@ -98,6 +98,31 @@ export function useHostEvent<E extends Event = Event>(
 }
 
 /**
+ * Intercept `file://` and `mcp://` link clicks inside a component's DOM.
+ * Listens for md-block's `md-render` event (bubbles) and patches links
+ * after each render. Routes clicks via the provided callbacks. See ADR 0070.
+ *
+ * Must be called during component setup.
+ */
+export function useResourceLinks(
+  host: HTMLElement,
+  handlers: { openResource: (path: string) => void; openMcpResource: (uri: string) => void },
+): void {
+  useHostEvent(host, 'md-render', () => {
+    host.querySelectorAll('a[href^="file://"], a[href^="mcp://"]').forEach(link => {
+      if ((link as any).__resourceIntercepted) return;
+      (link as any).__resourceIntercepted = true;
+      const href = link.getAttribute('href')!;
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (href.startsWith('file://')) handlers.openResource(href.replace('file://', ''));
+        else if (href.startsWith('mcp://')) handlers.openMcpResource(href);
+      });
+    });
+  });
+}
+
+/**
  * Run all registered mount callbacks for a component host.
  * Called by component.ts after the template is mounted to the DOM.
  * @internal

@@ -12,7 +12,7 @@ import { component } from '../framework/component.js';
 import { html, when, each } from '../framework/template.js';
 import { inject } from '../framework/injector.js';
 import { query } from '../framework/query.js';
-import { onCleanup } from '../framework/lifecycle.js';
+import { onCleanup, useResourceLinks } from '../framework/lifecycle.js';
 import { fetchTask, fetchOperationCount, type TaskResponse, type Reference } from '../utils/api.js';
 import { backlogEvents } from '../services/event-source-client.js';
 import { getTypeFromId, getTypeConfig, getParentId } from '../type-registry.js';
@@ -112,6 +112,10 @@ export const TaskDetail = component('task-detail', (_props, host) => {
   const badgeText = computed(() => opCount.value > 99 ? '99+' : String(opCount.value));
 
   // ── Actions ────────────────────────────────────────────────────
+
+  // Intercept file:// and mcp:// links in md-block content (ADR 0070)
+  useResourceLinks(host, splitState);
+
   function handleEpicClick(e: Event) {
     e.preventDefault();
     const pid = parentId.value;
@@ -175,10 +179,29 @@ export const TaskDetail = component('task-detail', (_props, host) => {
   });
 
   // ── Reference list items (factory composition) ─────────────────
+  function refProtocol(url: string): string {
+    const m = url.match(/^([a-z]+):\/\//);
+    return m ? m[1] : '';
+  }
+
   const referenceItems = each(references, (_r, i) => i, (ref) => {
     const url = computed(() => ref.value.url);
     const title = computed(() => ref.value.title || ref.value.url);
-    return html`<li><a href="${url}" target="_blank" rel="noopener">${title}</a></li>`;
+    const proto = computed(() => refProtocol(url.value));
+    const isInternal = computed(() => proto.value === 'file' || proto.value === 'mcp');
+
+    function handleClick(e: Event) {
+      const u = url.value;
+      if (!u.startsWith('file://') && !u.startsWith('mcp://')) return;
+      e.preventDefault();
+      if (u.startsWith('file://')) splitState.openResource(u.replace('file://', ''));
+      else splitState.openMcpResource(u);
+    }
+
+    return html`<li class="ref-item">
+      <span class="ref-protocol-label">${proto}</span>
+      <a href="${url}" target="${computed(() => isInternal.value ? '' : '_blank')}" rel="noopener" @click="${handleClick}">${title}</a>
+    </li>`;
   });
 
   const evidenceItems = each(evidence, (_e, i) => i, (item) =>

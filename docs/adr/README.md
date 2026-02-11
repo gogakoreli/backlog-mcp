@@ -8,6 +8,7 @@ An ADR documents an important architectural decision along with its context and 
 
 ## Active ADRs
 
+- [0070. Shared Resource Link Routing Hook](./0070-shared-resource-link-routing-hook.md) - Shared useResourceLinks hook for file:// and mcp:// link interception - 2026-02-11
 - [0069. Template Engine Auto-Quoting for Unquoted Attribute Expressions](./0069-template-auto-quoting-unquoted-attributes.md) - Context-aware state machine to auto-quote markers in unquoted attribute positions - 2026-02-11
 - [0068. Unified URL State: Single ?id= Param with localStorage Sidebar Scope](./0068-unified-url-state-single-id-param.md) - Replace ?epic=&task= with ?id=, sidebar scope in localStorage - 2026-02-07
 - [0067. Substrates Backend Integration](./0067-substrates-backend-integration.md) - Evolve schema, storage, and MCP tools to support 5 entity types with parent_id - 2026-02-06

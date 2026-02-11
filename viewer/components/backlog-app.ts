@@ -147,7 +147,7 @@ export const BacklogApp = component('backlog-app', (_props, host) => {
       const handle = resizeService.createHandle(rightPane, taskPane, 'taskPaneWidth');
       handle.dataset.storageKey = 'taskPaneWidth';
       handle.classList.add('split-resize-handle');
-      rightPane.appendChild(handle);
+      taskPane.after(handle);
     }
 
     // Global keyboard shortcut for spotlight

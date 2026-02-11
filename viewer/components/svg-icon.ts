@@ -37,9 +37,9 @@ import { component } from '../framework/component.js';
 import { html } from '../framework/template.js';
 
 export const SvgIcon = component<{ src: string; size?: string; class?: string }>('svg-icon', (props, host) => {
-  // Bridge HTML-parser attributes to prop signals. Needed when <svg-icon>
-  // is used as an HTML tag (e.g., in md-block output) rather than via factory.
-  // TODO: Remove when all consumers use factory composition (SvgIcon({...})).
+  // BRIDGE:ATTR — HTML-parser attributes to prop signals. Needed when <svg-icon>
+  // is used as an HTML tag (e.g., in md-block output or html:inner content)
+  // rather than via factory composition. Intentional, not debt.
   for (const attr of ['src', 'size', 'class'] as const) {
     const v = host.getAttribute(attr);
     if (v && !props[attr]?.value) props[attr]!.value = v;

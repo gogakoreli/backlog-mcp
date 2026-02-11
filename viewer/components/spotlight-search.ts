@@ -10,10 +10,8 @@
  *
  * See ADR 0007 (shared services) for the open/close signal pattern.
  *
- * GAP:INNERHTML_BINDING — Search result titles and snippets contain
- * highlighted HTML from @orama/highlight. The framework has no safe
- * innerHTML binding directive, so we set innerHTML imperatively via
- * effects after render. See ADR 0011 Gap 1.
+ * Uses html:inner directive for highlighted search result titles/snippets
+ * from @orama/highlight. See ADR 0011 Gap 1 / ADR 0012.
  */
 import { signal, computed, effect } from '../framework/signal.js';
 import { component } from '../framework/component.js';
@@ -25,6 +23,7 @@ import { Highlight } from '@orama/highlight';
 import type { Task } from '../utils/api.js';
 import { API_URL } from '../utils/api.js';
 import { AppState } from '../services/app-state.js';
+import { SplitPaneState } from '../services/split-pane-state.js';
 import { recentSearchesService, type RecentSearchItem } from '../services/recent-searches-service.js';
 import { TaskBadge } from './task-badge.js';
 
@@ -134,6 +133,7 @@ function formatMatchedFields(fields: string[]): string {
 
 export const SpotlightSearch = component('spotlight-search', (_props, host) => {
   const app = inject(AppState);
+  const splitState = inject(SplitPaneState);
 
   // ── Internal state ────────────────────────────────────────────────
   const queryText = signal('');
@@ -253,7 +253,7 @@ export const SpotlightSearch = component('spotlight-search', (_props, host) => {
 
   function selectItem(id: string, type: 'task' | 'epic' | 'resource') {
     if (type === 'resource') {
-      document.dispatchEvent(new CustomEvent('resource-open', { detail: { uri: id } }));
+      splitState.openMcpResource(id);
     } else {
       app.selectTask(id);
     }
@@ -402,8 +402,8 @@ export const SpotlightSearch = component('spotlight-search', (_props, host) => {
 
       const handleClick = () => selectResult(index.value);
 
-      // GAP:INNERHTML_BINDING — highlighted title and snippet need innerHTML.
-      // We render empty placeholders and fill them imperatively.
+      // NOTE: highlighted title and snippet use html:inner in placeholders
+      // filled by effect() below (queueMicrotask for each() timing).
       const content = computed(() => {
         const rv = r.value;
         if (rv.type === 'resource') {

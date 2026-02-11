@@ -21,21 +21,12 @@ import { SplitPaneState } from './services/split-pane-state.js';
 
 // Bootstrap singletons (di-bootstrap-eager)
 inject(AppState);
-const splitState = inject(SplitPaneState);
+inject(SplitPaneState);
 
 // Connect to SSE for real-time updates
 backlogEvents.connect();
 
-// ── Document-level events ───────────────────────────────────────────
-// HACK:DOC_EVENT — resource-open is still dispatched by md-block link
-// clicks (md-block is a third-party wrapper, not migrated).
-// All other event bridges have been removed — task-detail, resource-viewer,
-// activity-panel, and spotlight-search now inject(SplitPaneState) directly.
-
-document.addEventListener('resource-open', ((e: CustomEvent) => {
-  if (e.detail.uri) {
-    splitState.openMcpResource(e.detail.uri);
-  } else if (e.detail.path) {
-    splitState.openResource(e.detail.path);
-  }
-}) as EventListener);
+// All document-level event bridges have been removed.
+// Components inject AppState / SplitPaneState directly.
+// md-block link interception uses useHostEvent('md-render') in consumers.
+// See ADR 0013.

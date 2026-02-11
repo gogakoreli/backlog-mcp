@@ -70,6 +70,34 @@ export function onCleanup(callback: () => void): void {
 }
 
 /**
+ * Listen for a DOM event on a target and auto-dispose the listener when the
+ * component disconnects. Works with any EventTarget (host element, document,
+ * window, etc.). Must be called during component setup.
+ *
+ * ```ts
+ * useHostEvent(host, 'md-render', (e) => {
+ *   // Runs each time md-block finishes rendering
+ * });
+ * ```
+ */
+export function useHostEvent<E extends Event = Event>(
+  target: EventTarget,
+  eventName: string,
+  handler: (event: E) => void,
+): void {
+  if (!hasContext()) {
+    throw new Error(
+      'useHostEvent() called outside setup(). ' +
+      'It can only be called during component initialization.'
+    );
+  }
+  target.addEventListener(eventName, handler as EventListener);
+  getCurrentComponent().addDisposer(() => {
+    target.removeEventListener(eventName, handler as EventListener);
+  });
+}
+
+/**
  * Run all registered mount callbacks for a component host.
  * Called by component.ts after the template is mounted to the DOM.
  * @internal

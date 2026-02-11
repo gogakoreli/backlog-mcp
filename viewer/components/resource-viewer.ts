@@ -11,6 +11,7 @@ import { signal, computed, effect, batch } from '../framework/signal.js';
 import { component } from '../framework/component.js';
 import { html } from '../framework/template.js';
 import { inject } from '../framework/injector.js';
+import { useHostEvent } from '../framework/lifecycle.js';
 import { SplitPaneState } from '../services/split-pane-state.js';
 
 interface ResourceData {
@@ -98,28 +99,20 @@ export const ResourceViewer = component('resource-viewer', (_props, host) => {
   });
 
   // ── Link interception ────────────────────────────────────────────
-  // GAP:LINK_INTERCEPT — md-block renders asynchronously outside
-  // our template engine. Uses queueMicrotask to catch rendered links.
-  // TODO: Migrate md-block or add a render callback to eliminate this.
-  effect(() => {
-    const d = data.value;
-    if (!d || loadState.value !== 'loaded') return;
-    if (d.ext !== 'md' && !d.frontmatter) return;
-
-    // Wait for md-block to render
-    queueMicrotask(() => {
-      host.querySelectorAll('a[href^="file://"], a[href^="mcp://"]').forEach(link => {
-        if ((link as any).__resourceIntercepted) return;
-        (link as any).__resourceIntercepted = true;
-        const href = link.getAttribute('href')!;
-        link.addEventListener('click', (e) => {
-          e.preventDefault();
-          if (href.startsWith('file://')) {
-            splitState.openResource(href.replace('file://', ''));
-          } else if (href.startsWith('mcp://')) {
-            splitState.openMcpResource(href);
-          }
-        });
+  // Listen for md-block's 'md-render' event (bubbles) to intercept
+  // file:// and mcp:// links after each render. See ADR 0013.
+  useHostEvent(host, 'md-render', () => {
+    host.querySelectorAll('a[href^="file://"], a[href^="mcp://"]').forEach(link => {
+      if ((link as any).__resourceIntercepted) return;
+      (link as any).__resourceIntercepted = true;
+      const href = link.getAttribute('href')!;
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (href.startsWith('file://')) {
+          splitState.openResource(href.replace('file://', ''));
+        } else if (href.startsWith('mcp://')) {
+          splitState.openMcpResource(href);
+        }
       });
     });
   });

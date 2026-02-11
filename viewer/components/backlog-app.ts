@@ -8,8 +8,8 @@
  * resource-viewer and activity-panel read SplitPaneState directly.
  * The split pane area is rendered reactively using computed views.
  *
- * HACK:DOC_EVENT — resource-open still dispatched by md-block link clicks
- * (third-party wrapper, not migrated). Kept in main.ts bridge.
+ * All document event bridges eliminated (ADR 0013). md-block link
+ * interception uses useHostEvent('md-render') in consumers.
  */
 import { signal, computed, effect, batch } from '../framework/signal.js';
 import { component } from '../framework/component.js';

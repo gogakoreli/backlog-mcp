@@ -126,15 +126,28 @@ export function html(
     __templateResult: true as const,
 
     mount(host: HTMLElement): void {
-      // Build the HTML string with markers
+      // Build the HTML string with markers.
+      // Track HTML parsing state to auto-quote markers in unquoted
+      // attribute positions where the > in --> would close the tag.
+      // See ADR 0069.
       let htmlStr = '';
+      let inTag = false;
+      let quoteChar: string | null = null;
+
       for (let i = 0; i < strings.length; i++) {
-        htmlStr += strings[i];
+        const s = strings[i];
+        for (let c = 0; c < s.length; c++) {
+          const ch = s[c];
+          if (quoteChar) { if (ch === quoteChar) quoteChar = null; }
+          else if (inTag) {
+            if (ch === '>') inTag = false;
+            else if (ch === '"' || ch === "'") quoteChar = ch;
+          } else { if (ch === '<') inTag = true; }
+        }
+        htmlStr += s;
         if (i < values.length) {
-          const raw = strings.raw[i];
-          // Check if we're inside an attribute (look for = before the slot)
-          // We'll handle this in the binding phase
-          htmlStr += createMarker(i);
+          const needsQuotes = inTag && !quoteChar && /=\s*$/.test(s);
+          htmlStr += needsQuotes ? `"${createMarker(i)}"` : createMarker(i);
         }
       }
 

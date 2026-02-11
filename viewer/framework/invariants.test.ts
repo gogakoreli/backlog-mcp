@@ -903,3 +903,95 @@ describe('INVARIANT: factory accepts plain values (auto-wrapping)', () => {
     expect(dynamicVal).toBe('dynamic');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// INVARIANT: Unquoted attribute expressions work (ADR 0069)
+// The html() tagged template must handle both quoted and unquoted
+// attribute expressions. Comment markers contain > which breaks
+// unquoted attributes without auto-quoting.
+// ═══════════════════════════════════════════════════════════════════════
+
+describe('INVARIANT: unquoted attribute expressions (ADR 0069)', () => {
+  it('unquoted @click handler fires', () => {
+    const handler = vi.fn();
+    const result = html`<button @click=${handler}>Click</button>`;
+    const host = mount(result);
+    host.querySelector('button')?.click();
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('unquoted class:name toggles class', () => {
+    const active = signal(true);
+    const result = html`<div class:active=${active}></div>`;
+    const host = mount(result);
+    expect(host.querySelector('div')?.classList.contains('active')).toBe(true);
+
+    active.value = false;
+    flushEffects();
+    expect(host.querySelector('div')?.classList.contains('active')).toBe(false);
+  });
+
+  it('unquoted @click with modifiers works', () => {
+    const handler = vi.fn();
+    const result = html`<button @click.prevent=${handler}>Click</button>`;
+    const host = mount(result);
+    host.querySelector('button')?.click();
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('mixed quoted and unquoted on same element', () => {
+    const handler = vi.fn();
+    const active = signal(true);
+    const result = html`<button class="base" class:active=${active} @click=${handler}>Click</button>`;
+    const host = mount(result);
+    const btn = host.querySelector('button')!;
+
+    expect(btn.classList.contains('base')).toBe(true);
+    expect(btn.classList.contains('active')).toBe(true);
+    btn.click();
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('multiple unquoted bindings on same element', () => {
+    const handler = vi.fn();
+    const expanded = signal(true);
+    const result = html`<div class:expanded=${expanded} @click=${handler}>Content</div>`;
+    const host = mount(result);
+    const div = host.querySelector('div')!;
+
+    expect(div.classList.contains('expanded')).toBe(true);
+    div.click();
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('unquoted attribute binding sets value', () => {
+    const id = signal('test-id');
+    const result = html`<div id=${id}></div>`;
+    const host = mount(result);
+    expect(host.querySelector('div')?.getAttribute('id')).toBe('test-id');
+  });
+
+  it('quoted expression containing = inside attribute is not broken', () => {
+    // Regression: naive regex fix would break "${a}=${b}" patterns
+    const a = signal('x');
+    const b = signal('y');
+    const result = html`<div data-value="${a}=${b}"></div>`;
+    const host = mount(result);
+    expect(host.querySelector('div')?.getAttribute('data-value')).toBe('x=y');
+  });
+
+  it('text content with = is not affected', () => {
+    const val = signal('42');
+    const result = html`<p>x = ${val}</p>`;
+    const host = mount(result);
+    expect(host.querySelector('p')?.textContent).toContain('x =');
+    expect(host.querySelector('p')?.textContent).toContain('42');
+  });
+
+  it('unquoted style attribute works', () => {
+    const style = computed(() => 'color:red');
+    const result = html`<div style=${style}></div>`;
+    const host = mount(result);
+    expect(host.querySelector('div')?.getAttribute('style')).toBe('color:red');
+  });
+});

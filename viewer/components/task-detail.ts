@@ -131,7 +131,8 @@ export const TaskDetail = component('task-detail', (_props, host) => {
 
   function handleCopyMarkdown() {
     const raw = task.value?.raw || '';
-    if (raw) navigator.clipboard.writeText(raw).catch(() => {});
+    if (!raw) return;
+    navigator.clipboard.writeText(raw).catch((err) => console.error('Copy failed:', err));
   }
 
   // ── Pane header (reactive, owned by task-detail) ────────────────

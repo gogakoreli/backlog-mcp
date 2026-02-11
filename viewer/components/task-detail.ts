@@ -129,11 +129,7 @@ export const TaskDetail = component('task-detail', (_props, host) => {
     }
   }
 
-  function handleCopyMarkdown() {
-    const raw = task.value?.raw || '';
-    if (!raw) return;
-    navigator.clipboard.writeText(raw).catch((err) => console.error('Copy failed:', err));
-  }
+  const rawMarkdown = computed(() => task.value?.raw || '');
 
   // ── Pane header (reactive, owned by task-detail) ────────────────
 
@@ -173,7 +169,7 @@ export const TaskDetail = component('task-detail', (_props, host) => {
               <span class="activity-badge">${badgeText}</span>
             `)}
           </button>
-          <button class="btn-outline" title="Copy markdown" @click="${handleCopyMarkdown}">Copy Markdown</button>
+          ${CopyButton({ text: rawMarkdown, content: html`Copy Markdown` })}
         </div>
       </div>
     `;

@@ -179,29 +179,19 @@ export const TaskDetail = component('task-detail', (_props, host) => {
   });
 
   // ── Reference list items (factory composition) ─────────────────
-  function refProtocol(url: string): string {
-    const m = url.match(/^([a-z]+):\/\//);
-    return m ? m[1] : '';
+  function handleRefClick(e: Event, u: string) {
+    if (!u.startsWith('file://') && !u.startsWith('mcp://')) return;
+    e.preventDefault();
+    if (u.startsWith('file://')) splitState.openResource(u.replace('file://', ''));
+    else splitState.openMcpResource(u);
   }
 
   const referenceItems = each(references, (_r, i) => i, (ref) => {
     const url = computed(() => ref.value.url);
     const title = computed(() => ref.value.title || ref.value.url);
-    const proto = computed(() => refProtocol(url.value));
-    const isInternal = computed(() => proto.value === 'file' || proto.value === 'mcp');
+    const isInternal = computed(() => url.value.startsWith('file://') || url.value.startsWith('mcp://'));
 
-    function handleClick(e: Event) {
-      const u = url.value;
-      if (!u.startsWith('file://') && !u.startsWith('mcp://')) return;
-      e.preventDefault();
-      if (u.startsWith('file://')) splitState.openResource(u.replace('file://', ''));
-      else splitState.openMcpResource(u);
-    }
-
-    return html`<li class="ref-item">
-      <span class="ref-protocol-label">${proto}</span>
-      <a href="${url}" target="${computed(() => isInternal.value ? '' : '_blank')}" rel="noopener" @click="${handleClick}">${title}</a>
-    </li>`;
+    return html`<li><a href="${url}" target="${computed(() => isInternal.value ? '' : '_blank')}" rel="noopener" @click="${(e: Event) => handleRefClick(e, url.value)}">${title}</a></li>`;
   });
 
   const evidenceItems = each(evidence, (_e, i) => i, (item) =>

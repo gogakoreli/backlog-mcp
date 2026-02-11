@@ -754,27 +754,6 @@
   margin: 6px 0;
   line-height: 1.4;
 }
-.ref-item {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-.ref-protocol-label {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  padding: 1px 4px;
-  border-radius: 3px;
-  background: rgba(139, 148, 158, 0.15);
-  color: #8b949e;
-  flex-shrink: 0;
-}
-.ref-item a {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
 .blocked-reason-section {
   border-left: 3px solid #f85149;
   padding-left: 12px;

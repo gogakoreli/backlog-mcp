@@ -995,3 +995,27 @@ describe('INVARIANT: unquoted attribute expressions (ADR 0069)', () => {
     expect(host.querySelector('div')?.getAttribute('style')).toBe('color:red');
   });
 });
+
+// ── ADR 0070: Reactive slot reparenting ─────────────────────────────
+
+describe('INVARIANT: reactive slots survive DOM reparenting', () => {
+  it('computed returning TemplateResult updates after mount', async () => {
+    const task = signal<{ id: string } | null>(null);
+
+    const header = computed(() => {
+      const t = task.value;
+      if (!t) return html`<div class="fallback">empty</div>`;
+      return html`<div class="loaded">${t.id}</div>`;
+    });
+
+    const host = mount(html`${header}<div class="body">body</div>`);
+
+    expect(host.querySelector('.fallback')?.textContent).toBe('empty');
+
+    task.value = { id: 'TASK-1' };
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(host.querySelector('.loaded')?.textContent).toBe('TASK-1');
+    expect(host.querySelector('.fallback')).toBeNull();
+  });
+});

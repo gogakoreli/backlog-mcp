@@ -391,6 +391,11 @@ function replaceMarkerWithBinding(
 
       const dispose = effect(() => {
         const newValue = (value as ReadonlySignal<unknown>).value;
+        // Use endMarker.parentNode — the captured `parent` may be a
+        // DocumentFragment that was already appended to the real DOM,
+        // leaving the markers reparented under the actual DOM element.
+        const liveParent = endMarker.parentNode;
+        if (!liveParent) return;
 
         // Remove previous content
         for (const r of currentResults) {
@@ -414,15 +419,15 @@ function replaceMarkerWithBinding(
               const nodes = [...wrapper.childNodes];
               currentNodes.push(...nodes);
               currentResults.push(tpl);
-              parent.insertBefore(wrapper, endMarker);
+              liveParent.insertBefore(wrapper, endMarker);
             } else if (item && typeof item === 'object' && '__type' in item && (item as any).__type === 'factory') {
               const el = mountFactoryResult(item as any, disposers);
               currentNodes.push(el);
-              parent.insertBefore(el, endMarker);
+              liveParent.insertBefore(el, endMarker);
             } else if (item != null && item !== false) {
               const textNode = document.createTextNode(String(item));
               currentNodes.push(textNode);
-              parent.insertBefore(textNode, endMarker);
+              liveParent.insertBefore(textNode, endMarker);
             }
           }
         } else if (typeof newValue === 'object' && '__templateResult' in newValue) {
@@ -432,12 +437,12 @@ function replaceMarkerWithBinding(
           tpl.mount(wrapper as unknown as HTMLElement);
           currentNodes = [...wrapper.childNodes];
           currentResults.push(tpl);
-          parent.insertBefore(wrapper, endMarker);
+          liveParent.insertBefore(wrapper, endMarker);
         } else if (typeof newValue === 'object' && '__type' in newValue && (newValue as any).__type === 'factory') {
           // Factory result — create child element
           const el = mountFactoryResult(newValue as any, disposers);
           currentNodes.push(el);
-          parent.insertBefore(el, endMarker);
+          liveParent.insertBefore(el, endMarker);
         }
       });
       disposers.push(dispose);

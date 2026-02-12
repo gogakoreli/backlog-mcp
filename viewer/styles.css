@@ -914,51 +914,50 @@ task-detail .markdown-body {
   color: #858585;
 }
 
-/* Frontmatter Metadata */
-.frontmatter-meta {
-  padding: 16px;
-  margin: 16px;
-  background: #161b22;
-  border: 1px solid #30363d;
-  border-radius: 8px;
+/* Frontmatter Metadata — now handled by metadata-card component */
+metadata-card {
+  display: block;
 }
-
-.frontmatter-list {
+.meta-grid {
   display: grid;
-  gap: 12px;
+  gap: 10px;
+  margin: 0;
 }
-
-.frontmatter-item {
+.meta-entry {
   display: grid;
   grid-template-columns: 150px 1fr;
   gap: 12px;
   align-items: start;
 }
-
-.frontmatter-item dt {
+.meta-key {
   font-weight: 600;
   color: #8b949e;
   font-size: 13px;
   text-transform: capitalize;
 }
-
-.frontmatter-item dd {
+.meta-value {
   color: #d4d4d4;
-  font-size: 14px;
+  font-size: 13px;
   word-break: break-word;
 }
-
-.frontmatter-item dd ul {
+.meta-list {
   margin: 0;
   padding-left: 20px;
 }
-
-.frontmatter-item dd pre {
+.meta-list li {
+  margin: 4px 0;
+  line-height: 1.4;
+}
+.meta-pre {
   background: #0d1117;
   padding: 8px;
   border-radius: 4px;
   font-size: 12px;
   overflow-x: auto;
+  margin: 0;
+}
+.meta-empty {
+  color: #484f58;
 }
 
 

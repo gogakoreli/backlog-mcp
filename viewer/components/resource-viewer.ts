@@ -11,8 +11,9 @@ import { signal, computed, effect, batch } from '../framework/signal.js';
 import { component } from '../framework/component.js';
 import { html } from '../framework/template.js';
 import { inject } from '../framework/injector.js';
-import { useHostEvent, useResourceLinks } from '../framework/lifecycle.js';
+import { useResourceLinks } from '../framework/lifecycle.js';
 import { SplitPaneState } from '../services/split-pane-state.js';
+import { MetadataCard } from './metadata-card.js';
 
 interface ResourceData {
   frontmatter?: Record<string, unknown>;
@@ -101,36 +102,11 @@ export const ResourceViewer = component('resource-viewer', (_props, host) => {
   // ── Link interception (shared hook, ADR 0070) ─────────────────────
   useResourceLinks(host, splitState);
 
-  // ── Rendering helpers ────────────────────────────────────────────
-
-  function escapeHtml(str: string): string {
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
-
-  function formatValue(value: unknown): string {
-    if (Array.isArray(value)) {
-      return `<ul>${value.map(v => `<li>${formatValue(v)}</li>`).join('')}</ul>`;
-    }
-    if (typeof value === 'object' && value !== null) {
-      return `<pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
-    }
-    return escapeHtml(String(value));
-  }
-
-  // ── Computed metadata HTML (trusted, from frontmatter) ───────────
-  const metadataHtml = computed(() => {
+  // ── Computed metadata entries for MetadataCard ────────────────────
+  const metadataEntries = computed(() => {
     const d = data.value;
-    if (!d?.frontmatter || Object.keys(d.frontmatter).length === 0) return '';
-    return `
-      <dl class="frontmatter-list">
-        ${Object.entries(d.frontmatter).map(([key, value]) => `
-          <div class="frontmatter-item">
-            <dt>${escapeHtml(key)}</dt>
-            <dd>${formatValue(value)}</dd>
-          </div>
-        `).join('')}
-      </dl>
-    `;
+    if (!d?.frontmatter || Object.keys(d.frontmatter).length === 0) return [];
+    return Object.entries(d.frontmatter).map(([key, value]) => ({ key, value }));
   });
 
   // ── Computed content view ────────────────────────────────────────
@@ -172,7 +148,7 @@ export const ResourceViewer = component('resource-viewer', (_props, host) => {
     if (d.ext === 'md' || d.frontmatter) {
       return html`
         <article class="markdown-body">
-          <div class="frontmatter-meta" html:inner="${metadataHtml}"></div>
+          ${MetadataCard({ entries: metadataEntries })}
           <md-block>${computed(() => data.value?.content || '')}</md-block>
         </article>
       `;

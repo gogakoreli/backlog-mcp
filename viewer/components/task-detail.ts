@@ -9,11 +9,11 @@
  */
 import { signal, computed, effect } from '../framework/signal.js';
 import { component } from '../framework/component.js';
-import { html, when, each } from '../framework/template.js';
+import { html, when } from '../framework/template.js';
 import { inject } from '../framework/injector.js';
 import { query } from '../framework/query.js';
 import { onCleanup, useResourceLinks } from '../framework/lifecycle.js';
-import { fetchTask, fetchOperationCount, type TaskResponse, type Reference } from '../utils/api.js';
+import { fetchTask, fetchOperationCount, type TaskResponse } from '../utils/api.js';
 import { backlogEvents } from '../services/event-source-client.js';
 import { getTypeFromId, getTypeConfig, getParentId } from '../type-registry.js';
 import { AppState } from '../services/app-state.js';
@@ -21,7 +21,8 @@ import { SplitPaneState } from '../services/split-pane-state.js';
 import { CopyButton } from './copy-button.js';
 import { TaskBadge } from './task-badge.js';
 import { SvgIcon } from './svg-icon.js';
-import { copyIcon, activityIcon } from '../icons/index.js';
+import { MetadataCard, filterTaskEntries } from './metadata-card.js';
+import { activityIcon } from '../icons/index.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -76,8 +77,6 @@ export const TaskDetail = component('task-detail', (_props, host) => {
   const taskDescription = computed(() => task.value?.description ?? '');
   const createdAt = computed(() => formatDate(task.value?.created_at ?? ''));
   const updatedAt = computed(() => formatDate(task.value?.updated_at ?? ''));
-  const dueDate = computed(() => task.value?.due_date ? formatDate(task.value.due_date) : null);
-  const contentType = computed(() => task.value?.content_type ?? null);
   const taskType = computed(() => task.value?.type ?? 'task');
   const taskStatus = computed(() => task.value?.status ?? 'open');
   const hasStatus = computed(() => getTypeConfig(taskType.value).hasStatus);
@@ -98,13 +97,23 @@ export const TaskDetail = component('task-detail', (_props, host) => {
   });
   const parentTitle = computed(() => task.value?.parentTitle || task.value?.epicTitle || null);
 
-  const references = computed<Reference[]>(() => task.value?.references ?? []);
+  const references = computed(() => task.value?.references ?? []);
   const evidence = computed<string[]>(() => task.value?.evidence ?? []);
   const blockedReasons = computed<string[]>(() => task.value?.blocked_reason ?? []);
 
-  const hasReferences = computed(() => references.value.length > 0);
-  const hasEvidence = computed(() => evidence.value.length > 0);
-  const hasBlockedReasons = computed(() => blockedReasons.value.length > 0);
+  // ── Extra metadata entries for MetadataCard (references, evidence, blocked) ──
+  const extraEntries = computed(() => {
+    const t = task.value;
+    if (!t) return [];
+    // Build entries from the raw task frontmatter, filtering out header fields
+    const raw: Array<{ key: string; value: unknown }> = [];
+    if (t.references?.length) raw.push({ key: 'references', value: t.references });
+    if (t.evidence?.length) raw.push({ key: 'evidence', value: t.evidence });
+    if (t.blocked_reason?.length) raw.push({ key: 'blocked', value: t.blocked_reason });
+    if (t.due_date) raw.push({ key: 'due date', value: t.due_date });
+    if (t.content_type) raw.push({ key: 'content type', value: t.content_type });
+    return raw;
+  });
 
   // ── Activity badge ──────────────────────────────────────────────
   const opCount = computed(() => opCountQuery.data.value ?? 0);
@@ -175,30 +184,6 @@ export const TaskDetail = component('task-detail', (_props, host) => {
     `;
   });
 
-  // ── Reference list items (factory composition) ─────────────────
-  function handleRefClick(e: Event, u: string) {
-    if (!u.startsWith('file://') && !u.startsWith('mcp://')) return;
-    e.preventDefault();
-    if (u.startsWith('file://')) splitState.openResource(u.replace('file://', ''));
-    else splitState.openMcpResource(u);
-  }
-
-  const referenceItems = each(references, (_r, i) => i, (ref) => {
-    const url = computed(() => ref.value.url);
-    const title = computed(() => ref.value.title || ref.value.url);
-    const isInternal = computed(() => url.value.startsWith('file://') || url.value.startsWith('mcp://'));
-
-    return html`<li><a href="${url}" target="${computed(() => isInternal.value ? '' : '_blank')}" rel="noopener" @click="${(e: Event) => handleRefClick(e, url.value)}">${title}</a></li>`;
-  });
-
-  const evidenceItems = each(evidence, (_e, i) => i, (item) =>
-    html`<li>${item}</li>`
-  );
-
-  const blockedItems = each(blockedReasons, (_r, i) => i, (item) =>
-    html`<li>${item}</li>`
-  );
-
   // ── Content view — metadata card + markdown ────────────────────
   const taskView = html`
     <article class="markdown-body">
@@ -207,7 +192,6 @@ export const TaskDetail = component('task-detail', (_props, host) => {
         <div class="task-meta-row">
           <span>Created: ${createdAt}</span>
           <span>Updated: ${updatedAt}</span>
-          ${when(dueDate, html`<span class="due-date-meta">Due: ${dueDate}</span>`)}
           ${when(parentId, html`
             <span class="task-meta-epic">
               <span class="task-meta-epic-label">${parentLabel}:</span>
@@ -217,29 +201,8 @@ export const TaskDetail = component('task-detail', (_props, host) => {
               ${when(parentTitle, html`<span class="epic-title">${parentTitle}</span>`)}
             </span>
           `)}
-          ${when(contentType, html`<span class="content-type-badge">${contentType}</span>`)}
         </div>
-
-        ${when(hasReferences, html`
-          <div class="task-meta-section">
-            <div class="task-meta-section-label">References:</div>
-            <ul>${referenceItems}</ul>
-          </div>
-        `)}
-
-        ${when(hasEvidence, html`
-          <div class="task-meta-section">
-            <div class="task-meta-section-label">Evidence:</div>
-            <ul>${evidenceItems}</ul>
-          </div>
-        `)}
-
-        ${when(hasBlockedReasons, html`
-          <div class="task-meta-section blocked-reason-section">
-            <div class="task-meta-section-label">Blocked</div>
-            <ul>${blockedItems}</ul>
-          </div>
-        `)}
+        ${MetadataCard({ entries: extraEntries })}
       </div>
 
       <md-block>${taskDescription}</md-block>

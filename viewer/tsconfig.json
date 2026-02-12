@@ -8,8 +8,12 @@
     "moduleResolution": "bundler",
     "outDir": "../dist/viewer",
     "rootDir": ".",
+    "baseUrl": ".",
     "declaration": false,
-    "sourceMap": false
+    "sourceMap": false,
+    "paths": {
+      "@framework/*": ["./framework/*"]
+    }
   },
   "include": ["**/*.ts"],
   "exclude": ["**/*.test.ts"]

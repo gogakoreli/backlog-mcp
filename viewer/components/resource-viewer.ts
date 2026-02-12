@@ -5,11 +5,12 @@
  * Delegates markdown rendering to DocumentView (link interception,
  * MetadataCard, md-block). Handles code/text files directly.
  */
-import { signal, computed, effect } from '../framework/signal.js';
-import { component } from '../framework/component.js';
-import { html } from '../framework/template.js';
-import { inject } from '../framework/injector.js';
+import { signal, computed, effect } from '@framework/signal.js';
+import { component } from '@framework/component.js';
+import { html } from '@framework/template.js';
+import { inject } from '@framework/injector.js';
 import { SplitPaneState } from '../services/split-pane-state.js';
+import { hljs } from '../services/markdown.js';
 import { DocumentView } from './document-view.js';
 
 interface ResourceData {
@@ -124,24 +125,28 @@ export const ResourceViewer = component('resource-viewer', () => {
     if (!d) return html`<div></div>`;
 
     // Markdown document
-    if (d.ext === 'md' || d.frontmatter) {
+    if (d.ext === 'md' || (d.frontmatter && Object.keys(d.frontmatter).length > 0)) {
       return DocumentView({
         frontmatter: computed(() => data.value?.frontmatter ?? {}),
         content: computed(() => data.value?.content || ''),
       });
     }
 
-    // Code file
-    if (d.ext && ['ts', 'js', 'json', 'txt'].includes(d.ext)) {
-      return html`
-        <pre><code class="language-${d.ext}">${computed(() => data.value?.content || '')}</code></pre>
-      `;
+    // Code file — highlight directly, no md-block
+    if (d.ext && ['ts', 'js', 'json', 'txt', 'css', 'html', 'xml', 'yaml', 'yml', 'sh', 'bash', 'md'].includes(d.ext)) {
+      const highlighted = computed(() => {
+        const code = data.value?.content || '';
+        const lang = data.value?.ext || '';
+        if (lang && hljs.getLanguage(lang)) {
+          return hljs.highlight(code, { language: lang }).value;
+        }
+        return code.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      });
+      return html`<article class="document-view"><pre><code class="hljs" html:inner=${highlighted}></code></pre></article>`;
     }
 
     // Plain text fallback
-    return html`
-      <pre>${computed(() => data.value?.content || '')}</pre>
-    `;
+    return html`<article class="document-view"><pre><code>${computed(() => data.value?.content || '')}</code></pre></article>`;
   });
 
   // ── Template ─────────────────────────────────────────────────────

@@ -7,8 +7,8 @@
  * @vitest-environment happy-dom
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { flushEffects } from '../framework/signal.js';
-import { resetInjector, provide, inject } from '../framework/injector.js';
+import { flushEffects } from '@framework/signal.js';
+import { resetInjector, provide, inject } from '@framework/injector.js';
 import { AppState } from '../services/app-state.js';
 
 // ── Mock TYPE_REGISTRY before importing component ────────────────────

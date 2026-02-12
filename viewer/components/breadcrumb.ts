@@ -4,10 +4,10 @@
  * Reads scopeId from AppState, receives tasks as prop from task-list.
  * Uses each() for the path segments, @click to set scope.
  */
-import { computed, type ReadonlySignal } from '../framework/signal.js';
-import { component } from '../framework/component.js';
-import { html, each } from '../framework/template.js';
-import { inject } from '../framework/injector.js';
+import { computed, type ReadonlySignal } from '@framework/signal.js';
+import { component } from '@framework/component.js';
+import { html, each } from '@framework/template.js';
+import { inject } from '@framework/injector.js';
 import { getTypeConfig, getParentId } from '../type-registry.js';
 import { AppState } from '../services/app-state.js';
 import { SvgIcon } from './svg-icon.js';

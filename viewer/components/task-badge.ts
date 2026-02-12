@@ -1,9 +1,9 @@
 /**
  * task-badge.ts — Reactive badge showing type icon + task ID.
  */
-import { computed, effect, signal } from '../framework/signal.js';
-import { component } from '../framework/component.js';
-import { html } from '../framework/template.js';
+import { computed, effect, signal } from '@framework/signal.js';
+import { component } from '@framework/component.js';
+import { html } from '@framework/template.js';
 import { getTypeFromId, getTypeConfig } from '../type-registry.js';
 import { SvgIcon } from './svg-icon.js';
 

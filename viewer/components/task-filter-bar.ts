@@ -4,11 +4,11 @@
  * Reads/writes AppState signals directly (ADR 0007 shared services).
  * URL updates happen automatically via AppState's signal→URL sync.
  */
-import { signal, computed, effect } from '../framework/signal.js';
-import { component } from '../framework/component.js';
-import { html } from '../framework/template.js';
-import { inject } from '../framework/injector.js';
-import { ref } from '../framework/ref.js';
+import { signal, computed, effect } from '@framework/signal.js';
+import { component } from '@framework/component.js';
+import { html } from '@framework/template.js';
+import { inject } from '@framework/injector.js';
+import { ref } from '@framework/ref.js';
 import { TYPE_REGISTRY } from '../type-registry.js';
 import { AppState } from '../services/app-state.js';
 

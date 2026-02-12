@@ -7,7 +7,7 @@
  *
  * See ADR 0007 for design rationale.
  */
-import { signal, effect } from '../framework/signal.js';
+import { signal, effect } from '@framework/signal.js';
 import { getTypeConfig, getTypeFromId } from '../type-registry.js';
 import { UrlState } from './url-state.js';
 

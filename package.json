@@ -38,8 +38,8 @@
   "scripts": {
     "build": "pnpm typecheck && tsdown && pnpm build:viewer",
     "typecheck": "tsc --noEmit && tsc -p viewer/tsconfig.json --noEmit",
-    "build:viewer": "esbuild viewer/main.ts --bundle --format=esm --outdir=dist/viewer --loader:.svg=file --loader:.css=css --asset-names=[name]-[hash]",
-    "dev": "concurrently \"esbuild viewer/main.ts --bundle --format=esm --outdir=dist/viewer --loader:.svg=file --loader:.css=css --asset-names=[name]-[hash] --watch\" \"tsx watch --env-file=.env src/server/fastify-server.ts\"",
+    "build:viewer": "esbuild viewer/main.ts --bundle --format=esm --outdir=dist/viewer --loader:.svg=file --loader:.css=css --asset-names=[name]-[hash] --alias:@framework=./viewer/framework",
+    "dev": "concurrently \"esbuild viewer/main.ts --bundle --format=esm --outdir=dist/viewer --loader:.svg=file --loader:.css=css --asset-names=[name]-[hash] --alias:@framework=./viewer/framework --watch\" \"tsx watch --env-file=.env src/server/fastify-server.ts\"",
     "clean": "rm -rf dist",
     "start": "node dist/cli/index.mjs",
     "inspect": "pnpm build && npx @modelcontextprotocol/inspector dist/cli/index.mjs",
@@ -75,7 +75,9 @@
     "dompurify": "^3.3.1",
     "fastify": "^5.7.1",
     "gray-matter": "^4.0.3",
+    "highlight.js": "^11.11.1",
     "marked": "^17.0.1",
+    "marked-highlight": "^2.2.3",
     "mcp-remote": "^0.1.37",
     "zod": "^4.3.5"
   },

@@ -5,11 +5,11 @@
  * Uses query() for auto-fetching, each() for keyed list rendering.
  * No setState, no local filter/sort signals, no manual doFetch.
  */
-import { signal, computed, effect, type ReadonlySignal } from '../framework/signal.js';
-import { component } from '../framework/component.js';
-import { html, each, when } from '../framework/template.js';
-import { inject } from '../framework/injector.js';
-import { query } from '../framework/query.js';
+import { signal, computed, effect, type ReadonlySignal } from '@framework/signal.js';
+import { component } from '@framework/component.js';
+import { html, each, when } from '@framework/template.js';
+import { inject } from '@framework/injector.js';
+import { query } from '@framework/query.js';
 import { fetchTasks, type Task } from '../utils/api.js';
 import { backlogEvents } from '../services/event-source-client.js';
 import { getTypeConfig, getParentId } from '../type-registry.js';

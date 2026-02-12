@@ -11,16 +11,17 @@
  * Works for known entities (task, epic, milestone, artifact, folder)
  * and arbitrary markdown files with frontmatter.
  */
-import { computed } from '../framework/signal.js';
-import { component } from '../framework/component.js';
-import { html, when } from '../framework/template.js';
-import { inject } from '../framework/injector.js';
-import { useResourceLinks } from '../framework/lifecycle.js';
+import { computed } from '@framework/signal.js';
+import { component } from '@framework/component.js';
+import { html, when } from '@framework/template.js';
+import { inject } from '@framework/injector.js';
+import { useHostEvent } from '@framework/lifecycle.js';
 import { SplitPaneState } from '../services/split-pane-state.js';
 import { getTypeFromId, getTypeConfig, getParentId } from '../type-registry.js';
 import { TaskBadge } from './task-badge.js';
 import { MetadataCard } from './metadata-card.js';
-import type { ReadonlySignal } from '../framework/signal.js';
+import { MdBlock } from './md-block.js';
+import type { ReadonlySignal } from '@framework/signal.js';
 
 type DocumentViewProps = {
   frontmatter: Record<string, unknown>;
@@ -43,7 +44,13 @@ function formatDate(iso: string): string {
 
 export const DocumentView = component<DocumentViewProps>('document-view', (props, host) => {
   const splitState = inject(SplitPaneState);
-  useResourceLinks(host, splitState);
+
+  // Route file:// and mcp:// link clicks from md-block
+  useHostEvent(host, 'link-click', (e: CustomEvent<{ href: string }>) => {
+    const { href } = e.detail;
+    if (href.startsWith('file://')) splitState.openResource(href.replace('file://', ''));
+    else if (href.startsWith('mcp://')) splitState.openMcpResource(href);
+  });
 
   const fm = props.frontmatter;
   const onNav = props.onNavigate;
@@ -132,7 +139,7 @@ export const DocumentView = component<DocumentViewProps>('document-view', (props
           ${MetadataCard({ entries: extraEntries })}
         </div>
       `)}
-      <md-block>${props.content}</md-block>
+      ${MdBlock({ content: props.content })}
     </article>
   `;
 });

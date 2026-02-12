@@ -11,6 +11,7 @@ export default defineConfig({
       '@/resources': resolve(__dirname, './src/resources'),
       '@/middleware': resolve(__dirname, './src/middleware'),
       '@/cli': resolve(__dirname, './src/cli'),
+      '@framework': resolve(__dirname, './viewer/framework'),
     },
   },
   test: {

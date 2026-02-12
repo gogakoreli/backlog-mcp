@@ -4,7 +4,7 @@
  * Replaces document CustomEvent strings (task-select, scope-enter)
  * with typed, DI-injected events per `emitter-typed-events`.
  */
-import { Emitter } from '../framework/emitter.js';
+import { Emitter } from '@framework/emitter.js';
 
 export class NavigationEvents extends Emitter<{
   'task-select': { taskId: string };

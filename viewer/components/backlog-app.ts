@@ -9,13 +9,13 @@
  * The split pane area is rendered reactively using computed views.
  *
  * All document event bridges eliminated (ADR 0013). md-block link
- * interception uses useHostEvent('md-render') in consumers.
+ * interception uses event delegation on click.
  */
-import { signal, computed, effect } from '../framework/signal.js';
-import { component } from '../framework/component.js';
-import { html } from '../framework/template.js';
-import { inject } from '../framework/injector.js';
-import { onMount } from '../framework/lifecycle.js';
+import { signal, computed, effect } from '@framework/signal.js';
+import { component } from '@framework/component.js';
+import { html } from '@framework/template.js';
+import { inject } from '@framework/injector.js';
+import { onMount } from '@framework/lifecycle.js';
 import { settingsIcon, activityIcon } from '../icons/index.js';
 import { SvgIcon } from './svg-icon.js';
 import { CopyButton } from './copy-button.js';

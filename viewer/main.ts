@@ -2,7 +2,6 @@ import './styles.css';
 import './github-markdown.css';
 import 'diff2html/bundles/css/diff2html.min.css';
 import './components/svg-icon.js';
-import './components/md-block.js';
 import './components/task-filter-bar.js';
 import './components/task-list.js';
 import './components/task-item.js';
@@ -15,7 +14,7 @@ import './components/spotlight-search.js';
 import './components/activity-panel.js';
 import './components/backlog-app.js';
 import { backlogEvents } from './services/event-source-client.js';
-import { inject } from './framework/injector.js';
+import { inject } from '@framework/injector.js';
 import { AppState } from './services/app-state.js';
 import { SplitPaneState } from './services/split-pane-state.js';
 
@@ -28,5 +27,5 @@ backlogEvents.connect();
 
 // All document-level event bridges have been removed.
 // Components inject AppState / SplitPaneState directly.
-// md-block link interception uses useHostEvent('md-render') in consumers.
+// md-block link interception uses event delegation on click.
 // See ADR 0013.

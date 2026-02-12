@@ -847,10 +847,13 @@ task-detail .markdown-body {
   background: #1e1e1e;
   border: 1px solid #3e3e42;
   border-radius: 6px;
-  padding: 16px;
-  overflow-x: auto;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
   font-size: 13px;
   line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
 .resource-viewer code {

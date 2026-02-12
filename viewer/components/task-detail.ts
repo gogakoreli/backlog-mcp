@@ -7,12 +7,12 @@
  * Owns its own pane header (Phase 15) — no cross-tree DOM updates.
  * Opens activity via inject(SplitPaneState).openActivity() directly.
  */
-import { signal, computed } from '../framework/signal.js';
-import { component } from '../framework/component.js';
-import { html, when } from '../framework/template.js';
-import { inject } from '../framework/injector.js';
-import { query } from '../framework/query.js';
-import { onCleanup } from '../framework/lifecycle.js';
+import { signal, computed } from '@framework/signal.js';
+import { component } from '@framework/component.js';
+import { html, when } from '@framework/template.js';
+import { inject } from '@framework/injector.js';
+import { query } from '@framework/query.js';
+import { onCleanup } from '@framework/lifecycle.js';
 import { fetchTask, fetchOperationCount, type TaskResponse } from '../utils/api.js';
 import { backlogEvents } from '../services/event-source-client.js';
 import { getTypeConfig, getParentId } from '../type-registry.js';

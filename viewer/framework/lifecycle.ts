@@ -75,8 +75,8 @@ export function onCleanup(callback: () => void): void {
  * window, etc.). Must be called during component setup.
  *
  * ```ts
- * useHostEvent(host, 'md-render', (e) => {
- *   // Runs each time md-block finishes rendering
+ * useHostEvent(host, 'click', (e) => {
+ *   // Runs on each click
  * });
  * ```
  */
@@ -94,31 +94,6 @@ export function useHostEvent<E extends Event = Event>(
   target.addEventListener(eventName, handler as EventListener);
   getCurrentComponent().addDisposer(() => {
     target.removeEventListener(eventName, handler as EventListener);
-  });
-}
-
-/**
- * Intercept `file://` and `mcp://` link clicks inside a component's DOM.
- * Listens for md-block's `md-render` event (bubbles) and patches links
- * after each render. Routes clicks via the provided callbacks. See ADR 0070.
- *
- * Must be called during component setup.
- */
-export function useResourceLinks(
-  host: HTMLElement,
-  handlers: { openResource: (path: string) => void; openMcpResource: (uri: string) => void },
-): void {
-  useHostEvent(host, 'md-render', () => {
-    host.querySelectorAll('a[href^="file://"], a[href^="mcp://"]').forEach(link => {
-      if ((link as any).__resourceIntercepted) return;
-      (link as any).__resourceIntercepted = true;
-      const href = link.getAttribute('href')!;
-      link.addEventListener('click', (e) => {
-        e.preventDefault();
-        if (href.startsWith('file://')) handlers.openResource(href.replace('file://', ''));
-        else if (href.startsWith('mcp://')) handlers.openMcpResource(href);
-      });
-    });
   });
 }
 

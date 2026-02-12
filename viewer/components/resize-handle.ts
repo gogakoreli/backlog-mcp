@@ -14,9 +14,9 @@ import { component } from '../framework/component.js';
 import { html } from '../framework/template.js';
 import { onMount, onCleanup, useHostEvent } from '../framework/lifecycle.js';
 
-interface ResizeHandleProps {
+type ResizeHandleProps = {
   storageKey: string;
-}
+};
 
 const MIN_WIDTH = 200;
 

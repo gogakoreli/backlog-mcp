@@ -845,7 +845,8 @@ export function each<T>(
     const newKeys = new Set<string | number>();
 
     for (let i = 0; i < newItems.length; i++) {
-      const item = newItems[i] as T;
+      const item = newItems[i];
+      if (item === undefined) continue;
       const key = keyFn(item, i);
       newKeys.add(key);
 

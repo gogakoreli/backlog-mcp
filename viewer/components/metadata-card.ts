@@ -14,9 +14,9 @@ import { html, when, each, type TemplateResult } from '../framework/template.js'
 import { inject } from '../framework/injector.js';
 import { SplitPaneState } from '../services/split-pane-state.js';
 
-interface MetadataCardProps {
+type MetadataCardProps = {
   entries: Array<{ key: string; value: unknown }>;
-}
+};
 
 /** Render a single frontmatter value as a template */
 function renderValue(value: unknown, splitState: SplitPaneState): TemplateResult {

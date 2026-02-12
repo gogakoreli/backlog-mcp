@@ -160,7 +160,7 @@ function createPropsProxy<P>(): {
  * TaskItem({ task: taskSignal, selected: isSelected })
  * ```
  */
-export function component<P extends object = Record<string, never>>(
+export function component<P extends Record<string, unknown> = Record<string, never>>(
   tagName: string,
   setup: SetupFunction<P>,
   options?: ComponentOptions,

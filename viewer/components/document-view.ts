@@ -11,7 +11,8 @@
  * Works for known entities (task, epic, milestone, artifact, folder)
  * and arbitrary markdown files with frontmatter.
  */
-import { computed } from '../framework/signal.js';import { component } from '../framework/component.js';
+import { computed } from '../framework/signal.js';
+import { component } from '../framework/component.js';
 import { html, when } from '../framework/template.js';
 import { inject } from '../framework/injector.js';
 import { useResourceLinks } from '../framework/lifecycle.js';
@@ -21,11 +22,11 @@ import { TaskBadge } from './task-badge.js';
 import { MetadataCard } from './metadata-card.js';
 import type { ReadonlySignal } from '../framework/signal.js';
 
-interface DocumentViewProps {
+type DocumentViewProps = {
   frontmatter: Record<string, unknown>;
   content: string;
   onNavigate?: (id: string) => void;
-}
+};
 
 /** Fields rendered in the structured header — excluded from MetadataCard */
 const HEADER_KEYS = new Set([

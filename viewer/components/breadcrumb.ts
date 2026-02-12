@@ -13,9 +13,9 @@ import { AppState } from '../services/app-state.js';
 import { SvgIcon } from './svg-icon.js';
 import type { Task } from '../utils/api.js';
 
-interface BreadcrumbProps {
+type BreadcrumbProps = {
   tasks: Task[];
-}
+};
 
 type Segment = { id: string; title: string; type: string };
 

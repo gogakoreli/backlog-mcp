@@ -530,6 +530,45 @@ describe('INVARIANT: microtask coalescing', () => {
     // One run with final value
     expect(values).toEqual([3]);
   });
+
+  it('effects do not run synchronously between writes', () => {
+    const a = signal(0);
+    const b = signal(0);
+    const runs: Array<[number, number]> = [];
+    effect(() => { runs.push([a.value, b.value]); });
+    runs.length = 0;
+
+    a.value = 1;
+    // If effects ran synchronously here, we'd see [1, 0]
+    b.value = 2;
+    flushEffects();
+    // Only one run, seeing both changes
+    expect(runs).toEqual([[1, 2]]);
+  });
+
+  it('flush() is idempotent — no-op when no pending effects', () => {
+    const s = signal(0);
+    const fn = vi.fn(() => { s.value; });
+    effect(fn);
+    fn.mockClear();
+
+    flushEffects(); // nothing pending
+    flushEffects(); // still nothing
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('effects run on microtask without explicit flush', async () => {
+    const s = signal(0);
+    const values: number[] = [];
+    effect(() => { values.push(s.value); });
+    values.length = 0;
+
+    s.value = 42;
+    expect(values).toEqual([]); // not yet
+
+    await new Promise(r => queueMicrotask(r));
+    expect(values).toEqual([42]); // ran automatically
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════

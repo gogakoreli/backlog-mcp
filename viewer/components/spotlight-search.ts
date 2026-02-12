@@ -11,7 +11,7 @@
  * See ADR 0007 (shared services) for the open/close signal pattern.
  *
  * Uses html:inner directive for highlighted search result titles/snippets
- * from @orama/highlight. See ADR 0011 Gap 1 / ADR 0012.
+ * from @orama/highlight. See ADR 0011 Gap 1 / ADR 0012 / ADR 0071.
  */
 import { signal, computed, effect } from '../framework/signal.js';
 import { component } from '../framework/component.js';
@@ -402,8 +402,14 @@ export const SpotlightSearch = component('spotlight-search', (_props, host) => {
 
       const handleClick = () => selectResult(index.value);
 
-      // NOTE: highlighted title and snippet use html:inner in placeholders
-      // filled by effect() below (queueMicrotask for each() timing).
+      const highlightedTitle = computed(() => {
+        const rv = r.value;
+        const q = queryText.value;
+        if (!q || q.length < 2) return isResource(rv.item) ? (rv.item as Resource).title : (rv.item as Task).title;
+        return highlighter.highlight(isResource(rv.item) ? (rv.item as Resource).title : (rv.item as Task).title, q).HTML;
+      });
+      const snippetHtml = computed(() => r.value.snippet.html);
+
       const content = computed(() => {
         const rv = r.value;
         if (rv.type === 'resource') {
@@ -413,11 +419,11 @@ export const SpotlightSearch = component('spotlight-search', (_props, host) => {
             <div class="${itemClass}" @click="${handleClick}">
               <div class="spotlight-result-header">
                 <span class="spotlight-resource-icon">📄</span>
-                <span class="spotlight-result-title"></span>
+                <span class="spotlight-result-title" html:inner="${highlightedTitle}"></span>
                 <span class="type-badge type-resource">resource</span>
               </div>
               <div class="spotlight-result-snippet">
-                <span class="snippet-text"></span>
+                <span class="snippet-text" html:inner="${snippetHtml}"></span>
               </div>
               <div class="spotlight-result-meta">
                 <span class="spotlight-result-path">${escapeHtml(resource.path)}</span>
@@ -436,44 +442,17 @@ export const SpotlightSearch = component('spotlight-search', (_props, host) => {
           <div class="${itemClass}" @click="${handleClick}">
             <div class="spotlight-result-header">
               ${TaskBadge({ taskId: computed(() => task.id) })}
-              <span class="spotlight-result-title"></span>
+              <span class="spotlight-result-title" html:inner="${highlightedTitle}"></span>
               <span class="status-badge status-${status}">${status.replace('_', ' ')}</span>
             </div>
             <div class="spotlight-result-snippet">
-              <span class="snippet-text"></span>
+              <span class="snippet-text" html:inner="${snippetHtml}"></span>
             </div>
             <div class="spotlight-result-meta">
               ${matchInfo ? html`<span class="spotlight-result-field">${matchInfo}</span>` : null}
             </div>
           </div>
         `;
-      });
-
-      // Fill highlighted HTML imperatively after each render
-      effect(() => {
-        const rv = r.value;
-        const q = queryText.value;
-        if (!q || q.length < 2) return;
-
-        queueMicrotask(() => {
-          const items = host.querySelectorAll('.spotlight-results .spotlight-result');
-          const el = items[index.value];
-          if (!el) return;
-
-          const titleEl = el.querySelector('.spotlight-result-title');
-          if (titleEl) {
-            if (rv.type === 'resource') {
-              titleEl.innerHTML = highlighter.highlight((rv.item as Resource).title, q).HTML;
-            } else {
-              titleEl.innerHTML = highlighter.highlight((rv.item as Task).title, q).HTML;
-            }
-          }
-
-          const snippetEl = el.querySelector('.snippet-text');
-          if (snippetEl) {
-            snippetEl.innerHTML = rv.snippet.html;
-          }
-        });
       });
 
       return html`${content}`;
@@ -488,7 +467,7 @@ export const SpotlightSearch = component('spotlight-search', (_props, host) => {
       const isSelected = computed(() => index.value === selectedIndex.value);
       const itemClass = computed(() => `spotlight-tab-item ${isSelected.value ? 'selected' : ''}`);
       const itemType = computed(() => item.value.type);
-      const itemTitle = computed(() => escapeHtml(item.value.title));
+      const itemTitle = computed(() => item.value.title);
       const itemId = computed(() => item.value.id);
 
       const handleClick = () => {
@@ -501,7 +480,7 @@ export const SpotlightSearch = component('spotlight-search', (_props, host) => {
           return html`
             <div class="${itemClass}" @click="${handleClick}">
               <span class="spotlight-resource-icon">📄</span>
-              <span class="spotlight-tab-item-title"></span>
+              <span class="spotlight-tab-item-title">${itemTitle}</span>
               <span class="type-badge type-${itemType}">${itemType}</span>
             </div>
           `;
@@ -509,21 +488,10 @@ export const SpotlightSearch = component('spotlight-search', (_props, host) => {
         return html`
           <div class="${itemClass}" @click="${handleClick}">
             ${TaskBadge({ taskId: itemId })}
-            <span class="spotlight-tab-item-title"></span>
+            <span class="spotlight-tab-item-title">${itemTitle}</span>
             <span class="type-badge type-${itemType}">${itemType}</span>
           </div>
         `;
-      });
-
-      // Set title text
-      effect(() => {
-        const title = itemTitle.value;
-        queueMicrotask(() => {
-          const items = host.querySelectorAll('.spotlight-tabs-content .spotlight-tab-item');
-          const el = items[index.value];
-          const titleEl = el?.querySelector('.spotlight-tab-item-title');
-          if (titleEl) titleEl.innerHTML = title;
-        });
       });
 
       return html`${content}`;
@@ -539,7 +507,7 @@ export const SpotlightSearch = component('spotlight-search', (_props, host) => {
       const itemClass = computed(() => `spotlight-tab-item ${isSelected.value ? 'selected' : ''}`);
       const task = computed(() => result.value.item as Task);
       const taskId = computed(() => task.value.id);
-      const taskTitle = computed(() => escapeHtml(task.value.title));
+      const taskTitle = computed(() => task.value.title);
       const status = computed(() => task.value.status || 'open');
       const statusClass = computed(() => `status-badge status-${status.value}`);
       const statusLabel = computed(() => status.value.replace('_', ' '));
@@ -550,21 +518,10 @@ export const SpotlightSearch = component('spotlight-search', (_props, host) => {
         selectItem(t.id, type as 'task' | 'epic');
       };
 
-      // Set title text
-      effect(() => {
-        const title = taskTitle.value;
-        queueMicrotask(() => {
-          const items = host.querySelectorAll('.spotlight-tabs-content .spotlight-tab-item');
-          const el = items[index.value];
-          const titleEl = el?.querySelector('.spotlight-tab-item-title');
-          if (titleEl) titleEl.innerHTML = title;
-        });
-      });
-
       return html`
         <div class="${itemClass}" @click="${handleClick}">
           ${TaskBadge({ taskId })}
-          <span class="spotlight-tab-item-title"></span>
+          <span class="spotlight-tab-item-title">${taskTitle}</span>
           <span class="${statusClass}">${statusLabel}</span>
         </div>
       `;

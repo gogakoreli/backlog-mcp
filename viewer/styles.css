@@ -890,6 +890,9 @@ task-detail .markdown-body {
 }
 
 /* Frontmatter Metadata — now handled by metadata-card component */
+document-view {
+  display: block;
+}
 metadata-card {
   display: block;
 }

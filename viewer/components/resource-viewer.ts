@@ -1,19 +1,17 @@
 /**
- * resource-viewer.ts — Reactive resource viewer component (Phase 14).
+ * resource-viewer.ts — Reactive resource viewer component.
  *
- * Reads SplitPaneState signals directly to know what resource to load.
- * Replaces the class-based ResourceViewer with signal-driven reactivity.
- *
- * Uses html:inner directive for trusted HTML (markdown metadata rendering).
- * See ADR 0011 Gap 1 for the html:inner directive rationale.
+ * Reads SplitPaneState signals to load and display resources.
+ * Delegates markdown rendering to DocumentView (link interception,
+ * MetadataCard, md-block). Handles code/text files directly.
  */
 import { signal, computed, effect, batch } from '../framework/signal.js';
 import { component } from '../framework/component.js';
 import { html } from '../framework/template.js';
 import { inject } from '../framework/injector.js';
-import { useResourceLinks } from '../framework/lifecycle.js';
 import { SplitPaneState } from '../services/split-pane-state.js';
 import { MetadataCard } from './metadata-card.js';
+import { DocumentView } from './document-view.js';
 
 interface ResourceData {
   frontmatter?: Record<string, unknown>;
@@ -26,7 +24,7 @@ interface ResourceData {
 
 type LoadState = 'empty' | 'loading' | 'loaded' | 'error';
 
-export const ResourceViewer = component('resource-viewer', (_props, host) => {
+export const ResourceViewer = component('resource-viewer', () => {
   const splitState = inject(SplitPaneState);
 
   // ── Local state ──────────────────────────────────────────────────
@@ -99,9 +97,6 @@ export const ResourceViewer = component('resource-viewer', (_props, host) => {
     }
   });
 
-  // ── Link interception (shared hook, ADR 0070) ─────────────────────
-  useResourceLinks(host, splitState);
-
   // ── Computed metadata entries for MetadataCard ────────────────────
   const metadataEntries = computed(() => {
     const d = data.value;
@@ -146,12 +141,10 @@ export const ResourceViewer = component('resource-viewer', (_props, host) => {
 
     // Markdown document
     if (d.ext === 'md' || d.frontmatter) {
-      return html`
-        <article class="markdown-body">
-          ${MetadataCard({ entries: metadataEntries })}
-          <md-block>${computed(() => data.value?.content || '')}</md-block>
-        </article>
-      `;
+      return DocumentView({
+        header: MetadataCard({ entries: metadataEntries }),
+        content: computed(() => data.value?.content || ''),
+      });
     }
 
     // Code file

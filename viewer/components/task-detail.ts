@@ -12,7 +12,7 @@ import { component } from '../framework/component.js';
 import { html, when } from '../framework/template.js';
 import { inject } from '../framework/injector.js';
 import { query } from '../framework/query.js';
-import { onCleanup, useResourceLinks } from '../framework/lifecycle.js';
+import { onCleanup } from '../framework/lifecycle.js';
 import { fetchTask, fetchOperationCount, type TaskResponse } from '../utils/api.js';
 import { backlogEvents } from '../services/event-source-client.js';
 import { getTypeFromId, getTypeConfig, getParentId } from '../type-registry.js';
@@ -21,7 +21,8 @@ import { SplitPaneState } from '../services/split-pane-state.js';
 import { CopyButton } from './copy-button.js';
 import { TaskBadge } from './task-badge.js';
 import { SvgIcon } from './svg-icon.js';
-import { MetadataCard, filterTaskEntries } from './metadata-card.js';
+import { MetadataCard } from './metadata-card.js';
+import { DocumentView } from './document-view.js';
 import { activityIcon } from '../icons/index.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -32,7 +33,7 @@ function formatDate(iso: string): string {
 
 // ── Component ────────────────────────────────────────────────────────
 
-export const TaskDetail = component('task-detail', (_props, host) => {
+export const TaskDetail = component('task-detail', () => {
   const app = inject(AppState);
   const splitState = inject(SplitPaneState);
 
@@ -122,9 +123,6 @@ export const TaskDetail = component('task-detail', (_props, host) => {
 
   // ── Actions ────────────────────────────────────────────────────
 
-  // Intercept file:// and mcp:// links in md-block content (ADR 0070)
-  useResourceLinks(host, splitState);
-
   function handleEpicClick(e: Event) {
     e.preventDefault();
     const pid = parentId.value;
@@ -184,30 +182,31 @@ export const TaskDetail = component('task-detail', (_props, host) => {
     `;
   });
 
-  // ── Content view — metadata card + markdown ────────────────────
-  const taskView = html`
-    <article class="markdown-body">
-      <div class="task-meta-card">
-        <h1 class="task-meta-title">${taskTitle}</h1>
-        <div class="task-meta-row">
-          <span>Created: ${createdAt}</span>
-          <span>Updated: ${updatedAt}</span>
-          ${when(parentId, html`
-            <span class="task-meta-epic">
-              <span class="task-meta-epic-label">${parentLabel}:</span>
-              <a href="#" class="epic-link" @click="${handleEpicClick}">
-                ${TaskBadge({ taskId: parentId as any })}
-              </a>
-              ${when(parentTitle, html`<span class="epic-title">${parentTitle}</span>`)}
-            </span>
-          `)}
-        </div>
-        ${MetadataCard({ entries: extraEntries })}
+  // ── Content view — DocumentView with task header ────────────────
+  const taskHeader = html`
+    <div class="task-meta-card">
+      <h1 class="task-meta-title">${taskTitle}</h1>
+      <div class="task-meta-row">
+        <span>Created: ${createdAt}</span>
+        <span>Updated: ${updatedAt}</span>
+        ${when(parentId, html`
+          <span class="task-meta-epic">
+            <span class="task-meta-epic-label">${parentLabel}:</span>
+            <a href="#" class="epic-link" @click="${handleEpicClick}">
+              ${TaskBadge({ taskId: parentId as any })}
+            </a>
+            ${when(parentTitle, html`<span class="epic-title">${parentTitle}</span>`)}
+          </span>
+        `)}
       </div>
-
-      <md-block>${taskDescription}</md-block>
-    </article>
+      ${MetadataCard({ entries: extraEntries })}
+    </div>
   `;
+
+  const taskView = DocumentView({
+    header: taskHeader,
+    content: taskDescription,
+  });
 
   const emptyView = html`
     <div class="empty-state">

@@ -70,49 +70,54 @@ const hyphenAwareTokenizer: Tokenizer = {
 };
 
 /**
- * Ranking signal bonus values for re-ranking (ADR-0051).
+ * Ranking signal multipliers for re-ranking (ADR-0072, supersedes ADR-0051).
  * Multiple signals combine additively to determine final ranking.
  * 
  * Bonus values are tuned so that:
  * - Title matches rank above description-only matches
- * - Title-starts-with-query gets highest priority (strongest signal)
- * - Matching more query words gives additional bonus
+ * - Scores are normalized to 0-1 before applying domain signals
+ * - Multiplicative factors ensure signals scale with relevance
+ * - Title coverage and position amplify Orama's base relevance
  * - Epics get a small boost only when they have strong title matches
  * - Recent items get a boost but don't overwhelm relevance
  */
-const RANKING_BONUS = {
-  // Title match bonuses (highest priority)
-  TITLE_STARTS_WITH: 20,  // Title starts with query (strongest signal)
-  TITLE_EXACT_WORD: 10,   // Query appears as standalone word in title
-  TITLE_PARTIAL: 3,       // Query appears as substring in title (compound word)
-  // Multi-word match bonus
-  MULTI_WORD_MATCH: 8,    // Per additional query word matched in title
-  // Type importance bonus - only applied with title match
-  EPIC_WITH_TITLE_MATCH: 5,  // Epics with title match get extra boost
-  // Recency bonuses (decayed by age)
-  RECENCY_TODAY: 5,       // Updated today
-  RECENCY_WEEK: 3,        // Updated this week
-  RECENCY_MONTH: 2,       // Updated this month
-  RECENCY_QUARTER: 1,     // Updated this quarter
-};
 
 /**
- * Calculate recency bonus based on days since last update.
+ * Calculate recency multiplier based on days since last update (ADR-0072).
+ * Returns 1.0-1.15 — recent items get a small proportional boost.
  */
-function getRecencyBonus(updatedAt: string | undefined): number {
-  if (!updatedAt) return 0;
+function getRecencyMultiplier(updatedAt: string | undefined): number {
+  if (!updatedAt) return 1.0;
   const daysSinceUpdate = (Date.now() - new Date(updatedAt).getTime()) / (1000 * 60 * 60 * 24);
-  if (daysSinceUpdate < 1) return RANKING_BONUS.RECENCY_TODAY;
-  if (daysSinceUpdate < 7) return RANKING_BONUS.RECENCY_WEEK;
-  if (daysSinceUpdate < 30) return RANKING_BONUS.RECENCY_MONTH;
-  if (daysSinceUpdate < 90) return RANKING_BONUS.RECENCY_QUARTER;
-  return 0;
+  if (daysSinceUpdate < 1) return 1.15;
+  if (daysSinceUpdate < 7) return 1.10;
+  if (daysSinceUpdate < 30) return 1.05;
+  if (daysSinceUpdate < 90) return 1.02;
+  return 1.0;
 }
 
 /**
- * Re-rank results using multiple signals: title match quality, type importance, recency.
- * Adds fixed bonuses to ensure important items rank appropriately.
+ * Normalize scores to 0-1 range by dividing by the maximum score (ADR-0072).
+ * This makes scores magnitude-independent, working identically for
+ * BM25-only (unbounded) and hybrid (already 0-1) modes.
+ */
+function normalizeScores<T extends { score: number }>(results: T[]): T[] {
+  if (results.length === 0) return results;
+  const maxScore = Math.max(...results.map(r => r.score));
+  if (maxScore === 0) return results;
+  return results.map(r => ({ ...r, score: r.score / maxScore }));
+}
+
+/**
+ * Re-rank results using normalize-then-multiply pipeline (ADR-0072).
  * 
+ * Stage 1: Normalize Orama scores to 0-1 (divide by max)
+ * Stage 2: Apply multiplicative domain signals:
+ *   - Title word coverage (prefix-aware): up to 1.5x
+ *   - Title starts-with-query: additional +0.3 (up to 1.8x total)
+ *   - Epic with title match: ×1.1
+ *   - Recency: ×1.0-1.15
+ *
  * @param results - Search results with score and item (task or resource)
  * @param query - Original search query
  * @returns Re-ranked results sorted by adjusted score
@@ -122,57 +127,45 @@ function rerankWithSignals<T extends { score: number; item: { title?: string; ty
   query: string
 ): T[] {
   if (!query.trim()) return results;
-  
+
+  // Stage 1: Normalize to 0-1
+  const normalized = normalizeScores(results);
+
   const queryLower = query.toLowerCase().trim();
   const queryWords = queryLower.split(/\s+/);
-  
-  return results.map(r => {
-    let bonus = 0;
-    
-    // Title match bonus - check in order of strength
+
+  // Stage 2: Multiplicative domain signals
+  return normalized.map(r => {
+    let multiplier = 1.0;
+
     const title = r.item.title?.toLowerCase() || '';
     const titleWords = title.split(/\W+/).filter(Boolean);
-    
-    // Count how many query words match in title
-    const matchingQueryWords = queryWords.filter(qw => titleWords.includes(qw));
+
+    // Prefix-aware title word matching: "produc" matches "product"
+    const matchingQueryWords = queryWords.filter(qw =>
+      titleWords.some(tw => tw.startsWith(qw) || qw.startsWith(tw))
+    );
     const matchCount = matchingQueryWords.length;
-    
-    // Strongest: title starts with query (e.g., "Backlog MCP" for query "backlog")
-    const titleStartsWithQuery = queryWords.some(qw => title.startsWith(qw));
-    
-    // Strong: query word appears as standalone word in title
-    const hasExactMatch = matchCount > 0;
-    
-    // Weak: query appears as substring in title (compound word)
-    const hasPartialMatch = !hasExactMatch && queryWords.some(qw => title.includes(qw));
-    
-    // Track if we have any title match for epic bonus
-    const hasTitleMatch = titleStartsWithQuery || hasExactMatch || hasPartialMatch;
-    
-    if (titleStartsWithQuery) {
-      bonus += RANKING_BONUS.TITLE_STARTS_WITH;
-    } else if (hasExactMatch) {
-      bonus += RANKING_BONUS.TITLE_EXACT_WORD;
-    } else if (hasPartialMatch) {
-      bonus += RANKING_BONUS.TITLE_PARTIAL;
+
+    // Title word coverage: proportion of query words found in title
+    const titleCoverage = queryWords.length > 0 ? matchCount / queryWords.length : 0;
+    multiplier += titleCoverage * 0.5; // up to 1.5x for perfect coverage
+
+    // Title starts-with-query bonus
+    if (queryWords.some(qw => title.startsWith(qw))) {
+      multiplier += 0.3; // up to 1.8x total
     }
-    
-    // Multi-word match bonus: reward matching more query words in title
-    // Only count additional words beyond the first match
-    if (matchCount > 1) {
-      bonus += (matchCount - 1) * RANKING_BONUS.MULTI_WORD_MATCH;
-    }
-    
-    // Type importance bonus - only for epics WITH title match
-    // This prevents epics from ranking above tasks when they only match in description
+
+    // Epic with title match: small proportional boost
+    const hasTitleMatch = matchCount > 0 || queryWords.some(qw => title.includes(qw));
     if (r.item.type === 'epic' && hasTitleMatch) {
-      bonus += RANKING_BONUS.EPIC_WITH_TITLE_MATCH;
+      multiplier *= 1.1;
     }
-    
-    // Recency bonus
-    bonus += getRecencyBonus(r.item.updated_at);
-    
-    return { ...r, score: r.score + bonus };
+
+    // Recency multiplier
+    multiplier *= getRecencyMultiplier(r.item.updated_at);
+
+    return { ...r, score: r.score * multiplier };
   }).sort((a, b) => b.score - a.score);
 }
 
@@ -352,7 +345,7 @@ export class OramaSearchService implements SearchService {
     if (!query.trim()) return [];
 
     const limit = options?.limit ?? 20;
-    const boost = options?.boost ?? { id: 10, title: 2 };
+    const boost = options?.boost ?? { id: 10, title: 5 };
 
     // Determine if we can use hybrid search
     const canUseHybrid = this.hasEmbeddingsInIndex && (await this.ensureEmbeddings());
@@ -410,7 +403,7 @@ export class OramaSearchService implements SearchService {
       }
     }
 
-    // Re-rank with multiple signals: title match, type importance, recency (ADR-0051)
+    // Re-rank with normalize-then-multiply pipeline (ADR-0072)
     const reranked = rerankWithSignals(
       hits.map(h => ({ score: h.score, item: h.task })),
       query
@@ -548,7 +541,7 @@ export class OramaSearchService implements SearchService {
       }))
       .filter(h => h.resource);
 
-    // Re-rank with multiple signals (ADR-0051) - resources don't have type/recency, just title
+    // Re-rank with normalize-then-multiply pipeline (ADR-0072) - resources have title for matching
     const reranked = rerankWithSignals(
       resourceHits.map(h => ({ score: h.score, item: h.resource })),
       query
@@ -572,7 +565,7 @@ export class OramaSearchService implements SearchService {
 
     const limit = options?.limit ?? 20;
     const docTypes = options?.docTypes;
-    const boost = options?.boost ?? { id: 10, title: 2 };
+    const boost = options?.boost ?? { id: 10, title: 5 };
     const sortMode = options?.sort ?? 'relevant';
 
     const canUseHybrid = this.hasEmbeddingsInIndex && (await this.ensureEmbeddings());
@@ -641,7 +634,7 @@ export class OramaSearchService implements SearchService {
         return bDate.localeCompare(aDate);
       });
     } else {
-      // Re-rank with multiple signals: title match, type importance, recency (ADR-0051)
+      // Re-rank with normalize-then-multiply pipeline (ADR-0072)
       hits = rerankWithSignals(hits, query);
     }
 

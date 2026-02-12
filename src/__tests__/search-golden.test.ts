@@ -347,8 +347,8 @@ describe('Search Golden Benchmark', () => {
       const results = await service.search('backlog');
       const epic = results.find(r => r.task.id === 'EPIC-0001');
       expect(epic).toBeDefined();
-      // Epic with title match should have bonus applied (score > 10)
-      expect(epic!.score).toBeGreaterThan(10);
+      // Epic with title match should have multiplier applied (normalized score > 1.0)
+      expect(epic!.score).toBeGreaterThan(1.0);
     });
 
     it('epic with title match ranks above task with same title match (ADR-0051)', async () => {
@@ -363,13 +363,14 @@ describe('Search Golden Benchmark', () => {
       expect(epic!.score).toBeGreaterThan(task!.score);
     });
 
-    it('title-starts-with-query gets highest bonus (ADR-0051)', async () => {
+    it('title-starts-with-query gets highest bonus (ADR-0072)', async () => {
       // EPIC-0001 title starts with "backlog": "backlog-mcp 10x"
       const results = await service.search('backlog');
       const epic = results.find(r => r.task.id === 'EPIC-0001');
       expect(epic).toBeDefined();
-      // Should have title-starts-with bonus (20) + epic bonus (5) = 25+ on top of BM25
-      expect(epic!.score).toBeGreaterThan(25);
+      // Should have title-starts-with multiplier (1.3) + epic multiplier (1.1) + recency
+      // Normalized score × multipliers > 1.3
+      expect(epic!.score).toBeGreaterThan(1.3);
     });
   });
 });

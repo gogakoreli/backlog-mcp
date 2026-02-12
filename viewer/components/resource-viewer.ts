@@ -10,7 +10,6 @@ import { component } from '../framework/component.js';
 import { html } from '../framework/template.js';
 import { inject } from '../framework/injector.js';
 import { SplitPaneState } from '../services/split-pane-state.js';
-import { MetadataCard } from './metadata-card.js';
 import { DocumentView } from './document-view.js';
 
 interface ResourceData {
@@ -97,13 +96,6 @@ export const ResourceViewer = component('resource-viewer', () => {
     }
   });
 
-  // ── Computed metadata entries for MetadataCard ────────────────────
-  const metadataEntries = computed(() => {
-    const d = data.value;
-    if (!d?.frontmatter || Object.keys(d.frontmatter).length === 0) return [];
-    return Object.entries(d.frontmatter).map(([key, value]) => ({ key, value }));
-  });
-
   // ── Computed content view ────────────────────────────────────────
   const contentView = computed(() => {
     const state = loadState.value;
@@ -142,7 +134,7 @@ export const ResourceViewer = component('resource-viewer', () => {
     // Markdown document
     if (d.ext === 'md' || d.frontmatter) {
       return DocumentView({
-        header: MetadataCard({ entries: metadataEntries }),
+        frontmatter: computed(() => data.value?.frontmatter ?? {}),
         content: computed(() => data.value?.content || ''),
       });
     }

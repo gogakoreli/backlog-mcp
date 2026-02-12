@@ -67,13 +67,6 @@ function isReference(v: unknown): v is { url: string; title?: string } {
   return typeof v === 'object' && v !== null && 'url' in v && typeof (v as any).url === 'string';
 }
 
-/** Skip keys that task-detail renders in its own header/layout */
-const TASK_HEADER_KEYS = new Set(['id', 'title', 'description', 'type', 'status', 'created_at', 'updated_at', 'parent_id', 'epic_id']);
-
-export function filterTaskEntries(entries: Array<{ key: string; value: unknown }>): Array<{ key: string; value: unknown }> {
-  return entries.filter(e => !TASK_HEADER_KEYS.has(e.key));
-}
-
 export const MetadataCard = component<MetadataCardProps>('metadata-card', (props) => {
   const splitState = inject(SplitPaneState);
   const entries = props.entries as ReadonlySignal<Array<{ key: string; value: unknown }>>;

@@ -7,7 +7,7 @@
  * Owns its own pane header (Phase 15) — no cross-tree DOM updates.
  * Opens activity via inject(SplitPaneState).openActivity() directly.
  */
-import { signal, computed, effect } from '../framework/signal.js';
+import { signal, computed } from '../framework/signal.js';
 import { component } from '../framework/component.js';
 import { html, when } from '../framework/template.js';
 import { inject } from '../framework/injector.js';
@@ -15,21 +15,14 @@ import { query } from '../framework/query.js';
 import { onCleanup } from '../framework/lifecycle.js';
 import { fetchTask, fetchOperationCount, type TaskResponse } from '../utils/api.js';
 import { backlogEvents } from '../services/event-source-client.js';
-import { getTypeFromId, getTypeConfig, getParentId } from '../type-registry.js';
+import { getTypeConfig, getParentId } from '../type-registry.js';
 import { AppState } from '../services/app-state.js';
 import { SplitPaneState } from '../services/split-pane-state.js';
 import { CopyButton } from './copy-button.js';
 import { TaskBadge } from './task-badge.js';
 import { SvgIcon } from './svg-icon.js';
-import { MetadataCard } from './metadata-card.js';
 import { DocumentView } from './document-view.js';
 import { activityIcon } from '../icons/index.js';
-
-// ── Helpers ──────────────────────────────────────────────────────────
-
-function formatDate(iso: string): string {
-  return iso ? new Date(iso).toLocaleDateString() : '';
-}
 
 // ── Component ────────────────────────────────────────────────────────
 
@@ -74,47 +67,19 @@ export const TaskDetail = component('task-detail', () => {
 
   // ── Derived state ──────────────────────────────────────────────
   const hasTask = computed(() => !!task.value && !!app.selectedTaskId.value);
-  const taskTitle = computed(() => task.value?.title ?? '');
   const taskDescription = computed(() => task.value?.description ?? '');
-  const createdAt = computed(() => formatDate(task.value?.created_at ?? ''));
-  const updatedAt = computed(() => formatDate(task.value?.updated_at ?? ''));
   const taskType = computed(() => task.value?.type ?? 'task');
   const taskStatus = computed(() => task.value?.status ?? 'open');
   const hasStatus = computed(() => getTypeConfig(taskType.value).hasStatus);
   const statusClass = computed(() => `status-badge status-${taskStatus.value}`);
   const statusLabel = computed(() => taskStatus.value.replace('_', ' '));
-
   const parentId = computed(() => {
     const t = task.value;
     return t ? (getParentId(t) ?? null) : null;
   });
-  const parentType = computed(() => {
-    const pid = parentId.value;
-    return pid ? getTypeFromId(pid) : null;
-  });
-  const parentLabel = computed(() => {
-    const pt = parentType.value;
-    return pt ? getTypeConfig(pt).label : 'Parent';
-  });
-  const parentTitle = computed(() => task.value?.parentTitle || task.value?.epicTitle || null);
 
-  const references = computed(() => task.value?.references ?? []);
-  const evidence = computed<string[]>(() => task.value?.evidence ?? []);
-  const blockedReasons = computed<string[]>(() => task.value?.blocked_reason ?? []);
-
-  // ── Extra metadata entries for MetadataCard (references, evidence, blocked) ──
-  const extraEntries = computed(() => {
-    const t = task.value;
-    if (!t) return [];
-    // Build entries from the raw task frontmatter, filtering out header fields
-    const raw: Array<{ key: string; value: unknown }> = [];
-    if (t.references?.length) raw.push({ key: 'references', value: t.references });
-    if (t.evidence?.length) raw.push({ key: 'evidence', value: t.evidence });
-    if (t.blocked_reason?.length) raw.push({ key: 'blocked', value: t.blocked_reason });
-    if (t.due_date) raw.push({ key: 'due date', value: t.due_date });
-    if (t.content_type) raw.push({ key: 'content type', value: t.content_type });
-    return raw;
-  });
+  // ── Frontmatter for DocumentView (pass full task response) ─────
+  const frontmatter = computed<Record<string, unknown>>(() => task.value ?? {});
 
   // ── Activity badge ──────────────────────────────────────────────
   const opCount = computed(() => opCountQuery.data.value ?? 0);
@@ -122,12 +87,6 @@ export const TaskDetail = component('task-detail', () => {
   const badgeText = computed(() => opCount.value > 99 ? '99+' : String(opCount.value));
 
   // ── Actions ────────────────────────────────────────────────────
-
-  function handleEpicClick(e: Event) {
-    e.preventDefault();
-    const pid = parentId.value;
-    if (pid) app.selectTask(pid);
-  }
 
   function handleActivityClick() {
     const id = app.selectedTaskId.value;
@@ -182,30 +141,11 @@ export const TaskDetail = component('task-detail', () => {
     `;
   });
 
-  // ── Content view — DocumentView with task header ────────────────
-  const taskHeader = html`
-    <div class="task-meta-card">
-      <h1 class="task-meta-title">${taskTitle}</h1>
-      <div class="task-meta-row">
-        <span>Created: ${createdAt}</span>
-        <span>Updated: ${updatedAt}</span>
-        ${when(parentId, html`
-          <span class="task-meta-epic">
-            <span class="task-meta-epic-label">${parentLabel}:</span>
-            <a href="#" class="epic-link" @click="${handleEpicClick}">
-              ${TaskBadge({ taskId: parentId as any })}
-            </a>
-            ${when(parentTitle, html`<span class="epic-title">${parentTitle}</span>`)}
-          </span>
-        `)}
-      </div>
-      ${MetadataCard({ entries: extraEntries })}
-    </div>
-  `;
-
+  // ── Content view — DocumentView renders header + markdown ───────
   const taskView = DocumentView({
-    header: taskHeader,
+    frontmatter,
     content: taskDescription,
+    onNavigate: (id) => app.selectTask(id),
   });
 
   const emptyView = html`

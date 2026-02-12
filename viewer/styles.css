@@ -676,8 +676,8 @@
       margin: 16px;
     }
 
-/* Task meta card */
-.task-meta-card {
+/* Document header (shared by all entity types and generic frontmatter) */
+.doc-header {
   padding: 16px;
   margin-bottom: 16px;
   background: #161b22;
@@ -703,25 +703,29 @@
   font-size: 12px;
   color: #8b949e;
 }
-.task-meta-title {
+.doc-title {
   font-size: 24px;
   margin: 0 0 8px 0;
   font-weight: 600;
 }
-.task-meta-row {
+.doc-dates {
   font-size: 12px;
   color: #8b949e;
   display: flex;
   align-items: center;
   gap: 16px;
   flex-wrap: wrap;
+  margin-bottom: 4px;
 }
-.task-meta-epic {
+.doc-due-date {
+  color: #f0b429;
+}
+.doc-parent {
   display: inline-flex;
   align-items: center;
   gap: 4px;
 }
-.task-meta-epic-label {
+.doc-parent-label {
   margin-right: 0;
 }
 .epic-link {

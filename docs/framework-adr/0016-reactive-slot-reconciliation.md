@@ -255,3 +255,61 @@ This is a language-level guarantee (spec §13.2.8.3). If the slot handler could 
 - **Preact/React**: Virtual DOM diff. Different tradeoff (full tree diff vs targeted updates), but same-shape JSX produces same virtual nodes that get patched.
 
 All three preserve DOM when the template structure hasn't changed.
+
+## Invariants
+
+Any solution MUST preserve these guarantees. Violating any of them is a regression.
+
+### 1. Same-shape templates MUST NOT rebuild DOM
+
+If a computed re-evaluates and returns a `TemplateResult` with the same `TemplateStringsArray` reference as the previous one, zero DOM nodes may be created, removed, or reordered. Only text content, attributes, and event handlers may be updated in-place.
+
+**Test**: A computed that returns `html\`<div class="${cls}">${text}</div>\`` with different `cls`/`text` values must update the existing `<div>` — never remove and re-append it.
+
+### 2. Different-shape templates MUST fully teardown before mount
+
+If the `TemplateStringsArray` references differ (different call site, or transition from template to null), the old template's `dispose()` must be called and all old DOM nodes removed before the new template mounts. No leaked effects, no orphaned event listeners.
+
+**Test**: Switching from `html\`<div>A</div>\`` to `html\`<span>B</span>\`` (different template) must dispose the old one completely.
+
+### 3. Null transitions MUST dispose cleanly
+
+`null → template`: mount fresh. `template → null`: call `dispose()`, remove all DOM. No intermediate state where both old and new content exist simultaneously.
+
+**Test**: `when(condition, () => html\`...\`)` toggling must not leak DOM nodes or effects.
+
+### 4. Inner reactive slots MUST be independent
+
+A template embedding `${someComputed}` creates an inner reactive slot. Patching the outer template's values must not interfere with inner slots — they manage their own lifecycle via their own effects.
+
+**Test**: Outer template patches a class attribute. Inner computed re-evaluates independently. Neither triggers the other's update path.
+
+### 5. Effects inside templates MUST survive patches
+
+Effects created during `mount()` (event handlers, text bindings, attribute bindings) must remain alive across value patches. `dispose()` is only called on full teardown, never on same-shape patch.
+
+**Test**: An `@click` handler inside a patched template must still fire after the patch. An `effect()` tracking a signal inside the template must still run.
+
+### 6. Template cache MUST be keyed by TemplateStringsArray identity
+
+Same `strings` reference → same parsed HTML structure → reuse the cached `HTMLTemplateElement` via `cloneNode(true)`. Different `strings` reference → parse fresh. The cache must not grow unboundedly (WeakMap keyed on `strings` handles this naturally since `TemplateStringsArray` is GC'd when the module unloads).
+
+**Test**: Mounting the same tagged template 1000 times calls `template.innerHTML` once and `cloneNode` 999 times.
+
+### 7. Binding updates MUST be idempotent
+
+Patching a value position with the same value it already holds must be a no-op. No DOM writes, no event re-attachment, no style recalc triggers.
+
+**Test**: Patching `html\`<div>${"same"}</div>\`` with `"same"` again must not touch `textNode.data`.
+
+### 8. Array slot updates MUST NOT regress each() behavior
+
+`each()` already does keyed list diffing. The reconciliation for single-value slots must not break or duplicate the `each()` code path. If a slot holds an array of `TemplateResult`s (from `.map()`), the existing nuke-and-rebuild is acceptable — `each()` is the correct tool for lists.
+
+**Test**: `${items.map(i => html\`...\`)}` continues to work (nuke-and-rebuild). `${each(items, ...)}` continues to do keyed diffing.
+
+### 9. No observable behavior change for components
+
+Existing components must work identically without modification. The optimization is internal to the template engine — components don't opt in or out. Any component that works today must work after this change with fewer DOM mutations, not different DOM mutations.
+
+**Test**: Full viewer test suite passes. Manual verification that activity panel, spotlight search, document view, and task detail all render correctly.

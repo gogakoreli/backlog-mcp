@@ -134,4 +134,4 @@ export const DocumentView = component<DocumentViewProps>('document-view', (props
       <md-block>${props.content}</md-block>
     </article>
   `;
-}, { class: 'document-view' });
+});

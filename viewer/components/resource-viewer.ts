@@ -154,4 +154,4 @@ export const ResourceViewer = component('resource-viewer', () => {
 
   // ── Template ─────────────────────────────────────────────────────
   return html`<div class="resource-viewer">${contentView}</div>`;
-}, { class: 'resource-viewer' });
+});

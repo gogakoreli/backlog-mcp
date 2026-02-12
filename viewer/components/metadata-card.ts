@@ -90,4 +90,4 @@ export const MetadataCard = component<MetadataCardProps>('metadata-card', (props
   });
 
   return html`${when(hasEntries, html`<dl class="meta-grid">${items}</dl>`)}`;
-}, { class: 'metadata-card' });
+});

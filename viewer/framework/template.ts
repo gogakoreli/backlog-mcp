@@ -776,7 +776,8 @@ interface EachEntry<T> {
   itemSignal: Signal<T>;
   indexSignal: Signal<number>;
   templateResult: TemplateResult;
-  nodes: Node[];
+  /** Stable wrapper element that survives inner reactive content changes. */
+  wrapper: HTMLElement;
 }
 
 /**
@@ -857,14 +858,17 @@ export function each<T>(
         existing.indexSignal.value = i;
         newEntries.push(existing);
       } else {
-        // Create new entry
+        // Create new entry with a stable wrapper element.
+        // Using display:contents so the wrapper is invisible to layout —
+        // inner reactive content can freely swap DOM nodes without
+        // invalidating the each() reconciler's node tracking.
         const itemSignal = signal(item) as Signal<T>;
         const indexSignal = signal(i);
-        const wrapper = document.createDocumentFragment();
+        const wrapper = document.createElement('each-item');
+        wrapper.style.display = 'contents';
         const templateResult = templateFn(itemSignal, indexSignal);
-        templateResult.mount(wrapper as unknown as HTMLElement);
-        const nodes = [...wrapper.childNodes];
-        newEntries.push({ key, itemSignal, indexSignal, templateResult, nodes });
+        templateResult.mount(wrapper);
+        newEntries.push({ key, itemSignal, indexSignal, templateResult, wrapper });
       }
     }
 
@@ -872,23 +876,20 @@ export function each<T>(
     for (const entry of entries) {
       if (!newKeys.has(entry.key)) {
         entry.templateResult.dispose();
-        for (const node of entry.nodes) {
-          node.parentNode?.removeChild(node);
-        }
+        entry.wrapper.parentNode?.removeChild(entry.wrapper);
       }
     }
 
-    // Reorder DOM nodes to match new order
-    // Walk newEntries and ensure each entry's nodes are in the right position
+    // Reorder DOM nodes to match new order.
+    // Each entry has exactly one stable wrapper element, so positioning
+    // is simple and immune to inner reactive content swaps.
     let cursor: Node = startMarker;
     for (const entry of newEntries) {
-      for (const node of entry.nodes) {
-        const nextSibling = cursor.nextSibling;
-        if (nextSibling !== node) {
-          parent.insertBefore(node, nextSibling);
-        }
-        cursor = node;
+      const nextSibling = cursor.nextSibling;
+      if (nextSibling !== entry.wrapper) {
+        parent.insertBefore(entry.wrapper, nextSibling);
       }
+      cursor = entry.wrapper;
     }
 
     entries = newEntries;

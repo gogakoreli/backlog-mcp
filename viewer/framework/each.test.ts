@@ -371,3 +371,100 @@ describe('each() edge cases', () => {
     expect(spans[1].textContent).toContain('F');
   });
 });
+
+// ── Reactive content (computed TemplateResult) ──────────────────────
+
+describe('each() with reactive computed content', () => {
+  it('updates DOM correctly when items have computed TemplateResult content', () => {
+    // This reproduces the spotlight search bug: each entry's templateFn
+    // returns html`${content}` where content is a computed signal holding
+    // a TemplateResult. When the item signal updates, the computed creates
+    // a new TemplateResult, causing the reactive slot to swap DOM nodes.
+    // The each() reconciler must still position entries correctly.
+    const items = signal([
+      { id: '1', title: 'Alpha', status: 'open' },
+      { id: '2', title: 'Beta', status: 'done' },
+    ]);
+
+    const result = html`<div>${each(
+      items,
+      (t) => t.id,
+      (item) => {
+        // Mimic spotlight: computed returns a new TemplateResult on each change
+        const content = computed(() => {
+          const t = item.value;
+          return html`<div class="result"><span class="title">${t.title}</span><span class="status">${t.status}</span></div>`;
+        });
+        return html`${content}`;
+      },
+    )}</div>`;
+    const host = mount(result);
+
+    expect(host.querySelectorAll('.result')).toHaveLength(2);
+    expect(host.querySelector('.result .title')?.textContent).toContain('Alpha');
+
+    // Second "search" — same keys but updated content
+    items.value = [
+      { id: '1', title: 'Alpha Updated', status: 'in_progress' },
+      { id: '2', title: 'Beta Updated', status: 'blocked' },
+    ];
+    flushEffects(); // each() reconcile
+    flushEffects(); // computed TemplateResult re-evaluation
+    flushEffects(); // inner text binding updates
+
+    const results = host.querySelectorAll('.result');
+    expect(results).toHaveLength(2);
+    expect(results[0].querySelector('.title')?.textContent).toContain('Alpha Updated');
+    expect(results[0].querySelector('.status')?.textContent).toContain('in_progress');
+    expect(results[1].querySelector('.title')?.textContent).toContain('Beta Updated');
+    expect(results[1].querySelector('.status')?.textContent).toContain('blocked');
+  });
+
+  it('handles complete replacement with computed TemplateResult content', () => {
+    const items = signal([
+      { id: '1', title: 'First' },
+      { id: '2', title: 'Second' },
+    ]);
+
+    const result = html`<div>${each(
+      items,
+      (t) => t.id,
+      (item) => {
+        const content = computed(() =>
+          html`<span class="item">${item.value.title}</span>`
+        );
+        return html`${content}`;
+      },
+    )}</div>`;
+    const host = mount(result);
+
+    expect(host.querySelectorAll('.item')).toHaveLength(2);
+
+    // Complete replacement — all new keys
+    items.value = [
+      { id: '3', title: 'Third' },
+      { id: '4', title: 'Fourth' },
+    ];
+    flushEffects();
+    flushEffects();
+
+    const spans = host.querySelectorAll('.item');
+    expect(spans).toHaveLength(2);
+    expect(spans[0].textContent).toContain('Third');
+    expect(spans[1].textContent).toContain('Fourth');
+
+    // Third search — mix of reused and new keys
+    items.value = [
+      { id: '4', title: 'Fourth v2' },
+      { id: '5', title: 'Fifth' },
+    ];
+    flushEffects();
+    flushEffects();
+    flushEffects();
+
+    const spans2 = host.querySelectorAll('.item');
+    expect(spans2).toHaveLength(2);
+    expect(spans2[0].textContent).toContain('Fourth v2');
+    expect(spans2[1].textContent).toContain('Fifth');
+  });
+});

@@ -2,7 +2,7 @@ import { create, insert, remove, search, save, load, type Orama, type Results, t
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Task } from '@/storage/schema.js';
-import type { SearchService, SearchOptions, SearchResult, Resource, ResourceSearchResult, SearchableType } from './types.js';
+import type { SearchService, SearchOptions, SearchResult, Resource, ResourceSearchResult, SearchableType, SearchSnippet } from './types.js';
 import { EmbeddingService, EMBEDDING_DIMENSIONS } from './embedding-service.js';
 
 type OramaDoc = {
@@ -167,6 +167,95 @@ function rerankWithSignals<T extends { score: number; item: { title?: string; ty
 
     return { ...r, score: r.score * multiplier };
   }).sort((a, b) => b.score - a.score);
+}
+
+// ── Server-side snippet generation (ADR-0073) ──────────────────────
+//
+// Generates plain-text snippets server-side so both MCP tools and HTTP
+// endpoints return consistent match context. This is the single source
+// of truth for snippet generation — the UI's client-side @orama/highlight
+// can still be used for HTML rendering, but the server snippet provides
+// the canonical match context for MCP tool consumers.
+
+const SNIPPET_WINDOW = 120; // chars of context around match
+
+/**
+ * Generate a plain-text snippet for a task, showing where the query matched.
+ */
+export function generateTaskSnippet(task: Task, query: string): SearchSnippet {
+  const fields: { name: string; value: string }[] = [
+    { name: 'title', value: task.title },
+    { name: 'description', value: task.description || '' },
+    { name: 'evidence', value: (task.evidence || []).join(' ') },
+    { name: 'blocked_reason', value: (task.blocked_reason || []).join(' ') },
+    { name: 'references', value: (task.references || []).map(r => `${r.title || ''} ${r.url}`).join(' ') },
+  ];
+  return generateSnippetFromFields(fields, query);
+}
+
+/**
+ * Generate a plain-text snippet for a resource.
+ */
+export function generateResourceSnippet(resource: Resource, query: string): SearchSnippet {
+  const fields: { name: string; value: string }[] = [
+    { name: 'title', value: resource.title },
+    { name: 'content', value: resource.content },
+  ];
+  return generateSnippetFromFields(fields, query);
+}
+
+/**
+ * Core snippet generation: finds the first field containing a query match,
+ * extracts a window of context around it, and lists all matched fields.
+ */
+function generateSnippetFromFields(
+  fields: { name: string; value: string }[],
+  query: string,
+): SearchSnippet {
+  const queryLower = query.toLowerCase().trim();
+  const queryWords = queryLower.split(/\s+/).filter(Boolean);
+  const matchedFields: string[] = [];
+  let firstField = '';
+  let firstText = '';
+
+  for (const { name, value } of fields) {
+    if (!value) continue;
+    const valueLower = value.toLowerCase();
+
+    // Check if any query word appears in this field
+    const hasMatch = queryWords.some(w => valueLower.includes(w));
+    if (!hasMatch) continue;
+
+    matchedFields.push(name);
+
+    if (!firstField) {
+      firstField = name;
+      // Find first query word position and extract window
+      let earliestPos = valueLower.length;
+      for (const w of queryWords) {
+        const pos = valueLower.indexOf(w);
+        if (pos !== -1 && pos < earliestPos) earliestPos = pos;
+      }
+
+      const windowStart = Math.max(0, earliestPos - 30);
+      const windowEnd = Math.min(value.length, windowStart + SNIPPET_WINDOW);
+      let text = value.slice(windowStart, windowEnd).trim();
+
+      // Add ellipsis if we truncated
+      if (windowStart > 0) text = '...' + text;
+      if (windowEnd < value.length) text = text + '...';
+
+      // Collapse whitespace for clean output
+      firstText = text.replace(/\s+/g, ' ');
+    }
+  }
+
+  if (!firstField) {
+    // No match found — fallback to title
+    return { field: 'title', text: fields[0]?.value || '', matched_fields: [] };
+  }
+
+  return { field: firstField, text: firstText, matched_fields: matchedFields };
 }
 
 /**
@@ -558,8 +647,11 @@ export class OramaSearchService implements SearchService {
   /**
    * Search all document types with optional type filtering.
    * Returns results sorted by relevance across all types.
+   *
+   * This is the canonical search method — both MCP tools and HTTP endpoints
+   * should call this (via BacklogService.searchUnified). (ADR-0073)
    */
-  async searchAll(query: string, options?: SearchOptions): Promise<Array<{ id: string; score: number; type: SearchableType; item: Task | Resource }>> {
+  async searchAll(query: string, options?: SearchOptions): Promise<Array<{ id: string; score: number; type: SearchableType; item: Task | Resource; snippet: SearchSnippet }>> {
     if (!this.db) return [];
     if (!query.trim()) return [];
 
@@ -596,13 +688,21 @@ export class OramaSearchService implements SearchService {
     let hits = results.hits.map(hit => {
       const docType = hit.document.type as SearchableType;
       const isResource = docType === 'resource';
+      const item = isResource
+        ? this.resourceCache.get(hit.document.id)!
+        : this.taskCache.get(hit.document.id)!;
+      // Generate server-side snippet (ADR-0073)
+      const snippet = item
+        ? (isResource
+            ? generateResourceSnippet(item as Resource, query)
+            : generateTaskSnippet(item as Task, query))
+        : { field: 'title', text: '', matched_fields: [] };
       return {
         id: hit.document.id,
         score: hit.score,
         type: docType,
-        item: isResource 
-          ? this.resourceCache.get(hit.document.id)! 
-          : this.taskCache.get(hit.document.id)!,
+        item,
+        snippet,
       };
     }).filter(h => h.item);
 

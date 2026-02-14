@@ -1,7 +1,8 @@
 import { join } from 'node:path';
 import type { Task, Status, TaskType } from './schema.js';
 import { TaskStorage } from './task-storage.js';
-import { OramaSearchService, type UnifiedSearchResult, type SearchableType } from '../search/index.js';
+import { OramaSearchService, type UnifiedSearchResult, type SearchableType, type SearchSnippet } from '../search/index.js';
+import type { Resource } from '../search/types.js';
 import { resourceManager } from '../resources/manager.js';
 import { paths } from '../utils/paths.js';
 
@@ -68,27 +69,61 @@ class BacklogService {
   }
 
   /**
-   * Search with proper typed results. Returns UnifiedSearchResult[] with item, score, type.
+   * Canonical search method — the single entry point for all search operations.
+   * Both MCP tools (backlog_search) and HTTP endpoints (GET /search) MUST call
+   * this method. This ensures MCP and UI always get identical results from the
+   * same code path. (ADR-0073: MCP-first unified search architecture)
+   *
+   * Returns UnifiedSearchResult[] with item, score, type, and server-side snippet.
    * Supports searching tasks, epics, and resources.
    */
   async searchUnified(query: string, options?: {
     types?: SearchableType[];
     limit?: number;
     sort?: 'relevant' | 'recent';
+    /** Filter by status (tasks/epics only) */
+    status?: import('./schema.js').Status[];
+    /** Scope to parent (epic/folder) */
+    parent_id?: string;
   }): Promise<UnifiedSearchResult[]> {
     await this.ensureSearchReady();
-    
+
     const results = await this.search.searchAll(query, {
       docTypes: options?.types,
       limit: options?.limit ?? 20,
       sort: options?.sort,
+      filters: {
+        status: options?.status,
+        parent_id: options?.parent_id,
+      },
     });
-    
+
     return results.map(r => ({
       item: r.item,
       score: r.score,
       type: r.type,
+      snippet: r.snippet,
     }));
+  }
+
+  /**
+   * Read a resource by MCP URI. Returns the resource content or undefined.
+   * This provides read access to resources for MCP tools (ADR-0073).
+   */
+  getResource(uri: string): { content: string; frontmatter?: Record<string, any>; mimeType: string } | undefined {
+    try {
+      return resourceManager.read(uri);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Check if hybrid (BM25 + vector) search is active.
+   * Useful for diagnostics and for MCP tool responses.
+   */
+  isHybridSearchActive(): boolean {
+    return this.search.isHybridSearchActive();
   }
 
   add(task: Task): void {

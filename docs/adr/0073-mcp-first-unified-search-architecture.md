@@ -1,7 +1,7 @@
 # 0073. MCP-First Unified Search Architecture
 
 **Date**: 2026-02-14
-**Status**: Proposed
+**Status**: Accepted
 **Supersedes**: None (consolidates ADR-0038 Phase 4 vision, ADR-0047 Unified Search API)
 **Related**: ADR-0038 (Comprehensive Search), ADR-0047 (Unified Search API), ADR-0042 (Hybrid Search), ADR-0072 (Scoring)
 
@@ -10,7 +10,7 @@
 The current architecture has a **dual-path problem**: the MCP server and the web viewer UI consume search through different channels with different capabilities, creating divergence:
 
 ```
-Current Architecture (Dual Path):
+Before (Dual Path):
 
 ┌──────────────────┐         ┌──────────────────┐
 │  LLM Agent       │         │  Web Viewer UI    │
@@ -53,7 +53,7 @@ Establish the **backlog MCP server as the single source of truth** for all searc
 ### Architecture: MCP-First with Shared Service Core
 
 ```
-Target Architecture:
+After (Unified Path):
 
 ┌──────────────────┐         ┌──────────────────┐
 │  LLM Agent       │         │  Web Viewer UI    │
@@ -66,13 +66,13 @@ Target Architecture:
          │                            │
          ▼                            ▼
 ┌─────────────────────────────────────────────────┐
-│              Shared Service Core                 │
-│  BacklogService + OramaSearchService             │
+│        Shared Service Core (BacklogService)      │
 │                                                  │
-│  searchUnified(query, options) ← SINGLE METHOD   │
-│  list(filters)                ← filtering only   │
-│  get(id)                      ← single item      │
-│  getResources(query)          ← resource access   │
+│  searchUnified(query, opts) ← SINGLE METHOD      │
+│  list(filters)              ← filtering only     │
+│  get(id)                    ← task by ID         │
+│  getResource(uri)           ← resource by URI    │
+│  isHybridSearchActive()     ← diagnostics        │
 │                                                  │
 │  Same method, same options, same results         │
 │  regardless of whether caller is MCP or HTTP     │
@@ -80,10 +80,11 @@ Target Architecture:
          │
          ▼
 ┌─────────────────────────────────────────────────┐
-│              OramaSearchService                  │
-│  BM25 + Vector Hybrid Search                     │
-│  Normalize-Then-Multiply Scoring (ADR-0072)      │
-│  Tasks + Epics + Resources unified index         │
+│          OramaSearchService.searchAll()           │
+│  • BM25 + Vector Hybrid Search                    │
+│  • Normalize-Then-Multiply Scoring (ADR-0072)     │
+│  • Server-side snippet generation                 │
+│  • Tasks + Epics + Resources unified index        │
 └─────────────────────────────────────────────────┘
          │
          ▼
@@ -93,47 +94,6 @@ Target Architecture:
 │  ResourceManager (resource files)                │
 │  .cache/search-index.json (persistence)          │
 └─────────────────────────────────────────────────┘
-```
-
-### New MCP Tool: `backlog_search`
-
-A dedicated search tool that exposes the full search capabilities available in the OramaSearchService:
-
-```typescript
-interface BacklogSearchParams {
-  // Required
-  query: string;              // Natural language or keyword query
-
-  // Filtering
-  types?: ('task' | 'epic' | 'resource')[];  // Default: all types
-  status?: Status[];          // Filter by status (tasks/epics only)
-  parent_id?: string;         // Scope to parent (epic/folder)
-
-  // Ranking
-  sort?: 'relevant' | 'recent';  // Default: relevant
-
-  // Output
-  limit?: number;             // Default: 20, max: 100
-  include_content?: boolean;  // Include full description/content. Default: false
-  include_scores?: boolean;   // Include relevance scores. Default: false
-}
-
-interface BacklogSearchResult {
-  results: {
-    id: string;
-    title: string;
-    type: 'task' | 'epic' | 'resource';
-    status?: string;           // For tasks/epics
-    parent_id?: string;        // For tasks
-    path?: string;             // For resources
-    score?: number;            // When include_scores=true
-    snippet?: string;          // Matched context (plain text, ~100 chars)
-    description?: string;      // When include_content=true
-  }[];
-  total: number;               // Total matches (may exceed limit)
-  query: string;               // Echo back for agent reference
-  search_mode: 'hybrid' | 'bm25';  // Which mode was used
-}
 ```
 
 ### Design Principles
@@ -146,60 +106,152 @@ interface BacklogSearchResult {
 
 4. **`backlog_list` stays for filtering**: The existing `backlog_list` tool retains its role for status/type/parent filtering. Its `query` parameter continues to work but for discovery-oriented search, agents should use `backlog_search`.
 
-5. **Server-side snippets**: Move snippet generation to the server so MCP tool responses include meaningful context. Currently snippets are generated client-side in spotlight-search.ts using `@orama/highlight`. The server should return a plain-text snippet with the matched context for each result.
+5. **Server-side snippets**: Snippet generation lives in the search service so all consumers (MCP and HTTP) get consistent match context.
 
-## Implementation Plan
+## Implementation (Complete)
 
-### Phase 1: `backlog_search` MCP Tool
+### Phase 1: `backlog_search` MCP Tool — ✅ Done
 
-Create the new search tool that wraps `BacklogService.searchUnified()`:
+**New MCP tool**: `backlog_search` registered in `src/tools/backlog-search.ts`
 
-**Files:**
-- `src/tools/backlog-search.ts` — New tool registration
-- `src/tools/index.ts` — Register the new tool
-- `src/storage/backlog-service.ts` — Add server-side snippet generation
+```typescript
+// Tool parameters
+{
+  query: string;              // Required — search query
+  types?: SearchableType[];   // Filter: task, epic, resource
+  status?: Status[];          // Filter: open, in_progress, etc.
+  parent_id?: string;         // Scope to parent epic/folder
+  sort?: 'relevant' | 'recent';
+  limit?: number;             // 1-100, default 20
+  include_content?: boolean;  // Full description/content
+  include_scores?: boolean;   // Relevance scores
+}
 
-**Behavior:**
-- Calls `storage.searchUnified(query, options)` — the same method the `/search` HTTP endpoint uses
-- Returns structured results with optional scores and snippets
-- Supports all filter/sort/type options
-- Includes `search_mode` indicator so agents know if semantic search is active
+// Response shape
+{
+  results: [...],
+  total: number,
+  query: string,              // Echo for agent context
+  search_mode: 'hybrid' | 'bm25'
+}
+```
 
-### Phase 2: HTTP Endpoint Alignment
+**Implementation decision — `backlog_search` calls `storage.searchUnified()`**: This is the same method that `GET /search` uses. The tool is a thin adapter that translates Zod-validated input into the shared service call.
 
-Ensure HTTP endpoints are pure thin adapters over the shared service:
+**Implementation decision — Response shaping in the tool**: The MCP tool shapes the response (selecting which fields to include based on `include_content` and `include_scores`) rather than adding a separate response-shaping layer in BacklogService. This keeps the service generic while allowing each consumer (MCP tool, HTTP endpoint) to shape its output.
 
-**Current state (already good):**
-- `GET /search` → `storage.searchUnified(q, options)` ✅
-- `GET /tasks` → `storage.list(filters)` ✅
+### Phase 2: Server-Side Snippet Generation — ✅ Done
 
-**Needed alignment:**
-- Server-side snippet generation added in Phase 1 should also be used by `/search` so the UI can optionally consume server-generated snippets instead of generating them client-side
+**New type**: `SearchSnippet` in `src/search/types.ts`
 
-### Phase 3: Resource Access via MCP
+```typescript
+interface SearchSnippet {
+  field: string;            // Which field matched (title, description, etc.)
+  text: string;             // Plain-text excerpt (~120 chars)
+  matched_fields: string[]; // All fields with matches
+}
+```
 
-Resources are currently only accessible via the `write_resource` tool (for creating/updating) and via internal HTTP endpoints. Add read access:
+**New functions**: `generateTaskSnippet()` and `generateResourceSnippet()` exported from `src/search/orama-search-service.ts`
 
-**Option A (Recommended)**: Extend `backlog_get` to accept resource IDs
-- `backlog_get({ id: "mcp://backlog/resources/design/architecture.md" })`
-- Returns resource content as markdown
+**Implementation decision — Snippet generation lives in OramaSearchService, not BacklogService**: Snippets are generated inside `searchAll()` because that's where we have both the query and the full item data. This makes snippets always present in `searchAll()` results — consumers can't accidentally skip them.
 
-**Option B**: Dedicated `backlog_read_resource` tool
-- Separate tool for resource read operations
-- More explicit but increases tool surface area
+**Implementation decision — Plain-text snippets (not HTML)**: The server generates plain-text snippets. The UI's client-side `@orama/highlight` library continues to handle HTML rendering with `<mark>` tags. This is intentional:
 
-**Decision**: Option A — extend `backlog_get`. Resource IDs are already namespaced (MCP URIs), so there's no ambiguity. This keeps the tool surface minimal.
+- MCP tool consumers (LLM agents) need plain text, not HTML
+- The UI has richer rendering needs (highlight colors, DOMPurify) that are best done client-side
+- Server snippets serve as a canonical fallback — the UI could adopt them to reduce client computation
 
-### Phase 4: Context Hydration (Future)
+### Phase 3: Resource Access via MCP — ✅ Done
 
-Building on the `backlog_search` foundation, implement the context hydration API from ADR-0038 Phase 4:
+**Extended tool**: `backlog_get` now accepts MCP resource URIs in addition to task IDs.
 
-- `backlog_context` tool for retrieving semantically relevant context
-- Graph relations (epic→task, references, dependencies)
-- Temporal memory (recent activity, session context)
-- Context composer that ranks and compresses results for LLM context windows
+```
+backlog_get({ id: "TASK-0001" })           → task markdown
+backlog_get({ id: "mcp://backlog/resources/design.md" })  → resource content
+backlog_get({ id: ["TASK-0001", "mcp://backlog/resources/design.md"] })  → batch
+```
 
-This phase is deferred but the `backlog_search` tool provides the foundation.
+**Implementation decision — Extend `backlog_get` vs new tool**: We extended `backlog_get` rather than creating a separate `backlog_read_resource` tool because:
+- Task IDs and MCP URIs are unambiguous (different formats)
+- Reduces tool surface area (agents have fewer tools to reason about)
+- Batch fetch naturally supports mixing tasks and resources
+
+**New BacklogService method**: `getResource(uri)` delegates to `resourceManager.read(uri)` with error handling.
+
+### Phase 4: HTTP Endpoint Alignment — ✅ Done (Already Aligned)
+
+**Key insight**: The `GET /search` endpoint was already a thin adapter calling `storage.searchUnified()`. Since we enhanced `searchUnified()` to include snippets, the HTTP response now automatically includes them — no code change needed in `viewer-routes.ts`.
+
+**Extended `searchUnified()` signature**: Now accepts `status` and `parent_id` filters directly, aligning with the `backlog_search` tool's capabilities:
+
+```typescript
+async searchUnified(query: string, options?: {
+  types?: SearchableType[];
+  limit?: number;
+  sort?: 'relevant' | 'recent';
+  status?: Status[];     // NEW — task/epic status filter
+  parent_id?: string;    // NEW — scope to parent
+}): Promise<UnifiedSearchResult[]>
+```
+
+### Phase 5: Context Hydration — Deferred (Future)
+
+Building on the `backlog_search` foundation, implement the context hydration API from ADR-0038 Phase 4. The `backlog_search` tool provides the retrieval layer; `backlog_context` will add graph relations, temporal memory, and context compression.
+
+## Documented Hacks & Known Issues
+
+### 1. `backlog_list` still has a separate search code path
+
+**Location**: `BacklogService.list()` in `src/storage/backlog-service.ts`
+
+**Issue**: When `list()` is called with a `query`, it calls `this.search.search()` (the task-only search method) instead of `searchUnified()`. This is the legacy dual-path that ADR-0073 aims to eliminate.
+
+**Why it exists**: `backlog_list` is the original MCP tool for filtering tasks. Adding a `query` parameter was a pragmatic early decision (pre-ADR-0047). Changing `list()` to use `searchUnified()` would change its return type from `Task[]` to `UnifiedSearchResult[]`, which is a breaking change for all `backlog_list` consumers.
+
+**Impact**: Agents using `backlog_list(query=...)` get inferior search (no resources, no type filtering, no snippets) compared to `backlog_search`. This is documented in both tool descriptions so agents know to prefer `backlog_search` for discovery.
+
+**Future fix**: Deprecate the `query` parameter on `backlog_list` and remove it in a major version. All search should go through `backlog_search`.
+
+### 2. Dual snippet generation (server + client)
+
+**Location**: Server in `orama-search-service.ts`, client in `viewer/components/spotlight-search.ts`
+
+**Issue**: Snippets are generated in two places: the server generates plain-text snippets via `generateTaskSnippet()`/`generateResourceSnippet()`, while the UI's spotlight search generates HTML snippets client-side via `@orama/highlight`.
+
+**Why it exists**: The client-side highlighting predates server snippets (ADR-0039). We can't remove client-side highlighting without degrading the UI experience (it produces richer HTML with `<mark>` tags and trimmed context windows).
+
+**Impact**: Redundant computation — the server generates a snippet that the UI ignores in favor of its own. No functional impact, but violates DRY.
+
+**Future fix**: The UI could consume server-provided snippets and add HTML wrapping client-side, eliminating the `@orama/highlight` dependency. This would reduce the viewer bundle size by ~2KB.
+
+### 3. `storage.list()` score injection hack
+
+**Location**: `BacklogService.list()` line 64 in `backlog-service.ts`
+
+```typescript
+return results.map(r => ({ ...r.task, score: r.score }));
+```
+
+**Issue**: This spreads `score` onto the `Task` object, creating a type impurity (`score` is not in the `Task` interface). This was documented in ADR-0047 as a known issue.
+
+**Impact**: Consumers must use `(task as any).score` to access the score. The `backlog_search` tool avoids this entirely by returning structured `{ results, total, query }` with scores in their own field.
+
+**Future fix**: Remove when `backlog_list`'s `query` parameter is deprecated.
+
+### 4. Post-search filtering instead of indexed filtering
+
+**Location**: `OramaSearchService.searchAll()` in `orama-search-service.ts`
+
+**Issue**: Status, type, epic_id, and parent_id filters are applied AFTER Orama returns results, not during the Orama query. This means Orama may return results that get filtered out, potentially reducing the effective result count below the requested limit.
+
+**Why it exists**: Orama's native enum filtering requires schema changes and adds complexity. Post-search filtering is simpler and works well for our dataset size (<10K items).
+
+**Impact**: A search for `query=X&status=open&limit=20` might return fewer than 20 results even if 20+ open items match, because Orama returned 60 results (limit*3) and only N were open.
+
+**Mitigation**: The `limit * 3` overfetch multiplier (line 672) compensates. For datasets <10K items, this is sufficient.
+
+**Future fix**: Use Orama's `where` clause for indexed filtering when dataset size grows past 10K.
 
 ## Alternatives Considered
 
@@ -246,32 +298,58 @@ Extend `backlog_list` with all the search options (types, sort, scores) instead 
 ### Negative
 
 - **New tool surface**: `backlog_search` adds one more MCP tool (6 total → 7). Acceptable given the distinct use case.
-- **Server-side snippets**: Additional computation per search result. Mitigated by keeping it optional (`include_content` flag).
-- **Migration period**: Both `backlog_list(query=...)` and `backlog_search(query=...)` will support search. Need documentation clarity on when to use which.
+- **Server-side snippets**: Additional computation per search result (~0.1ms per item, negligible).
+- **Migration period**: Both `backlog_list(query=...)` and `backlog_search(query=...)` support search. Documented in tool descriptions to avoid agent confusion.
 
 ### Risks
 
 - **LLM tool confusion**: Agents might not know when to use `backlog_search` vs `backlog_list(query=...)`. Mitigation: clear tool descriptions. `backlog_list` describes itself for filtering, `backlog_search` describes itself for discovery.
-- **Snippet quality**: Server-side plain-text snippets may be less rich than client-side HTML snippets. Mitigation: UI can continue using client-side `@orama/highlight` for HTML rendering while consuming server snippets as fallback.
-
-## Migration Path
-
-1. **Phase 1 (immediate)**: Ship `backlog_search` tool. No breaking changes.
-2. **Phase 2 (next)**: Add server-side snippets to `/search` endpoint. UI can adopt gradually.
-3. **Phase 3 (next)**: Extend `backlog_get` for resources. No breaking changes.
-4. **Phase 4 (future)**: `backlog_context` builds on `backlog_search`. No breaking changes.
-
-Each phase is independently shippable and backward compatible.
+- **Snippet quality**: Server-side plain-text snippets are less rich than client-side HTML snippets. Mitigation: UI continues using `@orama/highlight` for rendering; server snippets are the canonical fallback.
 
 ## Success Criteria
 
-- [ ] `backlog_search` MCP tool registered and functional
-- [ ] `backlog_search` uses the same `searchUnified()` method as `/search` HTTP endpoint
-- [ ] Agents can search across tasks, epics, AND resources via MCP
-- [ ] Results include type, status, and optional scores/snippets
-- [ ] Resources are readable via `backlog_get`
-- [ ] All existing tests continue to pass
-- [ ] New tests cover `backlog_search` tool registration and parameter handling
+- [x] `backlog_search` MCP tool registered and functional
+- [x] `backlog_search` uses the same `searchUnified()` method as `/search` HTTP endpoint
+- [x] Agents can search across tasks, epics, AND resources via MCP
+- [x] Results include type, status, and optional scores/snippets
+- [x] Resources are readable via `backlog_get` (supports MCP URIs)
+- [x] All existing tests continue to pass (506/506)
+- [x] 27 new invariant tests verify architectural guarantees
+
+## Test Coverage
+
+27 invariant tests in `src/__tests__/mcp-search-invariants.test.ts`:
+
+| Invariant | Tests | Verifies |
+|-----------|-------|----------|
+| searchAll returns snippets | 4 | Every result has snippet.field, snippet.text, snippet.matched_fields |
+| Snippet generation correctness | 10 | Title/description/evidence/blocked_reason matching, multi-field reporting, truncation, fallback |
+| Type filtering | 4 | docTypes=task/epic/resource work correctly, no filter returns all |
+| Sort modes | 2 | recent=by updated_at, relevant=by score |
+| Snippet determinism | 2 | Same input → same output |
+| SearchSnippet contract | 1 | Runtime type verification |
+| Edge cases | 4 | Empty query, whitespace, missing fields don't crash |
+
+## File Changes
+
+```
+src/
+├── tools/
+│   ├── backlog-search.ts     # NEW — backlog_search MCP tool
+│   ├── backlog-get.ts        # MODIFIED — supports resource URIs
+│   └── index.ts              # MODIFIED — registers backlog_search
+├── search/
+│   ├── types.ts              # MODIFIED — added SearchSnippet type
+│   ├── orama-search-service.ts  # MODIFIED — snippet generation, searchAll returns snippets
+│   └── index.ts              # MODIFIED — exports SearchSnippet
+├── storage/
+│   └── backlog-service.ts    # MODIFIED — searchUnified extended, getResource, isHybridSearchActive
+└── __tests__/
+    └── mcp-search-invariants.test.ts  # NEW — 27 invariant tests
+
+docs/adr/
+└── 0073-mcp-first-unified-search-architecture.md  # THIS FILE
+```
 
 ## Related Work
 

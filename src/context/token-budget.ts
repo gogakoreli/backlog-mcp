@@ -1,5 +1,5 @@
 /**
- * Token estimation and budgeting for context hydration (ADR-0074).
+ * Token estimation and budgeting for context hydration (ADR-0074, ADR-0075).
  *
  * KNOWN HACK: Uses character-based approximation (1 token ≈ 4 chars).
  * This is within ±20% for English prose — sufficient for budgeting decisions.
@@ -134,6 +134,7 @@ export function downgradeEntity(entity: ContextEntity, to: Fidelity): ContextEnt
       references: entity.references,
       created_at: entity.created_at,
       updated_at: entity.updated_at,
+      relevance_score: entity.relevance_score,
     };
   }
   return entity;
@@ -158,6 +159,7 @@ export function downgradeResource(resource: ContextResource, to: Fidelity): Cont
       path: resource.path,
       fidelity: 'summary',
       snippet: resource.snippet,
+      relevance_score: resource.relevance_score,
     };
   }
   return resource;
@@ -171,8 +173,9 @@ export function downgradeResource(resource: ContextResource, to: Fidelity): Cont
  *   2. Parent entity (never dropped, summary fidelity)
  *   3. Children (summary, downgrade to reference if needed)
  *   4. Siblings (summary, downgrade to reference if needed)
- *   5. Resources (summary, downgrade to reference if needed)
- *   6. Activity (fixed cost, drop entries if needed)
+ *   5. Semantically related entities (summary, downgrade to reference if needed)
+ *   6. Resources (summary, downgrade to reference if needed)
+ *   7. Activity (fixed cost, drop entries if needed)
  *
  * Items are first tried at their current fidelity. If the budget is
  * exceeded, lower-priority items are downgraded before higher-priority
@@ -183,6 +186,7 @@ export function applyBudget(
   parent: ContextEntity | null,
   children: ContextEntity[],
   siblings: ContextEntity[],
+  related: ContextEntity[],
   resources: ContextResource[],
   activities: ContextActivity[],
   maxTokens: number,
@@ -214,48 +218,43 @@ export function applyBudget(
     result.entities.push(parent);
   }
 
-  // 3. Children at summary fidelity
-  for (const child of children) {
-    const cost = estimateEntityTokens(child);
+  // Helper: try to fit an entity at current fidelity, then reference
+  function tryFitEntity(entity: ContextEntity): boolean {
+    const cost = estimateEntityTokens(entity);
     if (tokensUsed + cost <= maxTokens) {
       tokensUsed += cost;
-      result.entities.push(child);
-    } else {
-      // Try reference fidelity
-      const ref = downgradeEntity(child, 'reference');
-      const refCost = estimateEntityTokens(ref);
-      if (tokensUsed + refCost <= maxTokens) {
-        tokensUsed += refCost;
-        result.entities.push(ref);
-        truncated = true;
-      } else {
-        truncated = true;
-        break; // No more room for children
-      }
+      result.entities.push(entity);
+      return true;
     }
+    // Try reference fidelity
+    const ref = downgradeEntity(entity, 'reference');
+    const refCost = estimateEntityTokens(ref);
+    if (tokensUsed + refCost <= maxTokens) {
+      tokensUsed += refCost;
+      result.entities.push(ref);
+      truncated = true;
+      return true;
+    }
+    truncated = true;
+    return false;
+  }
+
+  // 3. Children at summary fidelity
+  for (const child of children) {
+    if (!tryFitEntity(child)) break;
   }
 
   // 4. Siblings at summary fidelity
   for (const sibling of siblings) {
-    const cost = estimateEntityTokens(sibling);
-    if (tokensUsed + cost <= maxTokens) {
-      tokensUsed += cost;
-      result.entities.push(sibling);
-    } else {
-      const ref = downgradeEntity(sibling, 'reference');
-      const refCost = estimateEntityTokens(ref);
-      if (tokensUsed + refCost <= maxTokens) {
-        tokensUsed += refCost;
-        result.entities.push(ref);
-        truncated = true;
-      } else {
-        truncated = true;
-        break;
-      }
-    }
+    if (!tryFitEntity(sibling)) break;
   }
 
-  // 5. Resources at summary fidelity
+  // 5. Semantically related entities at summary fidelity
+  for (const rel of related) {
+    if (!tryFitEntity(rel)) break;
+  }
+
+  // 6. Resources at summary fidelity
   for (const resource of resources) {
     const cost = estimateResourceTokens(resource);
     if (tokensUsed + cost <= maxTokens) {
@@ -275,7 +274,7 @@ export function applyBudget(
     }
   }
 
-  // 6. Activity entries
+  // 7. Activity entries
   for (const act of activities) {
     const cost = estimateActivityTokens(act);
     if (tokensUsed + cost <= maxTokens) {

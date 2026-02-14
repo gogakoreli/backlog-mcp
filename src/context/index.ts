@@ -9,5 +9,7 @@ export type {
   Fidelity,
 } from './types.js';
 export { estimateTokens, applyBudget, downgradeEntity, downgradeResource } from './token-budget.js';
-export { resolveFocal, taskToContextEntity } from './stages/focal-resolution.js';
+export { resolveFocal, taskToContextEntity, type SearchDeps } from './stages/focal-resolution.js';
 export { expandRelations } from './stages/relational-expansion.js';
+export { enrichSemantic, type SemanticEnrichmentDeps } from './stages/semantic-enrichment.js';
+export { overlayTemporal, type TemporalOverlayDeps } from './stages/temporal-overlay.js';

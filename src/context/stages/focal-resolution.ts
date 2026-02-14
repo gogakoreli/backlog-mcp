@@ -1,11 +1,9 @@
 /**
- * Stage 1: Focal Resolution (ADR-0074)
+ * Stage 1: Focal Resolution (ADR-0074, ADR-0075)
  *
  * Resolves the focal entity — the primary entity the context is built around.
  * Given a task ID, returns the full entity with all fields.
- *
- * KNOWN LIMITATION: query-based focal resolution (natural language → entity)
- * is not implemented in Phase 1. See ADR-0074 "Known Hacks" section 4.
+ * Given a query string, searches for the best matching entity (Phase 2).
  */
 
 import type { Task } from '@/storage/schema.js';
@@ -47,29 +45,54 @@ export interface FocalResolutionResult {
   focal: ContextEntity;
   /** The raw Task object, needed by subsequent stages */
   focalTask: Task;
+  /** How the focal was resolved */
+  resolved_from: 'id' | 'query';
+}
+
+export interface SearchDeps {
+  /** Search for entities matching a query. Returns top results ordered by relevance. */
+  search: (query: string) => Promise<Array<{ item: Task; score: number }>>;
 }
 
 /**
  * Resolve the focal entity from a ContextRequest.
  *
- * @param request - The context request (must have task_id)
+ * Supports two resolution modes:
+ *   1. ID-based (task_id): Direct lookup — O(1), deterministic.
+ *   2. Query-based (query): Search for best match — async, returns top result.
+ *
+ * @param request - The context request (must have task_id or query)
  * @param getTask - Injected dependency: look up a task by ID
+ * @param searchDeps - Optional search dependencies for query-based resolution
  * @returns The focal entity at full fidelity, or null if not found
  */
-export function resolveFocal(
+export async function resolveFocal(
   request: ContextRequest,
   getTask: (id: string) => Task | undefined,
-): FocalResolutionResult | null {
+  searchDeps?: SearchDeps,
+): Promise<FocalResolutionResult | null> {
   if (request.task_id) {
     const task = getTask(request.task_id);
     if (!task) return null;
     return {
       focal: taskToContextEntity(task, 'full'),
       focalTask: task,
+      resolved_from: 'id',
     };
   }
 
-  // query-based resolution: Phase 2 (not yet implemented)
-  // See ADR-0074 "Known Hacks" section 4.
+  if (request.query && searchDeps) {
+    const results = await searchDeps.search(request.query);
+    if (results.length === 0) return null;
+
+    // Use the top search result as focal entity
+    const topResult = results[0]!;
+    return {
+      focal: taskToContextEntity(topResult.item, 'full'),
+      focalTask: topResult.item,
+      resolved_from: 'query',
+    };
+  }
+
   return null;
 }

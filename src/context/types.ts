@@ -1,5 +1,5 @@
 /**
- * Types for the agent context hydration pipeline (ADR-0074).
+ * Types for the agent context hydration pipeline (ADR-0074, ADR-0075).
  *
  * The pipeline assembles context for agents working on backlog tasks.
  * Each stage adds a layer of context; token budgeting ensures the
@@ -13,13 +13,13 @@ import type { Task, Status, TaskType } from '@/storage/schema.js';
 export interface ContextRequest {
   /** Focal entity ID (e.g. TASK-0042, EPIC-0005). Mutually exclusive with query. */
   task_id?: string;
-  /** Natural language query to resolve into a focal entity. Phase 2 — not yet implemented. */
+  /** Natural language query to resolve into a focal entity (Phase 2, ADR-0075). */
   query?: string;
   /** Relational expansion depth. 1 = direct relations. Default: 1, max: 3. */
   depth?: number;
-  /** Enable semantic enrichment (Stage 3). Default: false. Phase 2 — not yet implemented. */
+  /** Enable semantic enrichment (Stage 3). Default: true for Phase 2. */
   include_related?: boolean;
-  /** Enable temporal overlay (Stage 4). Default: false. Phase 3 — not yet implemented. */
+  /** Enable temporal overlay (Stage 4). Default: true for Phase 2. */
   include_activity?: boolean;
   /** Token budget for the entire response. Default: 4000. */
   max_tokens?: number;
@@ -46,6 +46,8 @@ export interface ContextEntity {
   references?: { url: string; title?: string }[];
   created_at?: string;
   updated_at?: string;
+  /** Relevance score from semantic search. Present only for semantically discovered entities. */
+  relevance_score?: number;
 }
 
 export interface ContextResource {
@@ -58,6 +60,8 @@ export interface ContextResource {
   snippet?: string;
   /** Full content. Present at 'full' fidelity only. */
   content?: string;
+  /** Relevance score from semantic search. Present only for semantically discovered resources. */
+  relevance_score?: number;
 }
 
 export interface ContextActivity {
@@ -81,9 +85,9 @@ export interface ContextResponse {
   siblings: ContextEntity[];
   /** Resources related to the focal entity or its parent */
   related_resources: ContextResource[];
-  /** Semantically related entities not in the graph. Phase 2. */
+  /** Semantically related entities not in the direct graph (Stage 3, ADR-0075). */
   related: ContextEntity[];
-  /** Recent operations on focal and related items. Phase 3. */
+  /** Recent operations on focal and related items (Stage 4, ADR-0075). */
   activity: ContextActivity[];
   /** Pipeline execution metadata */
   metadata: ContextMetadata;
@@ -98,4 +102,6 @@ export interface ContextMetadata {
   truncated: boolean;
   /** Which pipeline stages were executed */
   stages_executed: string[];
+  /** How the focal entity was resolved: 'id' (direct lookup) or 'query' (search-based). */
+  focal_resolved_from?: 'id' | 'query';
 }

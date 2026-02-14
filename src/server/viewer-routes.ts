@@ -64,33 +64,41 @@ export function registerViewerRoutes(app: FastifyInstance) {
     return results;
   });
 
-  // Context hydration API — single-call context for agents and viewer (ADR-0074)
+  // Context hydration API — single-call context for agents and viewer (ADR-0074, ADR-0075)
   app.get('/context', async (request, reply) => {
-    const { task_id, depth, max_tokens } = request.query as {
+    const { task_id, query, depth, max_tokens, include_related, include_activity } = request.query as {
       task_id?: string;
+      query?: string;
       depth?: string;
       max_tokens?: string;
+      include_related?: string;
+      include_activity?: string;
     };
 
-    if (!task_id) {
-      return reply.code(400).send({ error: 'Missing required query parameter: task_id' });
+    if (!task_id && !query) {
+      return reply.code(400).send({ error: 'Missing required query parameter: task_id or query' });
     }
 
-    const result = hydrateContext(
+    const result = await hydrateContext(
       {
         task_id,
+        query,
         depth: depth ? parseInt(depth) : 1,
         max_tokens: max_tokens ? parseInt(max_tokens) : 4000,
+        include_related: include_related !== 'false',
+        include_activity: include_activity !== 'false',
       },
       {
         getTask: (id) => storage.get(id),
         listTasks: (filter) => storage.listSync(filter),
         listResources: () => resourceManager.list(),
+        searchUnified: async (q, options) => storage.searchUnified(q, options),
+        readOperations: (options) => operationLogger.read(options),
       },
     );
 
     if (!result) {
-      return reply.code(404).send({ error: `Entity not found: ${task_id}` });
+      return reply.code(404).send({ error: `Entity not found: ${task_id || query}` });
     }
 
     return result;

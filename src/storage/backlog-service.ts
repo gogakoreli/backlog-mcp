@@ -146,6 +146,17 @@ class BacklogService {
     return this.taskStorage.counts();
   }
 
+  /**
+   * Synchronous task listing — filtering only, no search.
+   * Used by ContextHydrationService (ADR-0074) which needs synchronous
+   * access for the relational expansion pipeline.
+   *
+   * For search-based listing, use the async list() method instead.
+   */
+  listSync(filter?: { status?: Status[]; type?: TaskType; parent_id?: string; limit?: number }): Task[] {
+    return this.taskStorage.list(filter);
+  }
+
   getMaxId(type?: TaskType): number {
     return this.taskStorage.getMaxId(type);
   }

@@ -9,6 +9,7 @@ import { paths } from '../utils/paths.js';
 import { operationLogger } from '../operations/index.js';
 import { eventBus } from '../events/index.js';
 import type { BacklogEvent } from '../events/index.js';
+import { hydrateContext } from '../context/index.js';
 
 const SSE_HEARTBEAT_MS = 30_000;
 
@@ -61,6 +62,38 @@ export function registerViewerRoutes(app: FastifyInstance) {
     });
     
     return results;
+  });
+
+  // Context hydration API — single-call context for agents and viewer (ADR-0074)
+  app.get('/context', async (request, reply) => {
+    const { task_id, depth, max_tokens } = request.query as {
+      task_id?: string;
+      depth?: string;
+      max_tokens?: string;
+    };
+
+    if (!task_id) {
+      return reply.code(400).send({ error: 'Missing required query parameter: task_id' });
+    }
+
+    const result = hydrateContext(
+      {
+        task_id,
+        depth: depth ? parseInt(depth) : 1,
+        max_tokens: max_tokens ? parseInt(max_tokens) : 4000,
+      },
+      {
+        getTask: (id) => storage.get(id),
+        listTasks: (filter) => storage.listSync(filter),
+        listResources: () => resourceManager.list(),
+      },
+    );
+
+    if (!result) {
+      return reply.code(404).send({ error: `Entity not found: ${task_id}` });
+    }
+
+    return result;
   });
 
   // Get single task

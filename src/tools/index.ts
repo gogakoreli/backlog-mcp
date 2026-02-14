@@ -5,6 +5,7 @@ import { registerBacklogCreateTool } from './backlog-create.js';
 import { registerBacklogUpdateTool } from './backlog-update.js';
 import { registerBacklogDeleteTool } from './backlog-delete.js';
 import { registerBacklogSearchTool } from './backlog-search.js';
+import { registerBacklogContextTool } from './backlog-context.js';
 
 export function registerTools(server: McpServer) {
   registerBacklogListTool(server);
@@ -13,4 +14,5 @@ export function registerTools(server: McpServer) {
   registerBacklogUpdateTool(server);
   registerBacklogDeleteTool(server);
   registerBacklogSearchTool(server);
+  registerBacklogContextTool(server);
 }

@@ -18,7 +18,7 @@ import type { Task } from '../storage/schema.js';
 import type { Resource } from '../search/types.js';
 import { resolveFocal, taskToContextEntity } from '../context/stages/focal-resolution.js';
 import { expandRelations, type RelationalExpansionDeps } from '../context/stages/relational-expansion.js';
-import { traverseCrossReferences, extractEntityIds, type CrossReferenceTraversalDeps } from '../context/stages/cross-reference-traversal.js';
+import { traverseCrossReferences, extractEntityIds, buildReverseReferenceIndex, lookupReverseReferences, type CrossReferenceTraversalDeps } from '../context/stages/cross-reference-traversal.js';
 import { enrichSemantic, type SemanticEnrichmentDeps } from '../context/stages/semantic-enrichment.js';
 import { overlayTemporal, type TemporalOverlayDeps } from '../context/stages/temporal-overlay.js';
 import {
@@ -805,14 +805,14 @@ describe('Token budget application', () => {
   ];
 
   it('includes all items when budget is large', () => {
-    const result = applyBudget(focal, parent, children, siblings, [], [], [], related, resources, [], null, 100000);
+    const result = applyBudget(focal, parent, children, siblings, [], [], [], [], related, resources, [], null, 100000);
     expect(result.truncated).toBe(false);
     expect(result.entities.length).toBe(1 + 1 + 2 + 2 + 2); // focal + parent + children + siblings + related
     expect(result.resources.length).toBe(1);
   });
 
   it('focal and parent are always included', () => {
-    const result = applyBudget(focal, parent, [], [], [], [], [], [], [], [], null, 100000);
+    const result = applyBudget(focal, parent, [], [], [], [], [], [], [], [], [], null, 100000);
     expect(result.entities.length).toBe(2);
     expect(result.entities[0]!.id).toBe(focal.id);
     expect(result.entities[1]!.id).toBe(parent!.id);
@@ -823,7 +823,7 @@ describe('Token budget application', () => {
     const parentCost = estimateEntityTokens(parent);
     const tightBudget = focalCost + parentCost + 50 + 10;
 
-    const result = applyBudget(focal, parent, children, siblings, [], [], [], related, resources, [], null, tightBudget);
+    const result = applyBudget(focal, parent, children, siblings, [], [], [], [], related, resources, [], null, tightBudget);
     expect(result.truncated).toBe(true);
     expect(result.entities[0]!.id).toBe(focal.id);
     expect(result.entities[1]!.id).toBe(parent!.id);
@@ -838,7 +838,7 @@ describe('Token budget application', () => {
     const budget = focalCost + parentCost + 50 + refChildCost * 2 + 20;
 
     if (budget < focalCost + parentCost + 50 + summaryChildCost * 2) {
-      const result = applyBudget(focal, parent, children, [], [], [], [], [], [], [], null, budget);
+      const result = applyBudget(focal, parent, children, [], [], [], [], [], [], [], [], null, budget);
       const childEntities = result.entities.filter(e => e.id === 'TASK-0043' || e.id === 'TASK-0044');
       if (childEntities.length > 0) {
         const hasReference = childEntities.some(e => e.fidelity === 'reference');
@@ -856,7 +856,7 @@ describe('Token budget application', () => {
     const siblingCosts = siblings.reduce((sum, s) => sum + estimateEntityTokens(s), 0);
     const budget = focalCost + parentCost + childCosts + siblingCosts + 50 + 5;
 
-    const result = applyBudget(focal, parent, children, siblings, [], [], [], related, [], [], null, budget);
+    const result = applyBudget(focal, parent, children, siblings, [], [], [], [], related, [], [], null, budget);
     const entityIds = result.entities.map(e => e.id);
 
     // Children and siblings should be present before related
@@ -874,12 +874,12 @@ describe('Token budget application', () => {
       { ts: '2026-02-14T08:00:00Z', tool: 'backlog_update', entity_id: 'TASK-0043', actor: 'claude', summary: 'Updated TASK-0043' },
     ];
 
-    const result = applyBudget(focal, parent, children, siblings, [], [], [], related, resources, activities, null, 100000);
+    const result = applyBudget(focal, parent, children, siblings, [], [], [], [], related, resources, activities, null, 100000);
     expect(result.activities.length).toBe(2);
   });
 
   it('tokensUsed is always positive', () => {
-    const result = applyBudget(focal, null, [], [], [], [], [], [], [], [], null, 100000);
+    const result = applyBudget(focal, null, [], [], [], [], [], [], [], [], [], null, 100000);
     expect(result.tokensUsed).toBeGreaterThan(0);
   });
 });
@@ -1202,6 +1202,7 @@ describe('Context response contract invariants', () => {
       result!.children.length +
       result!.siblings.length +
       result!.cross_referenced.length +
+      result!.referenced_by.length +
       result!.ancestors.length +
       result!.descendants.length +
       result!.related_resources.length +
@@ -1620,7 +1621,7 @@ describe('Phase 3: Token budget with new priority levels', () => {
     const siblingCosts = siblings.reduce((sum, s) => sum + estimateEntityTokens(s), 0);
     const budget = focalCost + parentCost + childCosts + siblingCosts + 50 + 5;
 
-    const result = applyBudget(focal, parent, children, siblings, [], ancestors, descendants, [], [], [], null, budget);
+    const result = applyBudget(focal, parent, children, siblings, [], [], ancestors, descendants, [], [], [], null, budget);
     const entityIds = result.entities.map(e => e.id);
 
     // All children and siblings should be in, ancestors should be dropped
@@ -1630,7 +1631,7 @@ describe('Phase 3: Token budget with new priority levels', () => {
   });
 
   it('descendants are budgeted after ancestors', () => {
-    const result = applyBudget(focal, parent, children, siblings, [], ancestors, descendants, [], [], [], null, 100000);
+    const result = applyBudget(focal, parent, children, siblings, [], [], ancestors, descendants, [], [], [], null, 100000);
     const entityIds = result.entities.map(e => e.id);
 
     // All should be included with large budget
@@ -1640,7 +1641,7 @@ describe('Phase 3: Token budget with new priority levels', () => {
   });
 
   it('session summary is budgeted before children', () => {
-    const result = applyBudget(focal, parent, children, siblings, [], [], [], [], [], [], mockSession, 100000);
+    const result = applyBudget(focal, parent, children, siblings, [], [], [], [], [], [], [], mockSession, 100000);
     expect(result.sessionSummary).not.toBeNull();
     expect(result.sessionSummary!.actor).toBe('claude');
   });
@@ -1651,7 +1652,7 @@ describe('Phase 3: Token budget with new priority levels', () => {
     // Budget that barely fits focal + parent + metadata
     const tinyBudget = focalCost + parentCost + 50 + 5;
 
-    const result = applyBudget(focal, parent, [], [], [], [], [], [], [], [], mockSession, tinyBudget);
+    const result = applyBudget(focal, parent, [], [], [], [], [], [], [], [], [], mockSession, tinyBudget);
     expect(result.sessionSummary).toBeNull();
     expect(result.truncated).toBe(true);
   });
@@ -1720,6 +1721,7 @@ describe('Phase 3: Contract invariants', () => {
       ...result!.children.map(c => c.id),
       ...result!.siblings.map(s => s.id),
       ...result!.cross_referenced.map(x => x.id),
+      ...result!.referenced_by.map(r => r.id),
       ...result!.ancestors.map(a => a.id),
       ...result!.descendants.map(d => d.id),
     ];
@@ -1753,7 +1755,7 @@ describe('Phase 3: Contract invariants', () => {
     }
   });
 
-  it('total_items includes ancestors + descendants + cross_referenced + session_summary', async () => {
+  it('total_items includes ancestors + descendants + cross_referenced + referenced_by + session_summary', async () => {
     const deps = makeDeps(DEEP_TASKS, ALL_RESOURCES, { includeOps: true });
     const result = await hydrateContext({ task_id: 'TASK-0042', depth: 2, include_related: false, include_activity: true, max_tokens: 100000 }, deps);
     const expectedTotal = 1 +
@@ -1761,6 +1763,7 @@ describe('Phase 3: Contract invariants', () => {
       result!.children.length +
       result!.siblings.length +
       result!.cross_referenced.length +
+      result!.referenced_by.length +
       result!.ancestors.length +
       result!.descendants.length +
       result!.related_resources.length +
@@ -2080,7 +2083,7 @@ describe('Phase 4: Token budget with cross-referenced entities', () => {
   const ancestors = [taskToContextEntity(EPIC_GRANDPARENT, 'reference')].map(e => ({ ...e, graph_depth: 2 })) as ContextEntity[];
 
   it('cross-referenced entities included with large budget', () => {
-    const result = applyBudget(focal, parent, children, siblings, xrefs, ancestors, [], [], [], [], null, 100000);
+    const result = applyBudget(focal, parent, children, siblings, xrefs, [], ancestors, [], [], [], [], null, 100000);
     const entityIds = result.entities.map(e => e.id);
     expect(entityIds).toContain('TASK-0050');
     expect(entityIds).toContain('TASK-0051');
@@ -2094,7 +2097,7 @@ describe('Phase 4: Token budget with cross-referenced entities', () => {
     // Budget that fits siblings but not cross-refs
     const budget = focalCost + parentCost + childCosts + siblingCosts + 50 + 5;
 
-    const result = applyBudget(focal, parent, children, siblings, xrefs, [], [], [], [], [], null, budget);
+    const result = applyBudget(focal, parent, children, siblings, xrefs, [], [], [], [], [], [], null, budget);
     const entityIds = result.entities.map(e => e.id);
 
     // Siblings should be present
@@ -2104,7 +2107,7 @@ describe('Phase 4: Token budget with cross-referenced entities', () => {
   });
 
   it('cross-referenced entities budgeted before ancestors', () => {
-    const result = applyBudget(focal, parent, [], [], xrefs, ancestors, [], [], [], [], null, 100000);
+    const result = applyBudget(focal, parent, [], [], xrefs, [], ancestors, [], [], [], [], null, 100000);
     const entityIds = result.entities.map(e => e.id);
 
     // Both cross-refs and ancestors should be in with large budget
@@ -2158,7 +2161,7 @@ describe('Phase 4: Contract invariants', () => {
     }
   });
 
-  it('no entity ID appears in more than one role (extended with cross_referenced)', async () => {
+  it('no entity ID appears in more than one role (extended with cross_referenced + referenced_by)', async () => {
     const deps = makeDeps(XREF_TASKS, ALL_RESOURCES);
     const result = await hydrateContext({ task_id: 'TASK-0060', depth: 2, include_related: false, include_activity: false, max_tokens: 100000 }, deps);
 
@@ -2168,6 +2171,7 @@ describe('Phase 4: Contract invariants', () => {
       ...result!.children.map(c => c.id),
       ...result!.siblings.map(s => s.id),
       ...result!.cross_referenced.map(x => x.id),
+      ...result!.referenced_by.map(r => r.id),
       ...result!.ancestors.map(a => a.id),
       ...result!.descendants.map(d => d.id),
     ];
@@ -2175,7 +2179,7 @@ describe('Phase 4: Contract invariants', () => {
     expect(allIds.length).toBe(unique.size);
   });
 
-  it('total_items includes cross_referenced entities', async () => {
+  it('total_items includes cross_referenced + referenced_by entities', async () => {
     const deps = makeDeps(XREF_TASKS, ALL_RESOURCES);
     const result = await hydrateContext({ task_id: 'TASK-0060', include_related: false, include_activity: false, max_tokens: 100000 }, deps);
 
@@ -2184,6 +2188,7 @@ describe('Phase 4: Contract invariants', () => {
       result!.children.length +
       result!.siblings.length +
       result!.cross_referenced.length +
+      result!.referenced_by.length +
       result!.ancestors.length +
       result!.descendants.length +
       result!.related_resources.length +
@@ -2202,5 +2207,575 @@ describe('Phase 4: Contract invariants', () => {
     const result2 = await hydrateContext({ task_id: 'TASK-0062', include_related: false, include_activity: false, max_tokens: 100000 }, deps);
     expect(Array.isArray(result2!.cross_referenced)).toBe(true);
     expect(result2!.cross_referenced.length).toBe(0);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// Phase 5: Reverse Cross-References (ADR-0078)
+// ══════════════════════════════════════════════════════════════════════
+
+// Reverse reference test data: tasks that reference other tasks in the backlog
+// TASK-0080 references TASK-0042 (the standard focal task)
+const TASK_REFERENCING_FOCAL = makeTask({
+  id: 'TASK-0080',
+  title: 'Depends on context hydration',
+  parent_id: 'EPIC-0010',
+  description: 'This task depends on TASK-0042 being completed first.',
+  references: [
+    { url: 'TASK-0042', title: 'Context hydration task' },
+  ],
+});
+
+// TASK-0081 also references TASK-0042 via a URL
+const TASK_REFERENCING_FOCAL_VIA_URL = makeTask({
+  id: 'TASK-0081',
+  title: 'Related to hydration pipeline',
+  parent_id: 'EPIC-0010',
+  references: [
+    { url: 'https://github.com/org/repo/issues/TASK-0042', title: 'GH issue' },
+  ],
+});
+
+// TASK-0082 references TASK-0042 and also TASK-0060 (cross-references target)
+const TASK_REFERENCING_MULTIPLE = makeTask({
+  id: 'TASK-0082',
+  title: 'Multi-reference task',
+  parent_id: 'EPIC-0010',
+  references: [
+    { url: 'TASK-0042', title: 'Hydration' },
+    { url: 'TASK-0060', title: 'Cross-ref task' },
+  ],
+});
+
+// TASK-0083 references itself (self-ref should not appear in reverse index)
+const TASK_SELF_REFERENCING = makeTask({
+  id: 'TASK-0083',
+  title: 'Self-referencing task',
+  references: [
+    { url: 'TASK-0083', title: 'Self' },
+  ],
+});
+
+// TASK-0084 has no references (control case)
+const TASK_NO_REFS_CONTROL = makeTask({
+  id: 'TASK-0084',
+  title: 'No references control',
+  parent_id: 'EPIC-0010',
+});
+
+// Task set for reverse reference tests
+const REVERSE_REF_TASKS: Task[] = [
+  ...ALL_TASKS,
+  TASK_REFERENCING_FOCAL,
+  TASK_REFERENCING_FOCAL_VIA_URL,
+  TASK_REFERENCING_MULTIPLE,
+  TASK_SELF_REFERENCING,
+  TASK_NO_REFS_CONTROL,
+];
+
+// ── Stage 2.5: buildReverseReferenceIndex (unit tests) ────────────────
+
+describe('Phase 5: buildReverseReferenceIndex', () => {
+  it('builds an index mapping target → source entity IDs', () => {
+    const index = buildReverseReferenceIndex(REVERSE_REF_TASKS);
+
+    // TASK-0042 is referenced by TASK-0080, TASK-0081, TASK-0082
+    const refsToFocal = index.get('TASK-0042');
+    expect(refsToFocal).toBeDefined();
+    expect(refsToFocal).toContain('TASK-0080');
+    expect(refsToFocal).toContain('TASK-0081');
+    expect(refsToFocal).toContain('TASK-0082');
+  });
+
+  it('excludes self-references from the index', () => {
+    const index = buildReverseReferenceIndex(REVERSE_REF_TASKS);
+
+    // TASK-0083 references itself — should NOT appear in its own reverse refs
+    const refsToSelf = index.get('TASK-0083');
+    if (refsToSelf) {
+      expect(refsToSelf).not.toContain('TASK-0083');
+    }
+  });
+
+  it('handles tasks with no references', () => {
+    const index = buildReverseReferenceIndex([TASK_NO_REFS_CONTROL]);
+    // Should build without error, index may be empty
+    expect(index.size).toBe(0);
+  });
+
+  it('handles multiple references from one source to same target', () => {
+    const taskWithDuplicateRefs = makeTask({
+      id: 'TASK-0090',
+      title: 'Duplicate refs',
+      references: [
+        { url: 'TASK-0042', title: 'First ref' },
+        { url: 'TASK-0042', title: 'Second ref' },
+      ],
+    });
+    const index = buildReverseReferenceIndex([taskWithDuplicateRefs]);
+    const refs = index.get('TASK-0042');
+    expect(refs).toBeDefined();
+    // Should deduplicate — TASK-0090 should appear only once
+    expect(refs!.filter(id => id === 'TASK-0090').length).toBe(1);
+  });
+
+  it('extracts entity IDs from URLs in references', () => {
+    const index = buildReverseReferenceIndex(REVERSE_REF_TASKS);
+
+    // TASK-0081 references TASK-0042 via URL — should still be indexed
+    const refs = index.get('TASK-0042');
+    expect(refs).toContain('TASK-0081');
+  });
+
+  it('indexes multiple targets from a single source', () => {
+    const index = buildReverseReferenceIndex(REVERSE_REF_TASKS);
+
+    // TASK-0082 references both TASK-0042 and TASK-0060
+    const refsTo42 = index.get('TASK-0042');
+    const refsTo60 = index.get('TASK-0060');
+    expect(refsTo42).toContain('TASK-0082');
+    expect(refsTo60).toContain('TASK-0082');
+  });
+
+  it('returns empty array for entities with no reverse refs', () => {
+    const index = buildReverseReferenceIndex(REVERSE_REF_TASKS);
+
+    // TASK-0084 is not referenced by anything
+    const refs = index.get('TASK-0084');
+    expect(refs).toBeUndefined();
+  });
+});
+
+// ── Stage 2.5: lookupReverseReferences (unit tests) ───────────────────
+
+describe('Phase 5: lookupReverseReferences', () => {
+  const getTask = makeGetTask(REVERSE_REF_TASKS);
+
+  it('resolves reverse-referencing entities at summary fidelity', () => {
+    const index = buildReverseReferenceIndex(REVERSE_REF_TASKS);
+    const visited = new Set<string>(['TASK-0042', 'EPIC-0005']);
+    const result = lookupReverseReferences('TASK-0042', index, visited, { getTask });
+
+    expect(result.length).toBeGreaterThan(0);
+    for (const entity of result) {
+      expect(entity.fidelity).toBe('summary');
+    }
+  });
+
+  it('deduplicates against visited set', () => {
+    const index = buildReverseReferenceIndex(REVERSE_REF_TASKS);
+    // TASK-0080 is already visited
+    const visited = new Set<string>(['TASK-0042', 'EPIC-0005', 'TASK-0080']);
+    const result = lookupReverseReferences('TASK-0042', index, visited, { getTask });
+
+    const ids = result.map(e => e.id);
+    expect(ids).not.toContain('TASK-0080');
+    // TASK-0081 and TASK-0082 should still be found
+    expect(ids).toContain('TASK-0081');
+    expect(ids).toContain('TASK-0082');
+  });
+
+  it('adds resolved IDs to the visited set', () => {
+    const index = buildReverseReferenceIndex(REVERSE_REF_TASKS);
+    const visited = new Set<string>(['TASK-0042', 'EPIC-0005']);
+    lookupReverseReferences('TASK-0042', index, visited, { getTask });
+
+    expect(visited.has('TASK-0080')).toBe(true);
+    expect(visited.has('TASK-0081')).toBe(true);
+    expect(visited.has('TASK-0082')).toBe(true);
+  });
+
+  it('returns empty when no reverse references exist', () => {
+    const index = buildReverseReferenceIndex(REVERSE_REF_TASKS);
+    const visited = new Set<string>(['TASK-0084']);
+    const result = lookupReverseReferences('TASK-0084', index, visited, { getTask });
+
+    expect(result).toEqual([]);
+  });
+
+  it('caps at MAX_REVERSE_REFS (10)', () => {
+    // Create 15 tasks that all reference TASK-0042
+    const manyReferencers = Array.from({ length: 15 }, (_, i) =>
+      makeTask({
+        id: `TASK-${String(3000 + i).padStart(4, '0')}`,
+        title: `Ref ${i}`,
+        references: [{ url: 'TASK-0042', title: 'Target' }],
+      }),
+    );
+    const allTasks = [...REVERSE_REF_TASKS, ...manyReferencers];
+    const index = buildReverseReferenceIndex(allTasks);
+    const visited = new Set<string>(['TASK-0042']);
+    const result = lookupReverseReferences('TASK-0042', index, visited, { getTask: makeGetTask(allTasks) });
+
+    expect(result.length).toBeLessThanOrEqual(10);
+  });
+
+  it('skips non-existent source entities', () => {
+    // Manually construct an index with a non-existent source
+    const index = new Map<string, string[]>([
+      ['TASK-0042', ['TASK-9999', 'TASK-0080']],
+    ]);
+    const visited = new Set<string>(['TASK-0042']);
+    const result = lookupReverseReferences('TASK-0042', index, visited, { getTask });
+
+    const ids = result.map(e => e.id);
+    expect(ids).not.toContain('TASK-9999');
+    expect(ids).toContain('TASK-0080');
+  });
+});
+
+// ── Stage 2.5: traverseCrossReferences with reverse refs ─────────────
+
+describe('Phase 5: traverseCrossReferences with reverse references', () => {
+  const getTask = makeGetTask(REVERSE_REF_TASKS);
+  const listTasks = makeListTasks(REVERSE_REF_TASKS);
+
+  it('returns both forward and reverse references', () => {
+    // TASK-0060 has forward refs (to TASK-0099, TASK-0050, TASK-0051)
+    // and is referenced by TASK-0082 (reverse ref)
+    const visited = new Set<string>(['TASK-0060', 'EPIC-0005']);
+    const xrefTasks = [...REVERSE_REF_TASKS, TASK_WITH_XREFS];
+    const result = traverseCrossReferences(
+      TASK_WITH_XREFS,
+      null,
+      visited,
+      { getTask: makeGetTask(xrefTasks), listTasks: makeListTasks(xrefTasks) },
+    );
+
+    expect(result.cross_referenced.length).toBeGreaterThan(0);
+    expect(result.referenced_by.length).toBeGreaterThan(0);
+  });
+
+  it('returns empty referenced_by when listTasks not provided', () => {
+    const visited = new Set<string>(['TASK-0042', 'EPIC-0005']);
+    const result = traverseCrossReferences(
+      TASK_FOCAL,
+      null,
+      visited,
+      { getTask }, // No listTasks — reverse refs disabled
+    );
+
+    expect(result.referenced_by).toEqual([]);
+  });
+
+  it('reverse refs dedup against forward refs (visited set)', () => {
+    // Create a scenario: TASK-0042 (focal) has forward ref to TASK-0080,
+    // and TASK-0080 also references TASK-0042 (bidirectional).
+    const focalWithForwardRef = makeTask({
+      ...TASK_FOCAL,
+      references: [{ url: 'TASK-0080', title: 'Forward link' }],
+    });
+    const visited = new Set<string>(['TASK-0042', 'EPIC-0005']);
+    const result = traverseCrossReferences(
+      focalWithForwardRef,
+      null,
+      visited,
+      { getTask, listTasks },
+    );
+
+    // TASK-0080 should appear in forward refs (cross_referenced)
+    const forwardIds = result.cross_referenced.map(e => e.id);
+    expect(forwardIds).toContain('TASK-0080');
+
+    // TASK-0080 should NOT also appear in reverse refs (already in visited after forward pass)
+    const reverseIds = result.referenced_by.map(e => e.id);
+    expect(reverseIds).not.toContain('TASK-0080');
+  });
+
+  it('reverse refs exclude entities already in relational graph', () => {
+    const visited = new Set<string>(['TASK-0042', 'EPIC-0005', 'TASK-0040', 'TASK-0041', 'TASK-0043', 'TASK-0044']);
+    const result = traverseCrossReferences(
+      TASK_FOCAL,
+      null,
+      visited,
+      { getTask, listTasks },
+    );
+
+    // None of the relational graph entities should appear in referenced_by
+    const reverseIds = result.referenced_by.map(e => e.id);
+    expect(reverseIds).not.toContain('TASK-0042'); // focal
+    expect(reverseIds).not.toContain('EPIC-0005'); // parent
+    expect(reverseIds).not.toContain('TASK-0043'); // child
+  });
+});
+
+// ── Stage 2.5: Pipeline integration tests (reverse refs) ─────────────
+
+describe('Phase 5: Reverse references in pipeline', () => {
+  it('referenced_by populated when other tasks reference the focal entity', async () => {
+    const deps = makeDeps(REVERSE_REF_TASKS, ALL_RESOURCES);
+    const result = await hydrateContext({ task_id: 'TASK-0042', include_related: false, include_activity: false, max_tokens: 100000 }, deps);
+
+    expect(result).not.toBeNull();
+    expect(result!.referenced_by.length).toBeGreaterThan(0);
+    const refByIds = result!.referenced_by.map(e => e.id);
+    expect(refByIds).toContain('TASK-0080');
+    expect(refByIds).toContain('TASK-0081');
+  });
+
+  it('referenced_by is empty when no tasks reference the focal entity', async () => {
+    const deps = makeDeps(REVERSE_REF_TASKS, ALL_RESOURCES);
+    const result = await hydrateContext({ task_id: 'TASK-0084', include_related: false, include_activity: false, max_tokens: 100000 }, deps);
+
+    expect(result).not.toBeNull();
+    expect(result!.referenced_by).toEqual([]);
+  });
+
+  it('referenced_by does not include entities already in relational graph', async () => {
+    // Create a task whose parent references it (already in relational graph as parent)
+    const parentRefsFocal = makeTask({
+      ...EPIC,
+      references: [{ url: 'TASK-0042', title: 'My child' }],
+    });
+    const tasks = [
+      parentRefsFocal,
+      ...ALL_TASKS.filter(t => t.id !== 'EPIC-0005'),
+      TASK_REFERENCING_FOCAL,
+    ];
+    const deps = makeDeps(tasks, ALL_RESOURCES);
+    const result = await hydrateContext({ task_id: 'TASK-0042', include_related: false, include_activity: false, max_tokens: 100000 }, deps);
+
+    expect(result).not.toBeNull();
+    // Parent EPIC-0005 references TASK-0042 but should NOT appear in referenced_by
+    // (it's already the parent)
+    const refByIds = result!.referenced_by.map(e => e.id);
+    expect(refByIds).not.toContain('EPIC-0005');
+  });
+
+  it('referenced_by entities excluded from semantic enrichment dedup', async () => {
+    const deps = makeDeps(REVERSE_REF_TASKS, ALL_RESOURCES, { includeSearch: true });
+    const result = await hydrateContext({ task_id: 'TASK-0042', include_related: true, include_activity: false, max_tokens: 100000 }, deps);
+
+    expect(result).not.toBeNull();
+    // referenced_by IDs should not appear in semantic related
+    const refByIds = new Set(result!.referenced_by.map(e => e.id));
+    for (const rel of result!.related) {
+      expect(refByIds.has(rel.id)).toBe(false);
+    }
+  });
+
+  it('stages_executed includes cross_reference_traversal when reverse refs found', async () => {
+    const deps = makeDeps(REVERSE_REF_TASKS, ALL_RESOURCES);
+    const result = await hydrateContext({ task_id: 'TASK-0042', include_related: false, include_activity: false, max_tokens: 100000 }, deps);
+
+    expect(result!.metadata.stages_executed).toContain('cross_reference_traversal');
+  });
+
+  it('stages_executed includes cross_reference_traversal with only reverse refs (no forward)', async () => {
+    // TASK-0084 has no references[] but is not referenced by anyone either.
+    // Use TASK-0042 which has no forward entity refs but IS referenced by others.
+    const tasksNoForwardRefs = REVERSE_REF_TASKS.map(t =>
+      t.id === 'TASK-0042' ? makeTask({ ...t, references: undefined }) : t,
+    );
+    const deps = makeDeps(tasksNoForwardRefs, ALL_RESOURCES);
+    const result = await hydrateContext({ task_id: 'TASK-0042', include_related: false, include_activity: false, max_tokens: 100000 }, deps);
+
+    expect(result).not.toBeNull();
+    // Should have reverse refs but no forward refs
+    expect(result!.cross_referenced.length).toBe(0);
+    expect(result!.referenced_by.length).toBeGreaterThan(0);
+    expect(result!.metadata.stages_executed).toContain('cross_reference_traversal');
+  });
+
+  it('bidirectional references handled correctly', async () => {
+    // TASK-0042 references TASK-0080, and TASK-0080 references TASK-0042
+    const focalWithRef = makeTask({
+      ...TASK_FOCAL,
+      references: [
+        ...(TASK_FOCAL.references || []),
+        { url: 'TASK-0080', title: 'Forward to 0080' },
+      ],
+    });
+    const tasks = [
+      ...REVERSE_REF_TASKS.filter(t => t.id !== 'TASK-0042'),
+      focalWithRef,
+    ];
+    const deps = makeDeps(tasks, ALL_RESOURCES);
+    const result = await hydrateContext({ task_id: 'TASK-0042', include_related: false, include_activity: false, max_tokens: 100000 }, deps);
+
+    expect(result).not.toBeNull();
+    // TASK-0080 should appear in cross_referenced (forward) but NOT referenced_by
+    const forwardIds = result!.cross_referenced.map(e => e.id);
+    const reverseIds = result!.referenced_by.map(e => e.id);
+    expect(forwardIds).toContain('TASK-0080');
+    expect(reverseIds).not.toContain('TASK-0080');
+    // TASK-0081 and TASK-0082 should still appear in referenced_by
+    expect(reverseIds).toContain('TASK-0081');
+  });
+});
+
+// ── Phase 5: Token budget with referenced_by ─────────────────────────
+
+describe('Phase 5: Token budget with referenced_by entities', () => {
+  const focal = taskToContextEntity(TASK_FOCAL, 'full');
+  const parent = taskToContextEntity(EPIC, 'summary');
+  const children = [TASK_CHILD_1, TASK_CHILD_2].map(t => taskToContextEntity(t, 'summary'));
+  const siblings = [TASK_SIBLING_1, TASK_SIBLING_2].map(t => taskToContextEntity(t, 'summary'));
+  const xrefs = [TASK_SEMANTIC_1].map(t => taskToContextEntity(t, 'summary'));
+  const refBy = [TASK_REFERENCING_FOCAL, TASK_REFERENCING_FOCAL_VIA_URL].map(t => taskToContextEntity(t, 'summary'));
+  const ancestors = [taskToContextEntity(EPIC_GRANDPARENT, 'reference')].map(e => ({ ...e, graph_depth: 2 })) as ContextEntity[];
+
+  it('referenced_by entities included with large budget', () => {
+    const result = applyBudget(focal, parent, children, siblings, xrefs, refBy, ancestors, [], [], [], [], null, 100000);
+    const entityIds = result.entities.map(e => e.id);
+    expect(entityIds).toContain('TASK-0080');
+    expect(entityIds).toContain('TASK-0081');
+  });
+
+  it('referenced_by entities budgeted after cross-referenced (forward)', () => {
+    const focalCost = estimateEntityTokens(focal);
+    const parentCost = estimateEntityTokens(parent);
+    const childCosts = children.reduce((sum, c) => sum + estimateEntityTokens(c), 0);
+    const siblingCosts = siblings.reduce((sum, s) => sum + estimateEntityTokens(s), 0);
+    const xrefCosts = xrefs.reduce((sum, x) => sum + estimateEntityTokens(x), 0);
+    // Budget that fits forward xrefs but not reverse refs
+    const budget = focalCost + parentCost + childCosts + siblingCosts + xrefCosts + 50 + 5;
+
+    const result = applyBudget(focal, parent, children, siblings, xrefs, refBy, [], [], [], [], [], null, budget);
+    const entityIds = result.entities.map(e => e.id);
+
+    // Forward cross-refs should be present
+    for (const x of xrefs) expect(entityIds).toContain(x.id);
+    // Referenced-by may be truncated/dropped
+    expect(result.truncated).toBe(true);
+  });
+
+  it('referenced_by entities budgeted before ancestors', () => {
+    const result = applyBudget(focal, parent, [], [], [], refBy, ancestors, [], [], [], [], null, 100000);
+    const entityIds = result.entities.map(e => e.id);
+
+    // Both referenced_by and ancestors should be in with large budget
+    expect(entityIds).toContain('TASK-0080');
+    expect(entityIds).toContain('EPIC-0001');
+
+    // Referenced_by should appear before ancestors in the entity list
+    const refByIdx = entityIds.indexOf('TASK-0080');
+    const ancestorIdx = entityIds.indexOf('EPIC-0001');
+    expect(refByIdx).toBeLessThan(ancestorIdx);
+  });
+
+  it('referenced_by entities appear after forward cross-referenced in entity list', () => {
+    const result = applyBudget(focal, parent, [], [], xrefs, refBy, [], [], [], [], [], null, 100000);
+    const entityIds = result.entities.map(e => e.id);
+
+    const xrefIdx = entityIds.indexOf(xrefs[0]!.id);
+    const refByIdx = entityIds.indexOf(refBy[0]!.id);
+    expect(xrefIdx).toBeLessThan(refByIdx);
+  });
+});
+
+// ── Phase 5: Contract invariants ────────────────────────────────────
+
+describe('Phase 5: Contract invariants', () => {
+  it('referenced_by entities are always summary fidelity', async () => {
+    const deps = makeDeps(REVERSE_REF_TASKS, ALL_RESOURCES);
+    const result = await hydrateContext({ task_id: 'TASK-0042', include_related: false, include_activity: false, max_tokens: 100000 }, deps);
+
+    for (const entity of result!.referenced_by) {
+      expect(entity.fidelity).toBe('summary');
+    }
+  });
+
+  it('referenced_by entities do not duplicate any relational graph entities', async () => {
+    const deps = makeDeps(REVERSE_REF_TASKS, ALL_RESOURCES);
+    const result = await hydrateContext({ task_id: 'TASK-0042', include_related: false, include_activity: false, max_tokens: 100000 }, deps);
+
+    const graphIds = new Set([
+      result!.focal.id,
+      ...(result!.parent ? [result!.parent.id] : []),
+      ...result!.children.map(c => c.id),
+      ...result!.siblings.map(s => s.id),
+      ...result!.ancestors.map(a => a.id),
+      ...result!.descendants.map(d => d.id),
+    ]);
+
+    for (const refBy of result!.referenced_by) {
+      expect(graphIds.has(refBy.id)).toBe(false);
+    }
+  });
+
+  it('referenced_by entities do not duplicate forward cross-referenced', async () => {
+    const deps = makeDeps(REVERSE_REF_TASKS, ALL_RESOURCES);
+    const result = await hydrateContext({ task_id: 'TASK-0042', include_related: false, include_activity: false, max_tokens: 100000 }, deps);
+
+    const xrefIds = new Set(result!.cross_referenced.map(e => e.id));
+    for (const refBy of result!.referenced_by) {
+      expect(xrefIds.has(refBy.id)).toBe(false);
+    }
+  });
+
+  it('referenced_by entities do not duplicate semantic related', async () => {
+    const deps = makeDeps(REVERSE_REF_TASKS, ALL_RESOURCES, { includeSearch: true });
+    const result = await hydrateContext({ task_id: 'TASK-0042', include_related: true, include_activity: false, max_tokens: 100000 }, deps);
+
+    const refByIds = new Set(result!.referenced_by.map(e => e.id));
+    for (const rel of result!.related) {
+      expect(refByIds.has(rel.id)).toBe(false);
+    }
+  });
+
+  it('no entity ID appears in more than one role (all roles)', async () => {
+    const deps = makeDeps(REVERSE_REF_TASKS, ALL_RESOURCES);
+    const result = await hydrateContext({ task_id: 'TASK-0042', depth: 2, include_related: false, include_activity: false, max_tokens: 100000 }, deps);
+
+    const allIds: string[] = [
+      result!.focal.id,
+      ...(result!.parent ? [result!.parent.id] : []),
+      ...result!.children.map(c => c.id),
+      ...result!.siblings.map(s => s.id),
+      ...result!.cross_referenced.map(x => x.id),
+      ...result!.referenced_by.map(r => r.id),
+      ...result!.ancestors.map(a => a.id),
+      ...result!.descendants.map(d => d.id),
+    ];
+    const unique = new Set(allIds);
+    expect(allIds.length).toBe(unique.size);
+  });
+
+  it('total_items includes referenced_by entities', async () => {
+    const deps = makeDeps(REVERSE_REF_TASKS, ALL_RESOURCES);
+    const result = await hydrateContext({ task_id: 'TASK-0042', include_related: false, include_activity: false, max_tokens: 100000 }, deps);
+
+    const expectedTotal = 1 +
+      (result!.parent ? 1 : 0) +
+      result!.children.length +
+      result!.siblings.length +
+      result!.cross_referenced.length +
+      result!.referenced_by.length +
+      result!.ancestors.length +
+      result!.descendants.length +
+      result!.related_resources.length +
+      result!.related.length +
+      result!.activity.length +
+      (result!.session_summary ? 1 : 0);
+    expect(result!.metadata.total_items).toBe(expectedTotal);
+  });
+
+  it('referenced_by is always an array (never undefined)', async () => {
+    const deps = makeDeps(REVERSE_REF_TASKS, ALL_RESOURCES);
+
+    const result1 = await hydrateContext({ task_id: 'TASK-0042', include_related: false, include_activity: false, max_tokens: 100000 }, deps);
+    expect(Array.isArray(result1!.referenced_by)).toBe(true);
+
+    const result2 = await hydrateContext({ task_id: 'TASK-0084', include_related: false, include_activity: false, max_tokens: 100000 }, deps);
+    expect(Array.isArray(result2!.referenced_by)).toBe(true);
+    expect(result2!.referenced_by.length).toBe(0);
+  });
+
+  it('referenced_by capped at 10', async () => {
+    // Create 15 tasks that all reference TASK-0042
+    const manyReferencers = Array.from({ length: 15 }, (_, i) =>
+      makeTask({
+        id: `TASK-${String(4000 + i).padStart(4, '0')}`,
+        title: `Referencing ${i}`,
+        parent_id: 'EPIC-0010',
+        references: [{ url: 'TASK-0042', title: 'Target' }],
+      }),
+    );
+    const tasks = [...REVERSE_REF_TASKS, ...manyReferencers];
+    const deps = makeDeps(tasks, ALL_RESOURCES);
+    const result = await hydrateContext({ task_id: 'TASK-0042', include_related: false, include_activity: false, max_tokens: 100000 }, deps);
+
+    expect(result!.referenced_by.length).toBeLessThanOrEqual(10);
   });
 });

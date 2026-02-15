@@ -6,16 +6,16 @@ import { operationLogger } from '../operations/index.js';
 import { hydrateContext, type ContextResponse } from '../context/index.js';
 
 /**
- * backlog_context — Agent context hydration tool (ADR-0074, ADR-0075, ADR-0076, ADR-0077).
+ * backlog_context — Agent context hydration tool (ADR-0074, ADR-0075, ADR-0076, ADR-0077, ADR-0078).
  *
  * Provides a single-call context bundle for agents working on backlog tasks.
  * Replaces the 5-10 manual tool calls an agent would otherwise need to
  * understand a task's full context (parent, siblings, children, resources,
  * semantically related items, recent activity, and session memory).
  *
- * Phase 4 additions (ADR-0077):
- *   - Cross-reference traversal: follows references[] to resolve linked entities
- *   - cross_referenced array in response: entities explicitly linked by focal
+ * Phase 5 additions (ADR-0078):
+ *   - Reverse cross-references: discovers "who references me?" via on-demand index
+ *   - referenced_by array in response: entities whose references[] point to focal
  *
  * Use backlog_context for:
  *   - "I'm about to work on TASK-X, give me everything I need to know"
@@ -35,7 +35,7 @@ export function registerBacklogContextTool(server: McpServer) {
   server.registerTool(
     'backlog_context',
     {
-      description: 'Get full context for working on a task — parent epic, sibling tasks, children, cross-referenced items, ancestors, descendants, related resources, semantically related items, recent activity, and session memory in a single call. Use this before starting work on any task to understand its context.',
+      description: 'Get full context for working on a task — parent epic, sibling tasks, children, cross-referenced items, reverse references (who references me), ancestors, descendants, related resources, semantically related items, recent activity, and session memory in a single call. Use this before starting work on any task to understand its context.',
       inputSchema: z.object({
         task_id: z.string().optional().describe('Task or epic ID to get context for. Example: "TASK-0042" or "EPIC-0005". Mutually exclusive with query.'),
         query: z.string().optional().describe('Natural language query to find the most relevant entity. Example: "search ranking improvements". Mutually exclusive with task_id.'),
@@ -109,6 +109,10 @@ function formatResponse(ctx: ContextResponse) {
 
   if (ctx.cross_referenced.length > 0) {
     response.cross_referenced = ctx.cross_referenced.map(formatEntity);
+  }
+
+  if (ctx.referenced_by.length > 0) {
+    response.referenced_by = ctx.referenced_by.map(formatEntity);
   }
 
   if (ctx.ancestors.length > 0) {

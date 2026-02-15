@@ -1,13 +1,15 @@
 /**
- * Token estimation and budgeting for context hydration (ADR-0074, ADR-0075, ADR-0076, ADR-0077).
+ * Token estimation and budgeting for context hydration (ADR-0074, ADR-0075, ADR-0076, ADR-0077, ADR-0078).
  *
  * KNOWN HACK: Uses character-based approximation (1 token ≈ 4 chars).
  * This is within ±20% for English prose — sufficient for budgeting decisions.
  * See ADR-0074 "Known Hacks" section 1 for rationale and future fix path.
  *
- * Phase 4 changes (ADR-0077):
- *   - 11-level priority (added cross-referenced entities at priority 6)
- *   - Cross-referenced entities are explicit links — higher priority than ancestors
+ * Phase 5 changes (ADR-0078):
+ *   - 12-level priority (added referenced_by entities at priority 7)
+ *   - Referenced-by entities are reverse cross-references — slightly lower priority
+ *     than forward cross-references because the user didn't create these links FROM
+ *     the focal entity, but they're still explicit intentional links.
  */
 
 import type { ContextEntity, ContextResource, ContextActivity, SessionSummary, Fidelity } from './types.js';
@@ -190,18 +192,19 @@ export function downgradeResource(resource: ContextResource, to: Fidelity): Cont
 /**
  * Apply token budget to a set of context items.
  *
- * Priority order (highest first) — Phase 4, ADR-0077:
+ * Priority order (highest first) — Phase 5, ADR-0078:
  *   1. Focal entity (never dropped, always full fidelity)
  *   2. Parent entity (never dropped, summary fidelity)
  *   3. Session summary (high priority — tells agent what happened last)
  *   4. Children (summary, downgrade to reference if needed)
  *   5. Siblings (summary, downgrade to reference if needed)
- *   6. Cross-referenced entities (summary, downgrade to reference if needed)  ← NEW
- *   7. Ancestors (reference fidelity — breadcrumb context)
- *   8. Descendants (reference fidelity — structural awareness)
- *   9. Semantically related entities (summary, downgrade to reference if needed)
- *  10. Resources (summary, downgrade to reference if needed)
- *  11. Activity (fixed cost, drop entries if needed)
+ *   6. Cross-referenced entities (summary, downgrade to reference if needed)
+ *   7. Referenced-by entities (summary, downgrade to reference if needed)  ← NEW
+ *   8. Ancestors (reference fidelity — breadcrumb context)
+ *   9. Descendants (reference fidelity — structural awareness)
+ *  10. Semantically related entities (summary, downgrade to reference if needed)
+ *  11. Resources (summary, downgrade to reference if needed)
+ *  12. Activity (fixed cost, drop entries if needed)
  *
  * Items are first tried at their current fidelity. If the budget is
  * exceeded, lower-priority items are downgraded before higher-priority
@@ -213,6 +216,7 @@ export function applyBudget(
   children: ContextEntity[],
   siblings: ContextEntity[],
   crossReferenced: ContextEntity[],
+  referencedBy: ContextEntity[],
   ancestors: ContextEntity[],
   descendants: ContextEntity[],
   related: ContextEntity[],
@@ -296,22 +300,27 @@ export function applyBudget(
     if (!tryFitEntity(xref)) break;
   }
 
-  // 7. Ancestors (already at reference fidelity from expansion)
+  // 7. Referenced-by entities at summary fidelity (Phase 5, ADR-0078)
+  for (const refBy of referencedBy) {
+    if (!tryFitEntity(refBy)) break;
+  }
+
+  // 8. Ancestors (already at reference fidelity from expansion)
   for (const ancestor of ancestors) {
     if (!tryFitEntity(ancestor)) break;
   }
 
-  // 8. Descendants (already at reference fidelity from expansion)
+  // 9. Descendants (already at reference fidelity from expansion)
   for (const descendant of descendants) {
     if (!tryFitEntity(descendant)) break;
   }
 
-  // 9. Semantically related entities at summary fidelity
+  // 10. Semantically related entities at summary fidelity
   for (const rel of related) {
     if (!tryFitEntity(rel)) break;
   }
 
-  // 10. Resources at summary fidelity
+  // 11. Resources at summary fidelity
   for (const resource of resources) {
     const cost = estimateResourceTokens(resource);
     if (tokensUsed + cost <= maxTokens) {
@@ -331,7 +340,7 @@ export function applyBudget(
     }
   }
 
-  // 11. Activity entries
+  // 12. Activity entries
   for (const act of activities) {
     const cost = estimateActivityTokens(act);
     if (tokensUsed + cost <= maxTokens) {

@@ -15,4 +15,4 @@ export { expandRelations } from './stages/relational-expansion.js';
 export { enrichSemantic, type SemanticEnrichmentDeps } from './stages/semantic-enrichment.js';
 export { overlayTemporal, type TemporalOverlayDeps } from './stages/temporal-overlay.js';
 export { deriveSessionSummary, type SessionMemoryDeps } from './stages/session-memory.js';
-export { traverseCrossReferences, extractEntityIds, type CrossReferenceTraversalDeps } from './stages/cross-reference-traversal.js';
+export { traverseCrossReferences, extractEntityIds, buildReverseReferenceIndex, lookupReverseReferences, type CrossReferenceTraversalDeps } from './stages/cross-reference-traversal.js';

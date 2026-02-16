@@ -182,12 +182,17 @@ function normalizeScores<T extends { score: number }>(results: T[]): T[] {
  *   - Title starts-with-query: additional +0.3 (up to 1.8x total)
  *   - Epic with title match: ×1.1
  *   - Recency: ×1.0-1.15
+ * Stage 3: All-terms-present coordination bonus (additive +1.5)
+ *   - For multi-word queries only
+ *   - Checks title + description/content for ALL query terms
+ *   - Compensates for OR-mode (threshold=1) where partial title matches
+ *     dominate full body matches (TASK-0296)
  *
  * @param results - Search results with score and item (task or resource)
  * @param query - Original search query
  * @returns Re-ranked results sorted by adjusted score
  */
-function rerankWithSignals<T extends { score: number; item: { title?: string; type?: string; updated_at?: string } }>(
+function rerankWithSignals<T extends { score: number; item: { title?: string; description?: string; content?: string; type?: string; updated_at?: string } }>(
   results: T[],
   query: string
 ): T[] {
@@ -198,7 +203,7 @@ function rerankWithSignals<T extends { score: number; item: { title?: string; ty
   const queryLower = query.toLowerCase().trim();
   const queryWords = queryLower.split(/\s+/);
 
-  // Stage 2: Multiplicative domain signals
+  // Stage 2: Multiplicative domain signals + coordination bonus
   return normalized.map(r => {
     let multiplier = 1.0;
     const title = r.item.title?.toLowerCase() || '';
@@ -228,7 +233,21 @@ function rerankWithSignals<T extends { score: number; item: { title?: string; ty
     // Recency multiplier
     multiplier *= getRecencyMultiplier(r.item.updated_at);
 
-    return { ...r, score: r.score * multiplier };
+    let score = r.score * multiplier;
+
+    // Stage 3: All-terms-present coordination bonus (TASK-0296, ADR-0080)
+    // In OR mode (threshold=1), partial title matches dominate multi-term body matches.
+    // E.g. "feature store" → "Feature: Daily Discovery Game" (1/2 terms in title) outranks
+    // a task with "FeatureStore" in description (2/2 terms). This flat additive bonus
+    // ensures documents matching ALL query terms rank above partial-match documents.
+    if (queryWords.length > 1) {
+      const bodyText = (title + ' ' + (r.item.description || '') + ' ' + (r.item.content || '')).toLowerCase();
+      if (queryWords.every(qw => bodyText.includes(qw))) {
+        score += 1.5;
+      }
+    }
+
+    return { ...r, score };
   }).sort((a, b) => b.score - a.score);
 }
 

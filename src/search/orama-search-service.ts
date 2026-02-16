@@ -1,4 +1,4 @@
-import { create, insert, remove, search, save, load, type Orama, type Results, type Tokenizer } from '@orama/orama';
+import { create, insert, insertMultiple, remove, search, save, load, type Orama, type Results, type Tokenizer } from '@orama/orama';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Task } from '@/storage/schema.js';
@@ -26,9 +26,9 @@ const schema = {
   id: 'string',
   title: 'string',
   description: 'string',
-  status: 'string',
-  type: 'string',
-  epic_id: 'string',
+  status: 'enum',
+  type: 'enum',
+  epic_id: 'enum',
   evidence: 'string',
   blocked_reason: 'string',
   references: 'string',
@@ -44,12 +44,32 @@ type OramaInstance = Orama<typeof schema>;
 type OramaInstanceWithEmbeddings = Orama<typeof schemaWithEmbeddings>;
 
 /** Bump when tokenizer or schema changes to force index rebuild. */
-const INDEX_VERSION = 2;
+const INDEX_VERSION = 3;
 
 export interface OramaSearchOptions {
   cachePath: string;
   /** Enable hybrid search with local embeddings. Default: true */
   hybridSearch?: boolean;
+}
+
+/**
+ * Text-searchable properties (ADR-0079). Excludes enum fields (status, type, epic_id)
+ * which are filtered via `where` clause, not full-text searched.
+ */
+const TEXT_PROPERTIES = ['id', 'title', 'description', 'evidence', 'blocked_reason', 'references', 'path'] as const;
+
+/**
+ * Build Orama `where` clause from SearchOptions filters and docTypes (ADR-0079).
+ * Returns undefined if no filters apply (Orama treats undefined where as no filter).
+ */
+function buildWhereClause(filters?: SearchOptions['filters'], docTypes?: SearchableType[]): Record<string, any> | undefined {
+  const where: Record<string, any> = {};
+  if (filters?.status?.length) where.status = { in: filters.status };
+  if (filters?.type) where.type = { eq: filters.type };
+  if (filters?.epic_id) where.epic_id = { eq: filters.epic_id };
+  if (filters?.parent_id) where.epic_id = { eq: filters.parent_id };
+  if (docTypes?.length) where.type = { in: docTypes };
+  return Object.keys(where).length > 0 ? where : undefined;
 }
 
 /**
@@ -351,7 +371,7 @@ export class OramaSearchService implements SearchService {
       description: task.description || '',
       status: task.status,
       type: task.type || 'task',
-      epic_id: task.epic_id || '',
+      epic_id: task.parent_id ?? task.epic_id ?? '',  // Effective parent for where filtering (ADR-0079)
       evidence: (task.evidence || []).join(' '),
       blocked_reason: (task.blocked_reason || []).join(' '),
       references: (task.references || []).map(r => `${r.title || ''} ${r.url}`).join(' '),
@@ -453,12 +473,18 @@ export class OramaSearchService implements SearchService {
 
     for (const task of tasks) {
       this.taskCache.set(task.id, task);
-      if (useEmbeddings) {
+    }
+
+    if (useEmbeddings) {
+      // Sequential: each doc needs async embedding call
+      for (const task of tasks) {
         const doc = await this.taskToDocWithEmbeddings(task);
-        await insert(this.db as OramaInstanceWithEmbeddings, doc);
-      } else {
-        await insert(this.db as OramaInstance, this.taskToDoc(task));
+        insert(this.db as OramaInstanceWithEmbeddings, doc);
       }
+    } else {
+      // Batch insert for BM25-only mode (ADR-0079)
+      const docs = tasks.map(t => this.taskToDoc(t));
+      insertMultiple(this.db as OramaInstance, docs);
     }
     this.persistToDisk();
   }
@@ -469,37 +495,38 @@ export class OramaSearchService implements SearchService {
 
     const limit = options?.limit ?? 20;
     const boost = options?.boost ?? { id: 10, title: 5 };
+    const where = buildWhereClause(options?.filters);
 
     // Determine if we can use hybrid search
     const canUseHybrid = this.hasEmbeddingsInIndex && (await this.ensureEmbeddings());
 
+    // BM25 relevance: keep defaults (k:1.2, b:0.75, d:0.5) — ADR-0079.
+    // Field importance is handled by boost + re-ranking (ADR-0072).
+
     let results: Results<OramaDoc | OramaDocWithEmbeddings>;
 
     if (canUseHybrid) {
-      // Hybrid search: BM25 + vector
       const queryVector = await this.embedder!.embed(query);
       results = await search(this.db as OramaInstanceWithEmbeddings, {
         term: query,
+        properties: [...TEXT_PROPERTIES],
         mode: 'hybrid',
-        vector: {
-          value: queryVector,
-          property: 'embeddings',
-        },
-        // Prioritize BM25 (exact/fuzzy matches) over vector (semantic)
-        // This ensures exact matches rank highest while semantic matches are still found
+        vector: { value: queryVector, property: 'embeddings' },
         hybridWeights: { text: 0.8, vector: 0.2 },
-        similarity: 0.2, // Low threshold to catch semantic matches
+        similarity: 0.2,
         limit,
         boost,
         tolerance: 1,
+        where,
       });
     } else {
-      // BM25 only
       results = await search(this.db, {
         term: query,
+        properties: [...TEXT_PROPERTIES],
         limit,
         boost,
         tolerance: 1,
+        where,
       });
     }
 
@@ -508,23 +535,6 @@ export class OramaSearchService implements SearchService {
       score: hit.score,
       task: this.taskCache.get(hit.document.id)!,
     }));
-
-    // Apply filters post-search
-    const filters = options?.filters;
-    if (filters) {
-      if (filters.status?.length) {
-        hits = hits.filter(h => filters.status!.includes(h.task.status));
-      }
-      if (filters.type) {
-        hits = hits.filter(h => (h.task.type || 'task') === filters.type);
-      }
-      if (filters.epic_id) {
-        hits = hits.filter(h => (h.task.parent_id ?? h.task.epic_id) === filters.epic_id);
-      }
-      if (filters.parent_id) {
-        hits = hits.filter(h => (h.task.parent_id ?? h.task.epic_id) === filters.parent_id);
-      }
-    }
 
     // Re-rank with normalize-then-multiply pipeline (ADR-0072)
     const reranked = rerankWithSignals(
@@ -601,19 +611,36 @@ export class OramaSearchService implements SearchService {
 
     for (const resource of resources) {
       this.resourceCache.set(resource.id, resource);
-      try {
-        if (this.hasEmbeddingsInIndex && this.embeddingsReady) {
+    }
+
+    if (this.hasEmbeddingsInIndex && this.embeddingsReady) {
+      // Sequential: each doc needs async embedding call
+      for (const resource of resources) {
+        try {
           const doc = await this.resourceToDocWithEmbeddings(resource);
-          await insert(this.db as OramaInstanceWithEmbeddings, doc);
-        } else {
-          await insert(this.db as OramaInstance, this.resourceToDoc(resource));
+          insert(this.db as OramaInstanceWithEmbeddings, doc);
+        } catch (e: any) {
+          if (e?.code === 'DOCUMENT_ALREADY_EXISTS') {
+            await this.updateResource(resource);
+          }
         }
-      } catch (e: any) {
-        if (e?.code === 'DOCUMENT_ALREADY_EXISTS') {
-          // Update existing resource
-          await this.updateResource(resource);
+      }
+    } else {
+      // Batch insert for BM25-only mode (ADR-0079)
+      const docs = resources.map(r => this.resourceToDoc(r));
+      try {
+        insertMultiple(this.db as OramaInstance, docs);
+      } catch {
+        // Fallback to individual inserts if batch fails (e.g. duplicates)
+        for (const resource of resources) {
+          try {
+            insert(this.db as OramaInstance, this.resourceToDoc(resource));
+          } catch (e: any) {
+            if (e?.code === 'DOCUMENT_ALREADY_EXISTS') {
+              await this.updateResource(resource);
+            }
+          }
         }
-        // Ignore other errors - continue indexing
       }
     }
     this.scheduleSave();
@@ -628,6 +655,7 @@ export class OramaSearchService implements SearchService {
 
     const limit = options?.limit ?? 20;
     const boost = { title: 2, description: 1 };
+    const where = { type: { eq: 'resource' } };
 
     const canUseHybrid = this.hasEmbeddingsInIndex && (await this.ensureEmbeddings());
 
@@ -637,26 +665,28 @@ export class OramaSearchService implements SearchService {
       const queryVector = await this.embedder!.embed(query);
       results = await search(this.db as OramaInstanceWithEmbeddings, {
         term: query,
+        properties: [...TEXT_PROPERTIES],
         mode: 'hybrid',
         vector: { value: queryVector, property: 'embeddings' },
         hybridWeights: { text: 0.8, vector: 0.2 },
         similarity: 0.2,
-        limit: limit * 3,  // Fetch more to filter
+        limit,
         boost,
         tolerance: 1,
+        where,
       });
     } else {
       results = await search(this.db, {
         term: query,
-        limit: limit * 3,
+        properties: [...TEXT_PROPERTIES],
+        limit,
         boost,
         tolerance: 1,
+        where,
       });
     }
 
-    // Filter to resources only
     let resourceHits = results.hits
-      .filter(hit => hit.document.type === 'resource')
       .map(hit => ({
         id: hit.document.id,
         score: hit.score,
@@ -693,6 +723,7 @@ export class OramaSearchService implements SearchService {
     const docTypes = options?.docTypes;
     const boost = options?.boost ?? { id: 10, title: 5 };
     const sortMode = options?.sort ?? 'relevant';
+    const where = buildWhereClause(options?.filters, docTypes);
 
     const canUseHybrid = this.hasEmbeddingsInIndex && (await this.ensureEmbeddings());
 
@@ -702,20 +733,24 @@ export class OramaSearchService implements SearchService {
       const queryVector = await this.embedder!.embed(query);
       results = await search(this.db as OramaInstanceWithEmbeddings, {
         term: query,
+        properties: [...TEXT_PROPERTIES],
         mode: 'hybrid',
         vector: { value: queryVector, property: 'embeddings' },
         hybridWeights: { text: 0.8, vector: 0.2 },
         similarity: 0.2,
-        limit: limit * 3,
+        limit,
         boost,
         tolerance: 1,
+        where,
       });
     } else {
       results = await search(this.db, {
         term: query,
-        limit: limit * 3,
+        properties: [...TEXT_PROPERTIES],
+        limit,
         boost,
         tolerance: 1,
+        where,
       });
     }
 
@@ -740,28 +775,8 @@ export class OramaSearchService implements SearchService {
       };
     }).filter(h => h.item);
 
-    // Filter by document types if specified
-    if (docTypes?.length) {
-      hits = hits.filter(h => docTypes.includes(h.type));
-    }
-
-    // Apply task-specific filters
-    const filters = options?.filters;
-    if (filters) {
-      hits = hits.filter(h => {
-        if (h.type === 'resource') return true;  // Resources don't have these filters
-        const task = h.item as Task;
-        if (filters.status?.length && !filters.status.includes(task.status)) return false;
-        if (filters.type && (task.type || 'task') !== filters.type) return false;
-        if (filters.epic_id && (task.parent_id ?? task.epic_id) !== filters.epic_id) return false;
-        if (filters.parent_id && (task.parent_id ?? task.epic_id) !== filters.parent_id) return false;
-        return true;
-      });
-    }
-
     // Sort based on mode
     if (sortMode === 'recent') {
-      // Sort by updated_at descending (most recent first)
       hits.sort((a, b) => {
         const aDate = (a.item as Task).updated_at || '';
         const bDate = (b.item as Task).updated_at || '';

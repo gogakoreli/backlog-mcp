@@ -741,6 +741,48 @@
   color: #d4d4d4;
 }
 
+/* Children section in document view */
+.doc-children {
+  margin: 12px 0 16px;
+  padding: 12px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+}
+.doc-children-heading {
+  font-size: 12px;
+  font-weight: 600;
+  color: #8b949e;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 8px;
+}
+.doc-children-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.child-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  text-decoration: none;
+  color: #c9d1d9;
+  transition: background 0.15s;
+}
+.child-row:hover {
+  background: #21262d;
+}
+.child-title {
+  flex: 1;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* task-detail now owns its pane-header + pane-content (Phase 15) */
 task-detail {
   display: flex;

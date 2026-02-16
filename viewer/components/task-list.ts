@@ -112,7 +112,7 @@ export const TaskList = component('task-list', (_props, host) => {
       const config = getTypeConfig(type);
       return {
         id: task.id, title: task.title, status: task.status, type,
-        childCount: config.isContainer ? all.filter(t => getParentId(t) === task.id).length : 0,
+        childCount: all.filter(t => getParentId(t) === task.id).length,
         dueDate: task.due_date || '',
         selected: sel === task.id,
         currentEpic: scope === task.id,

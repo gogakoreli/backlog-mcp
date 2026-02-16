@@ -29,6 +29,7 @@ export interface TaskResponse extends Task {
   raw?: string;
   epicTitle?: string;
   parentTitle?: string;
+  children?: Task[];
 }
 
 export async function fetchTasks(filter: 'active' | 'completed' | 'all' = 'active', query?: string): Promise<Task[]> {

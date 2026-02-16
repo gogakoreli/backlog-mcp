@@ -54,7 +54,7 @@ export const TaskItem = component<{
   });
 
   const childCountHtml = computed(() =>
-    config.value.isContainer
+    props.childCount.value > 0
       ? html`<span class="child-count">${props.childCount}</span>`
       : null
   );

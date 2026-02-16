@@ -123,8 +123,12 @@ export function registerViewerRoutes(app: FastifyInstance) {
       const parent = storage.get(parentId);
       parentTitle = parent?.title;
     }
+
+    // Resolve children (entities with parent_id pointing to this task)
+    const allTasks = await storage.list({ limit: 10000 });
+    const children = allTasks.filter(t => (t.parent_id ?? t.epic_id) === id);
     
-    return { ...task, raw, parentTitle };
+    return { ...task, raw, parentTitle, children };
   });
 
   // System status

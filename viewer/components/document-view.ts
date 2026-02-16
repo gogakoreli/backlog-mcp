@@ -11,9 +11,9 @@
  * Works for known entities (task, epic, milestone, artifact, folder)
  * and arbitrary markdown files with frontmatter.
  */
-import { computed } from '@framework/signal.js';
+import { signal, computed } from '@framework/signal.js';
 import { component } from '@framework/component.js';
-import { html, when } from '@framework/template.js';
+import { html, when, each } from '@framework/template.js';
 import { inject } from '@framework/injector.js';
 import { useHostEvent } from '@framework/lifecycle.js';
 import { SplitPaneState } from '../services/split-pane-state.js';
@@ -36,6 +36,7 @@ const HEADER_KEYS = new Set([
   'parent_id', 'epic_id', 'parentTitle', 'epicTitle',
   // Internal fields not for display
   'raw', 'filePath', 'fileUri', 'mcpUri', 'description',
+  'children',
 ]);
 
 function formatDate(iso: string): string {
@@ -115,6 +116,35 @@ export const DocumentView = component<DocumentViewProps>('document-view', (props
     return true; // signal that header should render
   });
 
+  // ── Children section ─────────────────────────────────────────────
+  type ChildItem = { id: string; title: string; status: string; type: string };
+  const children = computed<ChildItem[]>(() => {
+    const raw = fm.value.children as Array<{ id: string; title: string; status: string; type?: string }> | undefined;
+    if (!raw || !Array.isArray(raw) || raw.length === 0) return [];
+    return raw.map(c => ({ id: c.id, title: c.title, status: c.status, type: c.type ?? 'task' }));
+  });
+  const hasChildren = computed(() => children.value.length > 0);
+
+  function handleChildClick(childId: string) {
+    const nav = onNav?.value;
+    if (nav) nav(childId);
+  }
+
+  const childrenList = each(children, c => c.id, (child) => {
+    const childId = computed(() => child.value.id);
+    const childTitle = computed(() => child.value.title);
+    const childStatus = computed(() => child.value.status);
+    const childType = computed(() => child.value.type);
+    const hasStatus = computed(() => getTypeConfig(childType.value).hasStatus);
+    return html`
+      <a href="#" class="child-row" @click.prevent="${() => handleChildClick(child.value.id)}">
+        ${TaskBadge({ taskId: childId })}
+        <span class="child-title">${childTitle}</span>
+        ${when(hasStatus, html`<span class="status-badge status-${childStatus}">${childStatus}</span>`)}
+      </a>
+    `;
+  });
+
   return html`
     <article class="markdown-body">
       ${when(header, html`
@@ -137,6 +167,14 @@ export const DocumentView = component<DocumentViewProps>('document-view', (props
             </div>
           `)}
           ${MetadataCard({ entries: extraEntries })}
+        </div>
+      `)}
+      ${when(hasChildren, html`
+        <div class="doc-children">
+          <h3 class="doc-children-heading">Children</h3>
+          <div class="doc-children-list">
+            ${childrenList}
+          </div>
         </div>
       `)}
       ${MdBlock({ content: props.content })}

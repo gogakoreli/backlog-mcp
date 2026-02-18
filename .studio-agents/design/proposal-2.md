@@ -1,141 +1,111 @@
-# Proposal 2: Independent Retrievers + Linear Fusion + Module Decomposition
+# Proposal 2: Two-Axis Priority Model
 
-<name>Linear Fusion with Clean Modules</name>
-<approach>Run BM25 and vector as independent Orama queries, fuse with MinMax + weighted linear combination in a separate scoring module, decompose the monolith into 5 focused files.</approach>
+<name>Two-Axis Urgency × Importance</name>
+<approach>Add two independent numeric fields (`urgency: 1-5`, `importance: 1-5`) to Task, with a computed quadrant derived from thresholds, enabling independent filtering on each axis and a 2x2 matrix view.</approach>
 <timehorizon>[MEDIUM-TERM]</timehorizon>
 <effort>[MEDIUM]</effort>
 
-<differs>vs Proposal 1: Completely different data flow. Proposal 1 keeps Orama's internal hybrid fusion (single query, black box scores). This proposal runs TWO independent Orama queries and owns the fusion function — different module boundaries (5 files vs 1), different data flow (two result sets → merge → score vs single result set → pass through), different ownership model (we own scoring, not Orama).</differs>
+<differs>vs Proposal 1: Different data model (two independent numeric fields vs one enum), different data-flow (quadrant is computed at query time, not stored), different interface contract (agents set urgency and importance separately, enabling richer queries like "show all urgent tasks" regardless of importance).</differs>
 
-## Architecture
+## Design
 
-```
-Query
-  ├─→ BM25 Retriever (Orama default mode, no `mode` param)
-  │     → raw BM25 scores
-  │     → MinMax normalize to [0,1]
-  │
-  ├─→ Vector Retriever (Orama `mode: 'vector'`)  [if embeddings available]
-  │     → raw similarity scores
-  │     → MinMax normalize to [0,1]
-  │
-  └─→ Linear Fusion
-        score = W_TEXT * norm_bm25 + W_VECTOR * norm_vector
-        → Post-fusion modifiers (recency decay, epic boost)
-        → Final ranked results
-```
-
-## File Structure
-
-```
-src/search/
-├── types.ts                  # EXISTING: SearchService interface, result types
-├── orama-schema.ts           # NEW: OramaDoc types, schema, constants, buildWhereClause
-├── tokenizer.ts              # NEW: splitCamelCase, compoundWordTokenizer
-├── snippets.ts               # NEW: generateTaskSnippet, generateResourceSnippet
-├── scoring.ts                # NEW: minmaxNormalize, linearFusion, postFusionModifiers
-├── embedding-service.ts      # EXISTING: unchanged
-├── orama-search-service.ts   # SLIMMED: index lifecycle + CRUD + search execution
-└── index.ts                  # EXISTING: updated re-exports
-```
-
-### Module Responsibilities
-
-**`orama-schema.ts` (~60 lines)**
-- `OramaDoc`, `OramaDocWithEmbeddings` types
-- `schema`, `schemaWithEmbeddings` constants
-- `INDEX_VERSION`
-- `TEXT_PROPERTIES`, `UNSORTABLE_PROPERTIES`, `ENUM_FACETS`
-- `buildWhereClause()` — pure function
-
-**`tokenizer.ts` (~40 lines)**
-- `splitCamelCase()` — pure function
-- `compoundWordTokenizer` — Orama Tokenizer implementation
-
-**`snippets.ts` (~90 lines)**
-- `generateTaskSnippet()`, `generateResourceSnippet()`, `generateSnippetFromFields()`
-- `SNIPPET_WINDOW` constant
-- All pure functions, zero Orama dependency
-
-**`scoring.ts` (~60 lines)** — the core new module
+### Schema Change
 ```typescript
-/** MinMax normalize scores to [0,1] per-retriever. */
-export function minmaxNormalize(hits: ScoredHit[]): NormalizedHit[]
-
-/** Linear fusion: weighted combination of normalized retriever scores. */
-export function linearFusion(
-  bm25Hits: NormalizedHit[],
-  vectorHits: NormalizedHit[],
-  weights: { text: number; vector: number }
-): FusedHit[]
-
-/** Lightweight post-fusion score adjustments. */
-export function applyPostFusionModifiers(hits: FusedHit[]): FusedHit[]
+interface Task {
+  // ... existing fields
+  urgency?: number;    // 1 (low) to 5 (critical). Undefined = unset.
+  importance?: number; // 1 (low) to 5 (critical). Undefined = unset.
+}
 ```
 
-**`orama-search-service.ts` (~400 lines)** — slimmed adapter
-- Constructor, index lifecycle (create, load, save)
-- Document/resource CRUD (add, update, remove)
-- Embedding management (lazy init, fallback)
-- Search execution: runs two Orama queries, delegates to `scoring.ts` for fusion
-- `_executeBM25Search()` and `_executeVectorSearch()` replace `_executeSearch()`
+Quadrant is computed, not stored:
+```typescript
+type Quadrant = 'q1' | 'q2' | 'q3' | 'q4' | null;
 
-## Key Design Decisions
+function getQuadrant(task: Task): Quadrant {
+  if (task.urgency == null || task.importance == null) return null;
+  const urgent = task.urgency >= 3;
+  const important = task.importance >= 3;
+  if (urgent && important) return 'q1';   // Do now
+  if (!urgent && important) return 'q2';  // Schedule
+  if (urgent && !important) return 'q3';  // Delegate/quick-handle
+  return 'q4';                             // Park/drop
+}
+```
 
-1. **Two query methods instead of one**: `_executeBM25Search()` runs Orama in default mode (BM25 fulltext). `_executeVectorSearch()` runs Orama in `mode: 'vector'`. Each returns raw Orama results. The fusion happens after, in `scoring.ts`.
+Priority score for sorting (higher = do first):
+```typescript
+function getPriorityScore(task: Task): number {
+  const u = task.urgency ?? 0;
+  const i = task.importance ?? 0;
+  return u + i; // Simple sum. Q1 tasks (high both) sort first.
+}
+```
 
-2. **MinMax per-retriever, not global**: BM25 scores are unbounded (can be 0-100+). Vector scores are [0,1]. MinMax normalizes each to [0,1] independently, preserving relative differences within each retriever.
+### Tool Changes
 
-3. **Weights start at 0.7/0.3**: Text-heavy for a backlog system where exact term matches matter more than semantic similarity. Tunable via golden tests.
+**backlog_create**: Add optional `urgency` (1-5) and `importance` (1-5)
+**backlog_update**: Add optional `urgency` and `importance` (nullable to clear)
+**backlog_list**: 
+  - Add `quadrant` filter (q1/q2/q3/q4)
+  - Add `priority` sort option (sorts by urgency+importance descending)
+  - Response includes `quadrant` field on each task
+**backlog_context**: Include quadrant in task context output
 
-4. **Post-fusion modifiers are additive, not multiplicative**: Small adjustments (+0.05 for recency, +0.03 for epic type) on a [0,1] fused score. They nudge, not override.
+### Viewer Changes
 
-5. **Graceful degradation**: When embeddings unavailable, `_executeVectorSearch()` returns empty array. `linearFusion()` with empty vector hits degenerates to `minmax(bm25)` — pure BM25 ranking. No special-casing needed.
+**Task badges**: Color-coded quadrant indicator (🔴 Q1, 🟡 Q2, 🔵 Q3, ⚪ Q4)
+**Filter bar**: Add quadrant filter buttons (Q1/Q2/Q3/Q4 or "Do Now"/"Schedule"/"Delegate"/"Park")
+**Sort dropdown**: Add "Priority" option
+**Task detail**: Show urgency and importance as small indicators in metadata
+**Matrix view** (stretch): A 2x2 grid view where tasks are placed by their urgency/importance coordinates
 
-## What Gets Deleted
-
-- `rerankWithSignals()` — entire function
-- `normalizeScores()` — replaced by `minmaxNormalize()` in scoring.ts
-- `getRecencyMultiplier()` — replaced by post-fusion modifier
-- `mode: 'hybrid'` — replaced by two separate queries
-- `hybridWeights: { text: 0.8, vector: 0.2 }` — replaced by fusion weights
-- The +1.5 coordination bonus bandaid
+### Agent Tool Description Enhancement
+```
+urgency: 1-5 scale. 1=no time pressure, 5=critical/blocking/deadline imminent.
+  Ask: "If this doesn't get done this week, what breaks?"
+importance: 1-5 scale. 1=nice-to-have, 5=directly impacts goals/team/evaluation.
+  Ask: "Does this materially affect goals or results?"
+```
 
 ## Evaluation
 
 ### Product design
-Fully aligned with TASK-0302 vision. Agents get correct rankings. The architecture is the industry standard (Elasticsearch, Azure AI Search, OpenSearch all use independent retrievers + fusion).
+Strongly aligned. Preserves the core Eisenhower insight: urgency and importance are independent dimensions. Users can ask "show me all important tasks" or "show me all urgent tasks" — queries impossible with a single priority field. The numeric scale (1-5) also enables future AI scoring.
+
+### UX design
+Slightly more complex than P1-P4 — users must set two values instead of one. But the payoff is richer: the matrix view makes priority relationships visible at a glance. The quadrant labels ("Do Now", "Schedule", "Delegate", "Park") are intuitive. Agent tool descriptions include the diagnostic questions ("If this doesn't get done, what breaks?") to guide consistent scoring.
 
 ### Architecture
-Clean separation of concerns. Scoring is pure and testable. Each file has one responsibility. Adding a new retriever (e.g., recency) = adding a third query + updating fusion weights. Adding a new modifier = one function in scoring.ts.
+Clean separation: data (urgency/importance) vs computation (quadrant/priority score) vs presentation (badges/matrix). The quadrant function is pure — easy to test, easy to change thresholds later. No new services or infrastructure.
 
 ### Backward compatibility
-Zero breaking changes. `SearchService` interface unchanged. `BacklogService` calls the same methods. Only internal implementation changes.
+Fully backward compatible. Both fields are optional. Tasks without urgency/importance have `quadrant: null` and sort last in priority ordering.
 
 ### Performance
-Two Orama queries instead of one. For a backlog with hundreds of tasks, each query takes <5ms. Total overhead: <10ms. Negligible. MinMax + fusion is O(n) where n = number of results — microseconds.
+Negligible. Two more numbers in YAML frontmatter. Quadrant computation is O(1) per task.
 
 ## Rubric
 
 | Anchor | Score | Justification |
 |--------|-------|---------------|
-| Time-to-ship | 3 | Half day. Module extraction is mechanical but needs care. Fusion function is ~15 lines. |
-| Risk | 4 | Low risk — using Orama's stable public API. Fusion is well-understood math. Main risk: untested edge cases in MinMax (single result, all same score). |
-| Testability | 5 | Scoring module is pure functions — unit testable without Orama. Can test "given these BM25 scores and vector scores, does fusion produce rank X?" |
-| Future flexibility | 5 | Adding retrievers = adding queries. Swapping fusion function (e.g., to RRF) = changing one function. Weights tunable via golden tests. |
-| Operational complexity | 4 | More files to navigate, but each is small and focused. Net reduction in cognitive load. |
-| Blast radius | 3 | Every search query affected. Mitigated by golden test suite + before/after comparison. |
+| Time-to-ship | 3 | ~1 day. Schema + tools + viewer badges + filter + sort. Matrix view is stretch. |
+| Risk | 4 | Low risk — optional fields, no breaking changes. Minor risk: threshold (>=3) might not feel right for all users. |
+| Testability | 5 | Pure functions for quadrant/priority. Easy to test all combinations. |
+| Future flexibility | 5 | Numeric fields enable AI scoring, custom thresholds, RICE-like extensions. Two axes can evolve independently. |
+| Operational complexity | 5 | No new infrastructure. Just fields + computation. |
+| Blast radius | 5 | Optional fields. If broken, tasks still work without priority. |
 
 ## Pros
-- Correct rankings — BM25 and vector contribute independently, no double-boosting
-- Debuggable — inspect BM25 score, vector score, fusion math separately
-- Testable — scoring is pure functions
-- Extensible — add retrievers or modifiers without touching fusion
-- Industry-standard architecture
-- Monolith decomposed into focused modules
+- Preserves the Eisenhower insight: independent urgency × importance axes
+- Enables queries impossible with single field ("all urgent tasks", "all important tasks")
+- Numeric scores enable future AI-assisted prioritization
+- Computed quadrant means the threshold can be tuned without data migration
+- Natural path to matrix view in viewer
+- Agent descriptions include diagnostic questions for consistent scoring
 
 ## Cons
-- More files to navigate (5 new files, though each is small)
-- Two Orama queries per search (negligible perf cost)
-- Needs golden test suite to validate rankings (but we need this regardless)
-- MinMax normalization has edge cases (single result → division by zero, all same score → all normalize to 0)
+- More complex than P1-P4 — two fields to set instead of one
+- Threshold choice (>=3 = high) is somewhat arbitrary
+- Without a matrix view, the two-axis model is harder to visualize than a simple P1-P4 list
+- Agents must understand two dimensions, not one

@@ -1,129 +1,109 @@
-# Proposal 3: Retriever Pipeline with Strategy Pattern
+# Proposal 3: Computed Priority from Signals (No Manual Tagging)
 
-<name>Pluggable Retriever Pipeline</name>
-<approach>Abstract retrievers behind a Retriever interface, make fusion strategy pluggable, and let the search service be a thin orchestrator that composes retrievers + fusion + modifiers via dependency injection.</approach>
-<timehorizon>[LONG-TERM]</timehorizon>
-<effort>[HIGH]</effort>
+<name>Signal-Derived Priority</name>
+<approach>Instead of adding fields for users to fill in, compute urgency and importance scores automatically from existing task signals (blocking chains, age, epic alignment, status, keywords) and expose the computed quadrant as a read-only view.</approach>
+<timehorizon>[ALTERNATIVE]</timehorizon>
+<effort>[MEDIUM]</effort>
 
-<differs>vs Proposal 1: Completely different — P1 keeps Orama's black box, this externalizes everything. vs Proposal 2: P2 hardcodes two Orama queries + linear fusion in the service. This abstracts retrievers behind an interface — the service doesn't know whether it's running BM25, vector, recency, or a future LLM re-ranker. Different interface contract (Retriever interface), different ownership model (retrievers are pluggable components, not hardcoded Orama calls), different module boundaries (each retriever is its own module).</differs>
+<differs>vs Proposal 1: Different ownership model — priority is system-computed, not user-assigned. No new schema fields at all. vs Proposal 2: Different data-flow — instead of storing urgency/importance and computing quadrant, this computes everything at query time from existing data. No manual input required.</differs>
 
-## Architecture
+## Design
 
+### No Schema Change
+Zero new fields on Task. Priority is computed at query/display time from existing signals.
+
+### Priority Computation Service
 ```typescript
-/** A retriever produces scored candidates for a query. */
-interface Retriever {
-  name: string;
-  weight: number;
-  retrieve(query: string, options: RetrieveOptions): Promise<ScoredHit[]>;
+interface PriorityScore {
+  urgency: number;    // 0-10 computed
+  importance: number; // 0-10 computed
+  quadrant: Quadrant;
+  signals: string[];  // explanations: ["blocks 3 tasks", "open 45 days", "under strategic epic"]
 }
 
-/** A fusion strategy combines results from multiple retrievers. */
-interface FusionStrategy {
-  fuse(retrieverResults: Map<string, NormalizedHit[]>): FusedHit[];
-}
+function computePriority(task: Task, allTasks: Task[]): PriorityScore {
+  let urgency = 0, importance = 0;
+  const signals: string[] = [];
 
-/** Post-fusion modifier adjusts scores based on domain signals. */
-interface ScoreModifier {
-  apply(hits: FusedHit[]): FusedHit[];
-}
-```
-
-```
-Query
-  ├─→ BM25Retriever.retrieve()     → ScoredHit[]
-  ├─→ VectorRetriever.retrieve()   → ScoredHit[]  [if available]
-  ├─→ [future: RecencyRetriever]   → ScoredHit[]
-  │
-  └─→ FusionStrategy.fuse()        → FusedHit[]
-        └─→ ScoreModifier[].apply() → Final results
-```
-
-## File Structure
-
-```
-src/search/
-├── types.ts                    # Retriever, FusionStrategy, ScoreModifier interfaces
-├── retrievers/
-│   ├── bm25-retriever.ts       # Orama BM25 fulltext retriever
-│   └── vector-retriever.ts     # Orama vector retriever
-├── fusion/
-│   ├── linear-fusion.ts        # MinMax + weighted linear combination
-│   └── [future: rrf-fusion.ts] # RRF if we ever need it
-├── modifiers/
-│   └── recency-modifier.ts     # Post-fusion recency adjustment
-├── orama-schema.ts             # Schema, constants
-├── tokenizer.ts                # Compound word tokenizer
-├── snippets.ts                 # Snippet generation
-├── search-pipeline.ts          # Orchestrator: composes retrievers + fusion + modifiers
-├── orama-search-service.ts     # Index lifecycle + CRUD only (~250 lines)
-├── embedding-service.ts        # Unchanged
-└── index.ts                    # Re-exports
-```
-
-### SearchPipeline — the orchestrator
-
-```typescript
-class SearchPipeline {
-  constructor(
-    private retrievers: Retriever[],
-    private fusion: FusionStrategy,
-    private modifiers: ScoreModifier[] = [],
-  ) {}
-
-  async search(query: string, options: SearchOptions): Promise<FusedHit[]> {
-    // Run all retrievers in parallel
-    const results = await Promise.all(
-      this.retrievers
-        .filter(r => r.isAvailable())
-        .map(async r => [r.name, minmaxNormalize(await r.retrieve(query, options))])
-    );
-    // Fuse
-    let fused = this.fusion.fuse(new Map(results));
-    // Apply modifiers
-    for (const mod of this.modifiers) fused = mod.apply(fused);
-    return fused;
+  // Urgency signals
+  if (task.status === 'blocked') { urgency += 2; signals.push('blocked'); }
+  if (task.blocked_reason?.length) { urgency += 1; }
+  const blockedByThis = allTasks.filter(t => t.blocked_reason?.some(r => r.includes(task.id)));
+  if (blockedByThis.length > 0) { urgency += blockedByThis.length * 2; signals.push(`blocks ${blockedByThis.length} tasks`); }
+  const ageDays = (Date.now() - new Date(task.created_at).getTime()) / 86400000;
+  if (ageDays > 30) { urgency += 2; signals.push(`open ${Math.round(ageDays)} days`); }
+  if (task.due_date) {
+    const daysUntilDue = (new Date(task.due_date).getTime() - Date.now()) / 86400000;
+    if (daysUntilDue < 7) { urgency += 3; signals.push(`due in ${Math.round(daysUntilDue)} days`); }
   }
+
+  // Importance signals
+  const refCount = allTasks.filter(t => t.references?.some(r => r.url.includes(task.id))).length;
+  if (refCount > 2) { importance += refCount; signals.push(`referenced by ${refCount} tasks`); }
+  if (task.type === 'epic') { importance += 3; signals.push('epic'); }
+  // Keyword heuristics
+  const text = (task.title + ' ' + (task.description ?? '')).toLowerCase();
+  if (/\b(bug|fix|broken|crash|error|race condition|data loss)\b/.test(text)) {
+    urgency += 2; importance += 2; signals.push('bug/fix keywords');
+  }
+
+  return {
+    urgency: Math.min(urgency, 10),
+    importance: Math.min(importance, 10),
+    quadrant: deriveQuadrant(urgency, importance),
+    signals,
+  };
 }
 ```
 
-OramaSearchService becomes thin — it owns the Orama db instance, exposes raw query methods for retrievers, and handles CRUD. The SearchPipeline handles all scoring logic.
+### Tool Changes
+- `backlog_list`: Add `quadrant` filter and `priority` sort — computed on the fly
+- Response includes computed `quadrant` and `signals` per task
+- No changes to `backlog_create` or `backlog_update` — no new input fields
+
+### Viewer Changes
+- Same as Proposal 2: quadrant badges, filter buttons, priority sort
+- Bonus: hover over badge shows signal explanations ("blocks 3 tasks, open 45 days")
+- Matrix view possible but scores are less stable (change as tasks are updated)
 
 ## Evaluation
 
 ### Product design
-Fully aligned. Same correct rankings as Proposal 2, but with a more extensible architecture. Future signals (LLM re-ranker, user preference retriever) plug in without touching existing code.
+Addresses the "what if manual tagging is too much friction" concern directly — zero friction because there's nothing to tag. But it removes human judgment from the equation. The user might disagree with the computed priority ("this task isn't actually urgent just because it's old").
+
+### UX design
+Zero-friction for input. But the computed scores may feel opaque or wrong. Users can't override the system's judgment without a manual override mechanism (which brings us back to Proposal 2). Signal explanations help transparency.
 
 ### Architecture
-Maximum separation of concerns. Each retriever, fusion strategy, and modifier is independently testable and replaceable. Follows Open/Closed Principle — extend by adding new retrievers, not modifying existing ones.
+More complex than Proposals 1-2. Requires computing priority across all tasks (O(n²) for blocking chain analysis). Must be recomputed on every list/filter request or cached and invalidated on task changes. Adds a new service layer.
 
 ### Backward compatibility
-Zero breaking changes externally. BacklogService still calls the same methods. Internally, OramaSearchService delegates to SearchPipeline.
+Fully backward compatible — no schema changes at all.
 
 ### Performance
-Same as Proposal 2 — two Orama queries. The abstraction layer adds negligible overhead (function calls, Map construction).
+O(n²) worst case for blocking chain analysis on every list request. For hundreds of tasks this is fine (<50ms). For thousands, would need caching.
 
 ## Rubric
 
 | Anchor | Score | Justification |
 |--------|-------|---------------|
-| Time-to-ship | 2 | Full day+. Multiple interfaces, directory structure, wiring. More code than the problem requires right now. |
-| Risk | 3 | Abstraction risk — we're designing interfaces for future retrievers that may never exist. YAGNI concern. |
-| Testability | 5 | Each component independently testable. Mock retrievers for pipeline tests. |
-| Future flexibility | 5 | Maximum extensibility. New retriever = new class implementing Retriever. New fusion = new FusionStrategy. |
-| Operational complexity | 3 | More files, more directories, more indirection. A developer needs to understand the pipeline composition to debug a ranking issue. |
-| Blast radius | 3 | Same as P2 — every search query affected. |
+| Time-to-ship | 2 | ~2-3 days. Signal computation logic, testing heuristics, tuning weights. |
+| Risk | 2 | High risk of "wrong" priorities. Heuristics are hard to get right. Users may disagree with computed scores. |
+| Testability | 3 | Signal functions are testable, but "is this the right priority?" is subjective. Hard to write golden tests. |
+| Future flexibility | 3 | Can add more signals, but can't incorporate human judgment without adding manual fields (converges to Proposal 2). |
+| Operational complexity | 3 | Computation on every request. Needs caching strategy for large backlogs. |
+| Blast radius | 4 | Read-only computation — if wrong, tasks still work. But wrong priorities could mislead agents. |
 
 ## Pros
-- Maximum extensibility — plug in new retrievers without touching existing code
-- Each component independently testable
-- Clean separation: retrieval vs fusion vs modification
-- Supports parallel retriever execution naturally
-- Future-proof for LLM re-rankers, user preference signals, etc.
+- Zero friction — no manual tagging required
+- Works immediately on existing tasks with no data entry
+- Signal explanations provide transparency ("why is this Q1?")
+- Addresses the "what if users don't tag" concern completely
 
 ## Cons
-- Over-engineered for current needs — we have exactly 2 retrievers and 1 fusion strategy
-- More files, directories, and indirection than the problem requires
-- YAGNI — designing for future retrievers that may never materialize
-- Abstraction overhead: understanding the pipeline composition adds cognitive load
-- The Retriever interface needs access to the Orama db instance, creating awkward coupling (retrievers need to be constructed with a reference to the db, or the service needs to expose raw query methods)
-- Takes longer to ship, delaying the ranking fix
+- Heuristics are fragile and opinionated — "old task" ≠ "urgent task"
+- Users can't override computed priority without adding manual fields (converges to Proposal 2)
+- O(n²) computation on every request
+- Keyword matching is brittle ("fix" in "prefix" is a false positive)
+- No way to express "this is important to ME" — importance is inferred, not stated
+- The core user problem ("I work on interesting stuff instead of important stuff") requires HUMAN judgment about what's important — a heuristic can't know that

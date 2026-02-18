@@ -1,70 +1,67 @@
-# Decision: TASK-0302
+# Decision: Eisenhower Matrix Feature
 
 ## Pre-Decision Questions
 
 ### Which proposal would I REGRET not doing in 6 months?
+Proposal 2 (Two-Axis). In 6 months, if I shipped P1-P4 (Proposal 1), I'd be frustrated that I can't query "show me all urgent tasks" or "show me all important tasks" independently. I'd want to add AI-assisted scoring but have no numeric fields to compute from. I'd want a matrix view but have no axes to plot on. The single enum is a dead end.
 
-Proposal 2. In 6 months, if we're still on Proposal 1 (raw Orama scores), we'll have hit another ranking bug and be back to building a re-ranking layer — except now without the module structure to do it cleanly. If we went with Proposal 3, we'd have over-engineered interfaces for retrievers that never materialized, and the abstraction would be friction for every change.
+### Argue FOR the most ambitious proposal (Proposal 3)
+If signal-derived priority worked perfectly, it would be magical: zero friction, instant value on existing tasks, and the system would genuinely tell you "you're working on the wrong thing" without you lifting a finger. The dream of an AI-powered work advisor starts here.
 
-### Argue FOR the most ambitious proposal (P3)
-
-If it works: every future scoring signal is a plug-in. LLM re-ranker? New retriever class. User preference weighting? New modifier. A/B testing fusion strategies? Swap the FusionStrategy implementation. The pipeline is infinitely composable. For a product where search quality is the backbone of agentic engineering, this level of extensibility could compound.
-
-### What's the REAL cost of playing it safe (P1)?
-
-P1 doesn't actually solve the "feature store" problem. Orama's internal hybrid mode with field boosts still produces wrong rankings — we tested this. So P1 isn't "safe," it's "incomplete." We'd ship a deletion, discover rankings are still broken, and then build the fusion system anyway — but now under pressure and without the clean module structure.
+### What's the REAL cost of playing it safe?
+Proposal 1 ships in 2 hours but creates technical debt immediately. The P1-P4 enum can't evolve. When we want AI scoring, matrix views, or independent axis queries, we'd need to migrate to two fields anyway. The "safe" choice costs a migration later.
 
 ## Self-Critique
 
-### P1 Critique
-- Doesn't solve the stated problem. The "feature store" ranking issue is in Orama's BM25 + field boost interaction, not just in our re-ranking layer. Deleting re-ranking removes double-boosting but doesn't fix the underlying OR-mode + title-boost dominance.
-- "Trust Orama" is a bet on a black box we've already proven produces wrong results.
+### Proposal 2 flaws I need to be honest about
+- **Two fields IS more friction than one.** Every time an agent creates a task, it now has two optional fields to consider. Most won't bother unless the tool description is very clear.
+- **The threshold (>=3) is arbitrary.** Why not >=2? Why not a continuous gradient instead of hard quadrant boundaries? This will feel wrong for edge cases (urgency=3, importance=2 → Q3 "delegate" — but is that really right?).
+- **The 1-5 scale is ambiguous.** What's the difference between urgency 3 and urgency 4? Without clear anchors, different agents will score differently.
 
-### P2 Critique
-- The module decomposition is mechanical but adds 4 new files. Is that justified? Yes — each file has a clear single responsibility, and the scoring module being separate is the key architectural win (testability).
-- MinMax has edge cases: single result (max=min, division by zero), all same score. These are solvable with guards but need explicit handling.
-- The weights (0.7/0.3) are starting values. Without a golden test suite, we're still hand-tuning. But the architecture makes tuning possible — today it's not.
+### Proposal 3 — why I'm NOT choosing it despite its appeal
+The core user problem is "I work on interesting stuff instead of important stuff." This requires HUMAN judgment about what's important. A heuristic that says "this task is important because it's referenced by 5 other tasks" might be wrong — maybe those 5 tasks are all Q4 themselves. Importance is fundamentally subjective. You can't compute it from signals alone.
 
-### P3 Critique
-- YAGNI. We have 2 retrievers. We'll probably have 2 retrievers for the next year. The Retriever interface adds indirection for no current benefit.
-- The awkward coupling: retrievers need the Orama db instance. Either they get it via constructor injection (tight coupling to Orama) or the service exposes raw query methods (leaky abstraction). Neither is clean.
-- More code, more files, more directories, longer to ship. The ranking fix is urgent — agents are getting wrong context TODAY.
+However, Proposal 3's signal computation is valuable as a SUGGESTION mechanism layered on top of Proposal 2 in the future.
 
 ## Rubric Comparison
 
 | Anchor | P1 | P2 | P3 |
 |--------|----|----|-----|
 | Time-to-ship | 5 | 3 | 2 |
-| Risk | 3 | 4 | 3 |
-| Testability | 2 | **5** | 5 |
-| Future flexibility | 2 | **5** | 5 |
-| Operational complexity | 5 | 4 | 3 |
-| Blast radius | 3 | 3 | 3 |
-| **Total** | **20** | **24** | **21** |
+| Risk | 5 | 4 | 2 |
+| Testability | 5 | 5 | 3 |
+| Future flexibility | 2 | **5** | 3 |
+| Operational complexity | 5 | 5 | 3 |
+| Blast radius | 5 | 5 | 4 |
+| **Total** | **27** | **27** | **17** |
 
-P2 wins on total score. P3 ties P2 on testability and flexibility but loses on time-to-ship and operational complexity. P1 is fast but doesn't solve the problem.
+P1 and P2 tie on total score, but P2 wins decisively on future flexibility (5 vs 2) — the most important anchor for a feature that will evolve. P1's advantage is only time-to-ship (5 vs 3), which is a one-time cost.
 
 ## Decision
 
 <selected>2</selected>
-<selectedname>Linear Fusion with Clean Modules</selectedname>
+<selectedname>Two-Axis Urgency × Importance</selectedname>
 
 <rationale>
-P2 is the sweet spot between "fix it now" and "over-engineer it." It solves both stated problems (broken scoring + monolith) with the minimum architecture needed. The scoring module is pure and testable — the single biggest win. The module decomposition is mechanical and low-risk. The fusion function is ~15 lines of well-understood math. And critically, P2's architecture is forward-compatible with P3 — if we ever need pluggable retrievers, we can extract the two hardcoded Orama queries into Retriever classes without changing the scoring module or the module structure. P2 doesn't close the door on P3; it just doesn't pay the abstraction cost upfront.
+Proposal 2 wins because:
+1. **Preserves the Eisenhower insight** — urgency and importance are independent axes, enabling queries and views impossible with a single field
+2. **Future-proof** — numeric fields enable AI scoring, custom thresholds, and evolution to richer frameworks
+3. **Right complexity** — more complex than P1 but the complexity buys real capability; less complex than P3 which tries to solve a problem (human judgment) that can't be automated
+4. **The extra effort is small** — ~1 day vs ~2 hours. The delta is trivial compared to the capability gained.
+5. **Addresses the core problem** — the user needs to SEE that they're working on Q4 when Q1 tasks exist. Two axes + quadrant badges + filter make this visible.
 </rationale>
 
 <assumptions>
-1. Orama's default mode (BM25) and vector mode produce meaningful scores that respond correctly to MinMax normalization
-2. Two Orama queries per search have negligible performance impact (<10ms total for hundreds of documents)
-3. Linear fusion with MinMax is sufficient for our ranking needs — we don't need RRF's rank-based approach
-4. The golden test suite (to be built) will catch ranking regressions before they reach users
-5. Post-fusion modifiers (recency, epic type) are small enough to be simple functions, not full retrievers
+For this decision to be correct:
+1. Users/agents will actually set urgency and importance on at least some tasks (if nobody tags, the feature is dead weight)
+2. The 1-5 scale with clear anchor descriptions will produce consistent enough scoring across agents
+3. The >=3 threshold for "high" is reasonable (can be tuned later without migration)
+4. A matrix view in the viewer is achievable with the current web component framework
 </assumptions>
 
 <tradeoffs>
-1. Two Orama queries per search instead of one — negligible perf cost but more code in the search path
-2. 4 new files — more files to navigate, but each is small and focused
-3. Weights (0.7/0.3) need tuning — starting values, not proven optimal. But the architecture makes tuning possible.
-4. MinMax edge cases need explicit handling (single result, all same score)
-5. Not as extensible as P3's pluggable pipeline — but extensible enough for foreseeable needs
+1. More friction than P1 — two fields to set instead of one. Mitigated by: clear tool descriptions with diagnostic questions, optional fields with sensible defaults.
+2. More implementation effort than P1 — ~1 day vs ~2 hours. Acceptable for the capability gained.
+3. Threshold is arbitrary — >=3 might not feel right. Mitigated by: computed at query time, can change without data migration.
+4. No auto-prioritization in v1 — users must manually tag. Mitigated by: Proposal 3's signal computation can be added as a suggestion layer in v2.
 </tradeoffs>

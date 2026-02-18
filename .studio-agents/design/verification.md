@@ -1,23 +1,20 @@
-# Verification: Problem Understanding
+# Verification: Problem Understanding Completeness
 
 ## Dominant Causes — Complete?
+**Yes.** The missing data model dimension is clear and well-scoped. No priority fields exist on Task. No priority-aware filtering, sorting, or visualization exists anywhere in the system.
 
-Yes. The dominant cause is clear and well-evidenced: no separation between Orama's internal retrieval/fusion and our external scoring. We have a concrete reproduction (TASK-0273 at position 18) and a traced root cause chain (OR mode → 5x title boost → normalization → re-ranking amplification → zero coordination).
+## Alternative Root Causes — Complete?
+**Yes.** The visibility angle is important — even with priority data, if the viewer doesn't make it impossible to ignore, the feature fails. This shapes the design: data model alone isn't enough, the viewer must actively surface priority.
 
-## Alternative Root Causes — Considered?
+One additional alternative: **the problem might be workflow, not data**. The user might benefit more from a "focus mode" (show me only Q1 tasks, hide everything else) than from seeing all tasks with priority labels. This is a UX question that the proposals should address.
 
-Two alternatives considered:
+## "What If Wrong" — Complete?
+**Yes.** The friction concern is real. If manual tagging is required for every task and users don't do it, the feature is dead. The proposals must address this with either:
+- Very low friction tagging (e.g., quick buttons in viewer, simple CLI params)
+- Sensible defaults (new tasks default to "not urgent, not important" — Q4 — forcing conscious promotion)
+- Optional AI-assisted suggestions (future phase)
 
-1. **Monolith structure** — made it too easy to accumulate layers. Valid contributing factor but not the root cause of bad rankings.
+## Additional Research Needed?
+**No.** The problem space is well-mapped. The codebase is understood. The industry patterns are researched. Ready to propose solutions.
 
-2. **Could we just delete rerankWithSignals and use Orama hybrid scores directly?** — Tested and rejected. Orama's hybrid mode with our field boosts still produces wrong rankings because we can't control its internal fusion or the interaction between title boost and OR mode.
-
-One more alternative worth noting: **Could the problem be purely the 5x title boost?** If we removed `boost: { title: 5 }`, would Orama's hybrid mode produce correct rankings? Possibly for "feature store" specifically, but this would break other queries where title matches genuinely should rank higher (e.g., searching for a task by its exact title). The boost isn't wrong — the problem is that we have no way to balance it against term coverage within Orama's black box.
-
-## "What If We're Wrong" — Articulated?
-
-Yes. If Orama's hybrid mode is actually fine and the problem is purely our re-ranking, the fix would be simpler (just delete rerankWithSignals). But we've tested this — the problem persists without re-ranking because Orama's internal fusion is a black box we can't tune.
-
-There's one more "what if": **What if running two separate Orama queries produces worse results than hybrid mode for some queries?** This is possible — Orama's hybrid mode may have internal optimizations we lose. Mitigation: the golden test suite will catch regressions, and we can compare before/after rankings for a broad set of queries during implementation.
-
-<ready>YES — Problem space is well-mapped with concrete evidence, tested alternatives, and identified risks. Ready to propose solutions.</ready>
+<ready>YES — Problem space is complete. Dominant cause (missing data model), alternative cause (missing visibility/UX), and risk (manual tagging friction) are all clearly articulated. The scope is bounded (no AI auto-prioritization in v1). Ready for divergent proposals.</ready>

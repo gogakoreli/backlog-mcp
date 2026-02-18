@@ -1,79 +1,59 @@
-# Problem Articulation: TASK-0302
+# Problem Articulation: Eisenhower Matrix for backlog-mcp
 
-## What are we solving?
+## The Problem in My Own Words
 
-<core>
-Two problems that compound each other:
+<core>backlog-mcp has no concept of priority. All tasks are equal — the only ordering is by recency (updated/created date). When a user or agent asks "what should I work on next?", the system can only list tasks chronologically. It cannot distinguish between a critical bug causing data loss and a nice-to-have UI polish task. The user specifically struggles with a common productivity anti-pattern: gravitating toward intellectually stimulating work (Q4: interesting but not important) while procrastinating on high-impact work (Q1/Q2: important, possibly urgent). The system currently makes this invisible — there's no signal that says "you're working on the wrong thing."</core>
 
-1. **Broken scoring architecture**: Three scoring systems stacked with no shared information — Orama's internal hybrid fusion (black box), normalizeScores (destroys magnitude), rerankWithSignals (shadow scoring that duplicates and conflicts with Orama's BM25). Each "fix" adds another layer. The result: "feature store" ranks the literal FeatureStore task at 18th.
+## Why This Problem Exists
 
-2. **Monolith file**: 852 lines with 10 responsibilities in one file. Pure stateless functions (tokenizer, snippets, scoring) are trapped alongside stateful Orama lifecycle management. Scoring logic can't be unit tested without an Orama instance. Adding a new scoring signal requires understanding the entire file.
-</core>
+backlog-mcp was designed as a task tracker for LLM agents — a place to store and retrieve work items. Priority was never part of the data model because the initial use case was "remember what needs to be done," not "decide what to do next." As the system evolved into a more complete work management tool (with epics, milestones, search, viewer), the absence of prioritization became a gap.
 
-## Why does this problem exist?
+## Who Is Affected
 
-We treated Orama as a black box. When default results weren't good enough, we bolted on external re-ranking instead of understanding the engine. Each subsequent ADR (0051, 0072) patched symptoms. The file grew because every search-related concern landed in the same place — there was never a deliberate module boundary design.
+1. **The user (human)**: Can't quickly see what's most important. Defaults to working on whatever feels interesting or recent. The Eisenhower Matrix conversation was literally triggered by this pain.
+2. **LLM agents**: When asked "what should I work on?", agents have no priority signal. They either ask the user or make a judgment call based on task descriptions — inconsistent and unreliable.
+3. **The viewer**: Shows a flat list sorted by date. No visual distinction between critical and trivial work.
 
-## Who is affected?
-
-- **LLM agents** — search is the backbone of agentic engineering. Bad rankings mean agents miss context, make wrong decisions, produce worse output. When `backlog_search("feature store")` returns the wrong task, the agent works with wrong context.
-- **Engineers maintaining the code** — 852 lines with interleaved concerns. Understanding why a query ranks wrong requires tracing through normalize → rerank → coordination bonus → Orama internals.
-
-## Scope and boundaries
+## Scope and Boundaries
 
 **In scope:**
-- Replace hybrid mode + normalize + rerank with independent retrievers + linear fusion
-- Decompose orama-search-service.ts into cohesive modules
-- Maintain all existing public API contracts (SearchService interface, BacklogService integration)
+- Priority data model (urgency + importance fields on Task)
+- MCP tool integration (set/query priority via backlog_update, backlog_list, backlog_create)
+- Viewer integration (matrix view or priority-aware list)
+- Computed quadrant from urgency × importance
 
-**Out of scope:**
-- Tokenizer changes (compound word tokenizer works correctly)
-- Snippet generation changes (orthogonal)
-- Schema changes (OramaDoc structure stays)
-- Test modifications (existing 749 tests must pass as-is)
+**Out of scope (for now):**
+- AI-powered auto-prioritization (future enhancement — requires LLM calls)
+- Sprint planning / time-boxing
+- Team-level priority (this is a single-user system)
+- Complex scoring frameworks (RICE, WSJF)
 
 ## Root Causes
 
-<dominant>
-**Dominant root cause**: No separation between "how Orama retrieves candidates" and "how we score/rank them." Orama's hybrid mode does its own internal fusion (BM25 + vector with hybridWeights), then we normalize that output and apply a completely separate scoring system on top. Two fusion steps, zero coordination.
-</dominant>
+<dominant>The dominant root cause is a missing data model dimension. Tasks have status (what state is it in?) and type (what kind of thing is it?) but no priority (how important/urgent is it?). Without this dimension, no tool — human or AI — can make informed prioritization decisions from the backlog alone.</dominant>
 
-<alternative>
-**Alternative root cause**: The monolith structure made it too easy to add "just one more function" to the file. If scoring had been a separate module from day one, the shadow scoring system would have been more visible as a design smell — you'd see a module whose entire purpose is to redo what Orama already did.
-</alternative>
+<alternative>An alternative root cause is the lack of priority *visibility*. Even if the user mentally knows what's important, the system doesn't surface it. The viewer shows all tasks equally. There's no "you have 3 urgent+important tasks you haven't touched" signal. The problem might be less about data and more about UX — making priority impossible to ignore.</alternative>
 
-<whatifwrong>
-**What if our understanding is wrong?** If Orama's hybrid mode actually produces good rankings and the problem is purely in our re-ranking layer, then we could just delete rerankWithSignals and use Orama hybrid scores directly. But we tested this — Orama's hybrid mode with our field boosts still ranks "Feature: Daily Discovery Game" above TASK-0273 for "feature store" because of the 5x title boost in OR mode. The problem is structural: we can't tune Orama's internal fusion because it's a black box.
-</whatifwrong>
+<whatifwrong>What if priority fields aren't the right abstraction? Maybe the user doesn't need to manually tag urgency/importance — maybe the system should infer it from signals (blocking chains, age, epic alignment, keywords). If manual tagging is too much friction, users won't do it, and the feature becomes dead weight. The design must account for this: either make tagging effortless, or provide automated suggestions, or both.</whatifwrong>
 
-## What has been tried before?
+## What Has Been Tried
 
-| Attempt | ADR/Task | Result |
-|---------|----------|--------|
-| Title bonus re-ranking | ADR-0051 | Created the shadow scoring system |
-| Normalize-then-multiply pipeline | ADR-0072 | Formalized the shadow system, didn't fix root cause |
-| Compound word tokenizer | TASK-0296 | Fixed tokenization (FeatureStore found), but ranking still broken |
-| threshold=0 AND mode | TASK-0298 | Orama v3 bug — threshold + tolerance interaction breaks ranking |
-| +1.5 coordination bonus | TASK-0302 bandaid | Moved TASK-0273 from 18th→5th, but hand-tuned constant on mixed additive/multiplicative pipeline |
-
-Every attempt added a layer. None addressed the fundamental split.
+Nothing in backlog-mcp. The user's Eisenhower Matrix analysis in this conversation was done manually by me (the AI assistant) reading task descriptions and making judgment calls. That worked as a one-off but isn't repeatable or persistent.
 
 ## Adjacent Problems
 
-1. **Golden test suite only checks presence, not ranking** — `search-golden.test.ts` uses `.some()` to check if a result appears, not its position. This means ranking regressions are invisible. The linear fusion work should include position-aware golden tests (Precision@K or at minimum top-N assertions).
+1. **"What should I work on next?" as a first-class tool**: Beyond just priority fields, there could be a `backlog_recommend` or `backlog_triage` tool that returns a prioritized work queue. This is the agent-facing version of the Eisenhower Matrix.
 
-2. **SearchService interface doesn't cover resources** — BacklogService imports the concrete `OramaSearchService` class because `SearchService` only has task methods. The module decomposition is a good time to consider whether the interface should be expanded, but this is a separate concern and shouldn't block the scoring work.
+2. **Task staleness / decay**: Tasks that sit open for weeks without progress may need urgency escalation. A "staleness" signal could feed into priority. This is related but separate — it's about priority changing over time, not initial assignment.
 
----
+## Draft ADR Sections
 
-## ADR Draft: Problem Statement
+### Problem Statement
+backlog-mcp lacks a priority model. Tasks cannot be ranked by urgency or importance, making it impossible for users or agents to systematically determine what to work on next. The system defaults to recency-based ordering, which conflates "recently touched" with "most important."
 
-**Title**: ADR-0081: Independent Retrievers with Linear Fusion Scoring
-
-**Status**: Proposed
-
-**Context**: The search scoring pipeline has three competing systems: Orama's internal hybrid fusion (BM25 + vector via `mode: 'hybrid'`), score normalization (`normalizeScores`), and external re-ranking (`rerankWithSignals`). These systems have no shared information — Orama fuses internally, we normalize away the magnitude, then re-derive scoring signals from raw text. Each fix (ADR-0051, ADR-0072, TASK-0296) adds another layer. The concrete failure: searching "feature store" ranks the literal FeatureStore task at 18th because a single-term title match with 5x boost outscores a two-term description match after normalization and re-ranking.
-
-**Problem**: We cannot produce correct rankings because we have no control over Orama's internal fusion, and our external re-ranking is a shadow scoring system that duplicates and conflicts with Orama's native BM25 relevance.
-
-**Decision**: Replace `mode: 'hybrid'` with two independent Orama queries (BM25 default mode + vector mode), fuse scores ourselves using linear combination with MinMax normalization per-retriever. Delete the entire shadow scoring system (rerankWithSignals, normalizeScores, getRecencyMultiplier). Simultaneously decompose the 852-line monolith into cohesive modules.
+### Context
+- backlog-mcp serves as a work management system for LLM agents and their human operators
+- The Task schema has status, type, and temporal fields but no priority dimension
+- The viewer shows tasks sorted by updated/created date with no priority visualization
+- Users report gravitating toward interesting work over important work — the system provides no corrective signal
+- Industry standard: Eisenhower Matrix (urgency × importance → 4 quadrants) is the simplest effective prioritization framework

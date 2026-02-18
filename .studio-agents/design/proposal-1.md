@@ -1,58 +1,79 @@
-# Proposal 1: Delete Re-ranking, Trust Orama BM25
+# Proposal 1: Single Priority Field
 
-<name>Delete Shadow Scoring</name>
-<approach>Remove rerankWithSignals/normalizeScores entirely, use raw Orama BM25 scores with tuned field boosts, keep hybrid mode.</approach>
+<name>Single Priority Field (P1-P4)</name>
+<approach>Add one `priority` field to Task that maps directly to Eisenhower quadrants: P1 (do now), P2 (schedule), P3 (delegate), P4 (park).</approach>
 <timehorizon>[SHORT-TERM]</timehorizon>
 <effort>[LOW]</effort>
 
-<differs>This proposal keeps Orama's hybrid mode and doesn't introduce independent retrievers or fusion. It simply removes the shadow scoring system and trusts Orama's native BM25 + field boosts to produce correct rankings. The hypothesis: most of our ranking problems come from the re-ranking layer, not from Orama itself.</differs>
+<differs>This proposal uses a single enum field instead of two independent axes. The quadrant IS the data — there's no computation. Simplest possible schema change.</differs>
 
-## What Changes
+## Design
 
-1. Delete `rerankWithSignals()`, `normalizeScores()`, `getRecencyMultiplier()`
-2. In `search()`, `searchAll()`, `searchResources()` — return Orama's raw scores directly
-3. Tune `boost: { title: 5, id: 10 }` values if needed (reduce title boost to 2-3)
-4. Keep `mode: 'hybrid'` with current `hybridWeights: { text: 0.8, vector: 0.2 }`
-5. No file decomposition — monolith stays
+### Schema Change
+```typescript
+export const PRIORITIES = ['p1', 'p2', 'p3', 'p4'] as const;
+export type Priority = (typeof PRIORITIES)[number];
 
-## What Stays
+interface Task {
+  // ... existing fields
+  priority?: Priority; // p1=urgent+important, p2=important, p3=urgent, p4=neither
+}
+```
 
-Everything except the scoring functions. ~100 lines deleted, file drops to ~750 lines.
+### Tool Changes
+- `backlog_create`: Add optional `priority` param
+- `backlog_update`: Add optional `priority` param (nullable to clear)
+- `backlog_list`: Add `priority` filter, add `priority` sort option
+- `backlog_search`: Include priority in results
+
+### Viewer Changes
+- Priority badge on task items (color-coded: red=P1, yellow=P2, blue=P3, gray=P4)
+- Filter bar: add priority filter buttons (P1/P2/P3/P4)
+- Sort option: "Priority" (P1 first)
+
+### What It Doesn't Do
+- No 2x2 matrix view
+- No independent urgency/importance axes
+- No AI suggestions
+- No computed priority from signals
 
 ## Evaluation
 
 ### Product design
-Partially aligned. Removes the double-boosting problem but doesn't give us control over fusion. We're still at the mercy of Orama's internal hybrid mode — a black box we can't inspect or tune per-query.
+Partially aligned. Solves the "what should I work on" question but loses the Eisenhower insight of independent urgency × importance axes. Users can't ask "show me all urgent tasks regardless of importance."
+
+### UX design
+Simple and familiar — P1-P4 is a pattern users know from Todoist and other tools. Easy to understand. But the mapping (P1=urgent+important, P3=urgent+not-important) is non-obvious and must be memorized.
 
 ### Architecture
-Simpler (fewer moving parts) but doesn't address the monolith or the fundamental lack of fusion control. We'd still be unable to debug "why did this rank here?" beyond "Orama said so."
+Minimal change. One optional field, one enum. Fits existing patterns perfectly (like `status` and `type`).
 
 ### Backward compatibility
-No breaking changes. Same API surface.
+Fully backward compatible. Field is optional, defaults to undefined (unset).
 
 ### Performance
-Slightly faster — removes the re-ranking pass. Negligible in practice (<1ms).
+Zero impact. One more field in YAML frontmatter.
 
 ## Rubric
 
 | Anchor | Score | Justification |
 |--------|-------|---------------|
-| Time-to-ship | 5 | ~30 minutes. Delete functions, remove calls, adjust boosts. |
-| Risk | 3 | Unknown: Orama's raw hybrid scores may produce different ranking problems we haven't seen yet. No golden test suite to catch regressions. |
-| Testability | 2 | Scoring is inside Orama's black box — can't unit test fusion behavior. Can only integration test with full index. |
-| Future flexibility | 2 | Still locked into Orama's hybrid mode. Adding new scoring signals means re-creating the shadow system we just deleted. |
-| Operational complexity | 5 | Less code = less to maintain. |
-| Blast radius | 3 | Every search query affected. Without position-aware golden tests, regressions are invisible. |
+| Time-to-ship | 5 | ~2 hours. Schema + tools + basic viewer badge. |
+| Risk | 5 | Trivial change, optional field, no breaking changes. |
+| Testability | 5 | Simple enum field — easy to test all values. |
+| Future flexibility | 2 | Locked into 4 quadrants. Can't add granularity without migration. Can't query by urgency or importance independently. |
+| Operational complexity | 5 | No new infrastructure. Just a field. |
+| Blast radius | 5 | If it fails, nothing else breaks. Field is optional. |
 
 ## Pros
-- Fastest to implement
-- Removes the double-boosting problem immediately
-- Less code to maintain
+- Fastest to ship
+- Simplest mental model for agents ("set priority to p1")
+- No migration needed for existing tasks
+- Familiar P1-P4 pattern
 
 ## Cons
-- Doesn't solve the "feature store" problem if Orama's internal fusion still ranks it wrong (likely — the 5x title boost in OR mode is the primary driver)
-- No fusion control — can't tune BM25 vs vector weights independently
-- No debuggability — can't inspect why Orama ranked something
-- Monolith stays at 750 lines
-- Scoring can't be unit tested
-- If we need scoring signals later (recency, type boost), we'd rebuild the shadow system
+- Loses the core Eisenhower insight: urgency and importance are independent axes
+- Can't filter "all urgent tasks" or "all important tasks" independently
+- P3 vs P4 distinction is confusing (what's "urgent but not important" in a personal backlog?)
+- No path to AI-assisted prioritization (no numeric scores to compute from)
+- Single dimension — can't evolve to RICE or other frameworks later

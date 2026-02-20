@@ -1,79 +1,47 @@
-# Proposal 1: Single Priority Field
+# Proposal 1: Minimal Surgical Fix
 
-<name>Single Priority Field (P1-P4)</name>
-<approach>Add one `priority` field to Task that maps directly to Eisenhower quadrants: P1 (do now), P2 (schedule), P3 (delegate), P4 (park).</approach>
+<name>source_path parameter on backlog_create</name>
+<approach>Add optional `source_path` string to backlog_create's Zod schema; resolve and read file server-side in the handler before calling createTask.</approach>
 <timehorizon>[SHORT-TERM]</timehorizon>
 <effort>[LOW]</effort>
 
-<differs>This proposal uses a single enum field instead of two independent axes. The quadrant IS the data — there's no computation. Simplest possible schema change.</differs>
+<differs>This is the most direct approach — add one parameter, add ~10 lines of resolution logic in the handler. No new files, no abstractions, no shared utilities.</differs>
 
 ## Design
 
-### Schema Change
-```typescript
-export const PRIORITIES = ['p1', 'p2', 'p3', 'p4'] as const;
-export type Priority = (typeof PRIORITIES)[number];
+Add `source_path` to the Zod input schema. In the handler, if `source_path` is provided:
+1. Resolve path (absolute as-is, `~` → homedir, relative → cwd)
+2. Validate file exists and is readable
+3. `readFileSync` the content
+4. Use it as `description`
+5. Error if both `description` and `source_path` provided
 
-interface Task {
-  // ... existing fields
-  priority?: Priority; // p1=urgent+important, p2=important, p3=urgent, p4=neither
-}
-```
-
-### Tool Changes
-- `backlog_create`: Add optional `priority` param
-- `backlog_update`: Add optional `priority` param (nullable to clear)
-- `backlog_list`: Add `priority` filter, add `priority` sort option
-- `backlog_search`: Include priority in results
-
-### Viewer Changes
-- Priority badge on task items (color-coded: red=P1, yellow=P2, blue=P3, gray=P4)
-- Filter bar: add priority filter buttons (P1/P2/P3/P4)
-- Sort option: "Priority" (P1 first)
-
-### What It Doesn't Do
-- No 2x2 matrix view
-- No independent urgency/importance axes
-- No AI suggestions
-- No computed priority from signals
+All logic lives inline in `backlog-create.ts` handler.
 
 ## Evaluation
 
-### Product design
-Partially aligned. Solves the "what should I work on" question but loses the Eisenhower insight of independent urgency × importance axes. Users can't ask "show me all urgent tasks regardless of importance."
-
-### UX design
-Simple and familiar — P1-P4 is a pattern users know from Todoist and other tools. Easy to understand. But the mapping (P1=urgent+important, P3=urgent+not-important) is non-obvious and must be memorized.
-
-### Architecture
-Minimal change. One optional field, one enum. Fits existing patterns perfectly (like `status` and `type`).
-
-### Backward compatibility
-Fully backward compatible. Field is optional, defaults to undefined (unset).
-
-### Performance
-Zero impact. One more field in YAML frontmatter.
+- **Product design**: Directly solves the user's pain point. Agents pass a path, server reads the file.
+- **UX design**: Intuitive — `source_path` is self-explanatory. Consistent with how `path` already exists on artifacts.
+- **Architecture**: Inline logic in handler. Simple but not reusable if `write_resource` or other tools need the same later.
+- **Backward compatibility**: Fully backward compatible — `source_path` is optional, existing `description` usage unchanged.
+- **Performance**: `readFileSync` is fine for typical artifact sizes. No streaming needed.
 
 ## Rubric
 
 | Anchor | Score | Justification |
 |--------|-------|---------------|
-| Time-to-ship | 5 | ~2 hours. Schema + tools + basic viewer badge. |
-| Risk | 5 | Trivial change, optional field, no breaking changes. |
-| Testability | 5 | Simple enum field — easy to test all values. |
-| Future flexibility | 2 | Locked into 4 quadrants. Can't add granularity without migration. Can't query by urgency or importance independently. |
-| Operational complexity | 5 | No new infrastructure. Just a field. |
-| Blast radius | 5 | If it fails, nothing else breaks. Field is optional. |
+| Time-to-ship | 5 | ~30 min implementation, minimal code change |
+| Risk | 5 | Additive change, no existing behavior modified |
+| Testability | 5 | Easy to test: create temp file, pass path, verify content |
+| Future flexibility | 3 | Logic is inline — if other tools need it, must duplicate or extract later |
+| Operational complexity | 5 | No new dependencies, no config, no deployment changes |
+| Blast radius | 5 | If source_path fails, falls back to error — existing flows unaffected |
 
 ## Pros
-- Fastest to ship
-- Simplest mental model for agents ("set priority to p1")
-- No migration needed for existing tasks
-- Familiar P1-P4 pattern
+- Smallest possible change
+- No new files or abstractions
+- Immediately solves the problem
 
 ## Cons
-- Loses the core Eisenhower insight: urgency and importance are independent axes
-- Can't filter "all urgent tasks" or "all important tasks" independently
-- P3 vs P4 distinction is confusing (what's "urgent but not important" in a personal backlog?)
-- No path to AI-assisted prioritization (no numeric scores to compute from)
-- Single dimension — can't evolve to RICE or other frameworks later
+- Path resolution logic not reusable (if write_resource needs it later, must duplicate or refactor)
+- No content_type auto-inference from file extension

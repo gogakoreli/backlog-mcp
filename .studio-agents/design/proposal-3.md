@@ -1,109 +1,48 @@
-# Proposal 3: Computed Priority from Signals (No Manual Tagging)
+# Proposal 3: Symlink / Reference-based
 
-<name>Signal-Derived Priority</name>
-<approach>Instead of adding fields for users to fill in, compute urgency and importance scores automatically from existing task signals (blocking chains, age, epic alignment, status, keywords) and expose the computed quadrant as a read-only view.</approach>
+<name>Symlink artifacts — don't copy, link</name>
+<approach>Instead of copying file content into the backlog, create a symlink or store a reference to the original file, reading content on-demand when the artifact is accessed.</approach>
 <timehorizon>[ALTERNATIVE]</timehorizon>
 <effort>[MEDIUM]</effort>
 
-<differs>vs Proposal 1: Different ownership model — priority is system-computed, not user-assigned. No new schema fields at all. vs Proposal 2: Different data-flow — instead of storing urgency/importance and computing quadrant, this computes everything at query time from existing data. No manual input required.</differs>
+<differs>vs Proposal 1: No file content is copied at creation time — fundamentally different data flow. vs Proposal 2: Storage doesn't resolve content at write time; it resolves at read time. Different ownership model — the source file remains the source of truth.</differs>
 
 ## Design
 
-### No Schema Change
-Zero new fields on Task. Priority is computed at query/display time from existing signals.
+When `source_path` is provided to `backlog_create`:
+1. Validate the file exists
+2. Store the absolute path in the `path` field
+3. Create the task/artifact file with minimal frontmatter, no body
+4. When the artifact is read (via `backlog_get` or resource read), resolve `path` and read content on-demand
 
-### Priority Computation Service
-```typescript
-interface PriorityScore {
-  urgency: number;    // 0-10 computed
-  importance: number; // 0-10 computed
-  quadrant: Quadrant;
-  signals: string[];  // explanations: ["blocks 3 tasks", "open 45 days", "under strategic epic"]
-}
-
-function computePriority(task: Task, allTasks: Task[]): PriorityScore {
-  let urgency = 0, importance = 0;
-  const signals: string[] = [];
-
-  // Urgency signals
-  if (task.status === 'blocked') { urgency += 2; signals.push('blocked'); }
-  if (task.blocked_reason?.length) { urgency += 1; }
-  const blockedByThis = allTasks.filter(t => t.blocked_reason?.some(r => r.includes(task.id)));
-  if (blockedByThis.length > 0) { urgency += blockedByThis.length * 2; signals.push(`blocks ${blockedByThis.length} tasks`); }
-  const ageDays = (Date.now() - new Date(task.created_at).getTime()) / 86400000;
-  if (ageDays > 30) { urgency += 2; signals.push(`open ${Math.round(ageDays)} days`); }
-  if (task.due_date) {
-    const daysUntilDue = (new Date(task.due_date).getTime() - Date.now()) / 86400000;
-    if (daysUntilDue < 7) { urgency += 3; signals.push(`due in ${Math.round(daysUntilDue)} days`); }
-  }
-
-  // Importance signals
-  const refCount = allTasks.filter(t => t.references?.some(r => r.url.includes(task.id))).length;
-  if (refCount > 2) { importance += refCount; signals.push(`referenced by ${refCount} tasks`); }
-  if (task.type === 'epic') { importance += 3; signals.push('epic'); }
-  // Keyword heuristics
-  const text = (task.title + ' ' + (task.description ?? '')).toLowerCase();
-  if (/\b(bug|fix|broken|crash|error|race condition|data loss)\b/.test(text)) {
-    urgency += 2; importance += 2; signals.push('bug/fix keywords');
-  }
-
-  return {
-    urgency: Math.min(urgency, 10),
-    importance: Math.min(importance, 10),
-    quadrant: deriveQuadrant(urgency, importance),
-    signals,
-  };
-}
-```
-
-### Tool Changes
-- `backlog_list`: Add `quadrant` filter and `priority` sort — computed on the fly
-- Response includes computed `quadrant` and `signals` per task
-- No changes to `backlog_create` or `backlog_update` — no new input fields
-
-### Viewer Changes
-- Same as Proposal 2: quadrant badges, filter buttons, priority sort
-- Bonus: hover over badge shows signal explanations ("blocks 3 tasks, open 45 days")
-- Matrix view possible but scores are less stable (change as tasks are updated)
+The artifact file on disk is lightweight — just metadata. Content lives at the original location.
 
 ## Evaluation
 
-### Product design
-Addresses the "what if manual tagging is too much friction" concern directly — zero friction because there's nothing to tag. But it removes human judgment from the equation. The user might disagree with the computed priority ("this task isn't actually urgent just because it's old").
-
-### UX design
-Zero-friction for input. But the computed scores may feel opaque or wrong. Users can't override the system's judgment without a manual override mechanism (which brings us back to Proposal 2). Signal explanations help transparency.
-
-### Architecture
-More complex than Proposals 1-2. Requires computing priority across all tasks (O(n²) for blocking chain analysis). Must be recomputed on every list/filter request or cached and invalidated on task changes. Adds a new service layer.
-
-### Backward compatibility
-Fully backward compatible — no schema changes at all.
-
-### Performance
-O(n²) worst case for blocking chain analysis on every list request. For hundreds of tasks this is fine (<50ms). For thousands, would need caching.
+- **Product design**: Elegant for files that change (living documents). But backlog artifacts should be snapshots — you want to capture state at a point in time, not track a moving target.
+- **UX design**: Confusing — "I created an artifact but if I delete the source file, the artifact breaks?"
+- **Architecture**: Adds read-time complexity. Every read path needs to check for external references. Error handling for missing/moved files.
+- **Backward compatibility**: Changes read semantics — existing code expects description in the file.
+- **Performance**: Slower reads (extra filesystem access), but no write-time cost.
 
 ## Rubric
 
 | Anchor | Score | Justification |
 |--------|-------|---------------|
-| Time-to-ship | 2 | ~2-3 days. Signal computation logic, testing heuristics, tuning weights. |
-| Risk | 2 | High risk of "wrong" priorities. Heuristics are hard to get right. Users may disagree with computed scores. |
-| Testability | 3 | Signal functions are testable, but "is this the right priority?" is subjective. Hard to write golden tests. |
-| Future flexibility | 3 | Can add more signals, but can't incorporate human judgment without adding manual fields (converges to Proposal 2). |
-| Operational complexity | 3 | Computation on every request. Needs caching strategy for large backlogs. |
-| Blast radius | 4 | Read-only computation — if wrong, tasks still work. But wrong priorities could mislead agents. |
+| Time-to-ship | 3 | Need to modify all read paths, not just create |
+| Risk | 2 | Broken references if source files move/delete |
+| Testability | 3 | Need to test read paths with valid/invalid/missing references |
+| Future flexibility | 3 | Interesting for live documents, but wrong model for snapshots |
+| Operational complexity | 2 | Dangling references, debugging "why is my artifact empty?" |
+| Blast radius | 2 | Affects all read paths, not just creation |
 
 ## Pros
-- Zero friction — no manual tagging required
-- Works immediately on existing tasks with no data entry
-- Signal explanations provide transparency ("why is this Q1?")
-- Addresses the "what if users don't tag" concern completely
+- Zero duplication — no content copied
+- Artifacts stay in sync with source (if that's desired)
+- Fast creation
 
 ## Cons
-- Heuristics are fragile and opinionated — "old task" ≠ "urgent task"
-- Users can't override computed priority without adding manual fields (converges to Proposal 2)
-- O(n²) computation on every request
-- Keyword matching is brittle ("fix" in "prefix" is a false positive)
-- No way to express "this is important to ME" — importance is inferred, not stated
-- The core user problem ("I work on interesting stuff instead of important stuff") requires HUMAN judgment about what's important — a heuristic can't know that
+- Wrong mental model — backlog artifacts should be snapshots, not live references
+- Fragile — source file deletion breaks the artifact
+- Complicates every read path
+- Debugging nightmare for agents and users

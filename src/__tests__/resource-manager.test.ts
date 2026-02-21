@@ -145,6 +145,75 @@ describe('ResourceManager - Pure Catch-All Design', () => {
     });
   });
 
+  describe('write() - Write resource content', () => {
+    it('should reject create on existing TASK file', () => {
+      const result = manager.write('mcp://backlog/tasks/TASK-0001.md', {
+        type: 'create',
+        file_text: '# Overwrite attempt',
+      });
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('already exists');
+    });
+
+    it('should reject create on existing ARTF file', () => {
+      writeFileSync(join(testDir, 'tasks', 'ARTF-0001.md'), '---\nid: ARTF-0001\n---\n# Artifact');
+      const result = manager.write('mcp://backlog/tasks/ARTF-0001.md', {
+        type: 'create',
+        file_text: '# Overwrite attempt',
+      });
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('already exists');
+    });
+
+    it('should reject create on existing FLDR file', () => {
+      writeFileSync(join(testDir, 'tasks', 'FLDR-0001.md'), '---\nid: FLDR-0001\n---\n# Folder');
+      const result = manager.write('mcp://backlog/tasks/FLDR-0001.md', {
+        type: 'create',
+        file_text: '# Overwrite attempt',
+      });
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('already exists');
+    });
+
+    it('should reject create on existing MLST file', () => {
+      writeFileSync(join(testDir, 'tasks', 'MLST-0001.md'), '---\nid: MLST-0001\n---\n# Milestone');
+      const result = manager.write('mcp://backlog/tasks/MLST-0001.md', {
+        type: 'create',
+        file_text: '# Overwrite attempt',
+      });
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('already exists');
+    });
+
+    it('should allow str_replace on task files', () => {
+      const result = manager.write('mcp://backlog/tasks/TASK-0001.md', {
+        type: 'str_replace',
+        old_str: '# Task 1',
+        new_str: '# Task 1 Updated',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('should allow create on resource files', () => {
+      const result = manager.write('mcp://backlog/resources/new-doc.md', {
+        type: 'create',
+        file_text: '# New Resource',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('should preserve frontmatter after str_replace', () => {
+      manager.write('mcp://backlog/tasks/TASK-0001.md', {
+        type: 'str_replace',
+        old_str: '# Task 1',
+        new_str: '# Task 1 Updated',
+      });
+      const resource = manager.read('mcp://backlog/tasks/TASK-0001.md');
+      expect(resource.frontmatter?.id).toBe('TASK-0001');
+      expect(resource.content).toContain('# Task 1 Updated');
+    });
+  });
+
   describe('Round-trip consistency', () => {
     it('should round-trip URI → path → URI', () => {
       const originalUri = 'mcp://backlog/tasks/TASK-0001.md';

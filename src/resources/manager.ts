@@ -146,7 +146,7 @@ export class ResourceManager {
    * Check if a URI points to a task file.
    */
   private isTaskUri(uri: string): boolean {
-    return /^mcp:\/\/backlog\/tasks\/(TASK|EPIC)-\d+\.md$/.test(uri);
+    return uri.startsWith('mcp://backlog/tasks/');
   }
 
   /**

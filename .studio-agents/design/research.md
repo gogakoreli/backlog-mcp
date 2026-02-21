@@ -1,32 +1,39 @@
-# Research: source_path for backlog_create
+# Research: write_resource create guard — TASK-0373
 
-## Current State
+## Task
+`write_resource create` on entity files in `tasks/` directory destroys YAML frontmatter. The existing guard only protects TASK and EPIC prefixes, missing ARTF, FLDR, and MLST.
 
-### backlog_create tool (`src/tools/backlog-create.ts`)
-- Accepts: `title`, `description` (markdown string), `type`, `epic_id`, `parent_id`, `references`
-- `description` is an optional string that becomes the markdown body of the task file
-- Handler calls `createTask()` then `storage.add(task)`
+## Codebase Findings
 
-### CreateTaskInput (`src/storage/schema.ts`)
-- Already has `path?: string` field — metadata for artifacts pointing to external files
-- Already has `content_type?: string` — MIME type for artifacts
-- `createTask()` copies these fields onto the task object if present
+### Current guard (src/resources/manager.ts:199-204)
+```typescript
+if (isTask && operation.type === 'create' && fileContent) {
+  return { success: false, message: 'Cannot overwrite existing task file', ... };
+}
+```
+Logic is correct — rejects `create` on existing task files. But `isTask` is too narrow.
 
-### Artifact substrate (`src/substrates/index.ts`)
-- `type: 'artifact'` with `content_type` and `path` fields
-- Designed for file/resource entities attached to tasks/epics/folders
+### The bug: isTaskUri regex (line 148-150)
+```typescript
+private isTaskUri(uri: string): boolean {
+  return /^mcp:\/\/backlog\/tasks\/(TASK|EPIC)-\d+\.md$/.test(uri);
+}
+```
+Only matches `TASK-NNNN.md` and `EPIC-NNNN.md`. Five entity types exist: TASK, EPIC, FLDR, ARTF, MLST — all stored in `tasks/` directory.
 
-### Storage (`src/storage/task-storage.ts`)
-- `add(task)` serializes task to YAML frontmatter + markdown body and writes to disk
-- The `description` field becomes the markdown body below the frontmatter
+### Entity types (src/storage/schema.ts)
+```typescript
+const TYPE_PREFIXES = { task: 'TASK', epic: 'EPIC', folder: 'FLDR', artifact: 'ARTF', milestone: 'MLST' };
+const ID_PATTERN = /^(TASK|EPIC|FLDR|ARTF|MLST)-(\d{4,})$/;
+```
 
-## Problem
-When an LLM agent wants to create a backlog artifact from a local file:
-1. Agent reads file into context window (wasteful, lossy for large files)
-2. Agent passes content as `description` string
-3. Large files get truncated/summarized by the LLM
+### Test coverage
+`src/__tests__/resource-manager.test.ts` has tests for `resolve()`, `read()`, `toUri()`, and round-trips. Zero tests for `write()`.
 
-## Key Constraint
-The backlog-mcp server runs locally with full filesystem access. It can read files directly — no need for content to transit through the LLM.
+### `isTaskUri` is also used for timestamp updates (line 210)
+```typescript
+if (isTask) { newContent = this.updateTaskTimestamp(newContent); }
+```
+So broadening `isTaskUri` also correctly applies timestamp updates to all entity types.
 
-<insight>The change is minimal: add `source_path` to `backlog_create`, resolve it server-side to file content, use that as `description`. The `CreateTaskInput` interface already has `path` for metadata — `source_path` is the operational parameter that says "read from here", while `path` records where it came from.</insight>
+<insight>The fix is a one-line regex change in `isTaskUri` — broaden to match all files under `tasks/` directory. This fixes both the guard AND the timestamp update for all entity types.</insight>

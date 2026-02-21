@@ -1,6 +1,6 @@
 {
   "name": "backlog-mcp",
-  "version": "0.39.1",
+  "version": "0.40.0",
   "description": "Minimal task backlog MCP server for Claude and AI agents",
   "keywords": [
     "mcp",

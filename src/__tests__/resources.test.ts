@@ -252,7 +252,7 @@ describe('Lifecycle Management', () => {
     expect(() => storage.delete('TASK-9998')).not.toThrow();
   });
 
-  it('should create resource file via write_resource tool simulation', async () => {
+  it('should resolve resource file paths for task-attached resources', async () => {
     // Simulate what the MCP tool does
     const uri = 'mcp://backlog/resources/TASK-0072/adr-001.md';
     const content = '# ADR 001: Test Decision\n\n## Context\nTesting task-attached resources.\n\n## Decision\nUse separate resources directory.';

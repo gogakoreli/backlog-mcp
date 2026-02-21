@@ -19,7 +19,7 @@ export function registerBacklogCreateTool(server: McpServer) {
   server.registerTool(
     'backlog_create',
     {
-      description: 'Create a new task in the backlog.',
+      description: 'Create a new item in the backlog.',
       inputSchema: z.object({
         title: z.string().describe('Task title'),
         description: z.string().optional().describe('Task description in markdown'),

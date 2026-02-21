@@ -173,34 +173,17 @@ export class ResourceManager {
   write(uri: string, operation: Operation): WriteResourceResult {
     try {
       const filePath = this.resolve(uri);
-      const canCreate = ['create', 'append', 'insert'].includes(operation.type);
       const isTask = this.isTaskUri(uri);
       
       if (!existsSync(filePath)) {
-        if (canCreate) {
-          // Auto-create file and parent directories
-          mkdirSync(dirname(filePath), { recursive: true });
-          writeFileSync(filePath, '', 'utf-8');
-        } else {
-          // str_replace/delete need existing content
-          return {
-            success: false,
-            message: 'File not found',
-            error: `Resource not found: ${uri} (${operation.type} requires existing file)`,
-          };
-        }
+        return {
+          success: false,
+          message: 'File not found',
+          error: `Resource not found: ${uri} (${operation.type} requires existing file). Use backlog_create to create new entities.`,
+        };
       }
 
       const fileContent = readFileSync(filePath, 'utf-8');
-
-      // Prevent create from overwriting existing task files — use str_replace or backlog_update instead
-      if (isTask && operation.type === 'create' && fileContent) {
-        return {
-          success: false,
-          message: 'Cannot overwrite existing task file',
-          error: `${uri} already exists. Use str_replace to edit content, or backlog_update to update metadata.`,
-        };
-      }
 
       let newContent = applyOperation(fileContent, operation);
       
@@ -273,9 +256,8 @@ export class ResourceManager {
     server.registerTool(
       'write_resource',
       {
-        description: `A tool for creating and editing files on the MCP server
- * The \`create\` command will override the file at \`uri\` if it already exists as a file, and otherwise create a new file
- * The \`append\` command will add content to the end of a file, automatically adding a newline if the file doesn't end with one. Creates the file if it doesn't exist.
+        description: `Edit existing files on the MCP server. All file creation goes through backlog_create.
+ * The \`append\` command will add content to the end of an existing file, automatically adding a newline if the file doesn't end with one.
  Notes for using the \`str_replace\` command:
  * The \`old_str\` parameter should match EXACTLY one or more consecutive lines from the original file. Be mindful of whitespaces!
  * If the \`old_str\` parameter is not unique in the file, the replacement will not be performed. Make sure to include enough context in \`old_str\` to make it unique
@@ -287,10 +269,6 @@ export class ResourceManager {
             // https://github.com/anthropics/claude-code/issues/18260
             (val) => typeof val === 'string' ? JSON.parse(val) : val,
             z.discriminatedUnion('type', [
-            z.object({
-              type: z.literal('create'),
-              file_text: z.string().describe('Content of the file to be created'),
-            }),
             z.object({
               type: z.literal('str_replace'),
               old_str: z.string().describe('String in file to replace (must match exactly)'),

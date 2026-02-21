@@ -1,11 +1,6 @@
-// Operation types for write_resource tool (mirrors fs_write)
+// Operation types for write_resource tool
 
-export type OperationType = 'create' | 'str_replace' | 'insert' | 'append';
-
-export interface CreateOperation {
-  type: 'create';
-  file_text: string;
-}
+export type OperationType = 'str_replace' | 'insert' | 'append';
 
 export interface StrReplaceOperation {
   type: 'str_replace';
@@ -25,7 +20,6 @@ export interface AppendOperation {
 }
 
 export type Operation = 
-  | CreateOperation
   | StrReplaceOperation 
   | InsertOperation 
   | AppendOperation;

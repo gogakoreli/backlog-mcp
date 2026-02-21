@@ -145,44 +145,16 @@ describe('ResourceManager - Pure Catch-All Design', () => {
     });
   });
 
-  describe('write() - Write resource content', () => {
-    it('should reject create on existing TASK file', () => {
-      const result = manager.write('mcp://backlog/tasks/TASK-0001.md', {
-        type: 'create',
-        file_text: '# Overwrite attempt',
+  describe('write() - Edit resource content (no create)', () => {
+    it('should fail on non-existing file', () => {
+      const result = manager.write('mcp://backlog/tasks/TASK-9999.md', {
+        type: 'str_replace',
+        old_str: 'anything',
+        new_str: 'something',
       });
       expect(result.success).toBe(false);
-      expect(result.error).toContain('already exists');
-    });
-
-    it('should reject create on existing ARTF file', () => {
-      writeFileSync(join(testDir, 'tasks', 'ARTF-0001.md'), '---\nid: ARTF-0001\n---\n# Artifact');
-      const result = manager.write('mcp://backlog/tasks/ARTF-0001.md', {
-        type: 'create',
-        file_text: '# Overwrite attempt',
-      });
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('already exists');
-    });
-
-    it('should reject create on existing FLDR file', () => {
-      writeFileSync(join(testDir, 'tasks', 'FLDR-0001.md'), '---\nid: FLDR-0001\n---\n# Folder');
-      const result = manager.write('mcp://backlog/tasks/FLDR-0001.md', {
-        type: 'create',
-        file_text: '# Overwrite attempt',
-      });
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('already exists');
-    });
-
-    it('should reject create on existing MLST file', () => {
-      writeFileSync(join(testDir, 'tasks', 'MLST-0001.md'), '---\nid: MLST-0001\n---\n# Milestone');
-      const result = manager.write('mcp://backlog/tasks/MLST-0001.md', {
-        type: 'create',
-        file_text: '# Overwrite attempt',
-      });
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('already exists');
+      expect(result.error).toContain('not found');
+      expect(result.error).toContain('backlog_create');
     });
 
     it('should allow str_replace on task files', () => {
@@ -194,12 +166,21 @@ describe('ResourceManager - Pure Catch-All Design', () => {
       expect(result.success).toBe(true);
     });
 
-    it('should allow create on resource files', () => {
-      const result = manager.write('mcp://backlog/resources/new-doc.md', {
-        type: 'create',
-        file_text: '# New Resource',
+    it('should allow append on existing resource files', () => {
+      const result = manager.write('mcp://backlog/resources/test.md', {
+        type: 'append',
+        new_str: '\n## New Section',
       });
       expect(result.success).toBe(true);
+    });
+
+    it('should fail append on non-existing file', () => {
+      const result = manager.write('mcp://backlog/resources/nonexistent.md', {
+        type: 'append',
+        new_str: 'content',
+      });
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('not found');
     });
 
     it('should preserve frontmatter after str_replace', () => {

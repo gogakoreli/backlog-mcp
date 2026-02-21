@@ -7,7 +7,7 @@ export function registerBacklogUpdateTool(server: McpServer) {
   server.registerTool(
     'backlog_update',
     {
-      description: 'Update an existing task. For updating task content, use write_resource with `mcp://backlog/tasks/TASK-XXXX.md`.',
+      description: 'Update an existing item. For editing the markdown body, use write_resource with str_replace.',
       inputSchema: z.object({
         id: z.string().describe('Task ID to update'),
         title: z.string().optional().describe('New title'),

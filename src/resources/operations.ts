@@ -1,13 +1,9 @@
-// Apply operations to text content (mirrors fs_write semantics)
+// Apply operations to text content
 
 import type { Operation } from './types.js';
 
 export function applyOperation(content: string, operation: Operation): string {
   switch (operation.type) {
-    case 'create': {
-      return operation.file_text;
-    }
-
     case 'str_replace': {
       const { old_str, new_str } = operation;
       if (!content.includes(old_str)) {

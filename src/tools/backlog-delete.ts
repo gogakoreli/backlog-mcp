@@ -6,7 +6,7 @@ export function registerBacklogDeleteTool(server: McpServer) {
   server.registerTool(
     'backlog_delete',
     {
-      description: 'Delete a task permanently.',
+      description: 'Delete an item permanently.',
       inputSchema: z.object({
         id: z.string().describe('Task ID to delete'),
       }),

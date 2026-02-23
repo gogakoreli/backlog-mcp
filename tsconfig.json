@@ -2,32 +2,14 @@
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022"],
-    "types": ["node"],
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
     "declaration": true,
-    "sourceMap": true,
-    "outDir": "dist",
-    "rootDir": "src",
     "strict": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "noUncheckedIndexedAccess": true,
-    "noEmitOnError": true,
-    "baseUrl": ".",
-    "paths": {
-      "@/utils/*": ["src/utils/*"],
-      "@/server/*": ["src/server/*"],
-      "@/storage/*": ["src/storage/*"],
-      "@/tools/*": ["src/tools/*"],
-      "@/resources/*": ["src/resources/*"],
-      "@/middleware/*": ["src/middleware/*"],
-      "@/cli/*": ["src/cli/*"],
-      "@/search/*": ["src/search/*"],
-      "@/operations/*": ["src/operations/*"]
-    }
-  },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
+    "noEmitOnError": true
+  }
 }

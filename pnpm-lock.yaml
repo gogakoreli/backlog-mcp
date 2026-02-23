@@ -7,6 +7,33 @@ settings:
 importers:
 
   .:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.7
+      concurrently:
+        specifier: ^9.2.1
+        version: 9.2.1
+      esbuild:
+        specifier: ^0.27.2
+        version: 0.27.2
+      tsdown:
+        specifier: ^0.20.1
+        version: 0.20.1(typescript@5.9.3)
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vite-tsconfig-paths:
+        specifier: ^6.1.1
+        version: 6.1.1(typescript@5.9.3)(vite@5.4.21(@types/node@22.19.7))
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@22.19.7)(happy-dom@20.5.3)
+
+  packages/server:
     dependencies:
       '@fastify/cors':
         specifier: ^11.2.0
@@ -20,12 +47,39 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.25.1
         version: 1.25.3(hono@4.11.4)(zod@4.3.5)
-      '@orama/highlight':
-        specifier: ^0.1.9
-        version: 0.1.9
       '@orama/orama':
         specifier: ^3.1.18
         version: 3.1.18
+      fastify:
+        specifier: ^5.7.1
+        version: 5.7.1
+      gray-matter:
+        specifier: ^4.0.3
+        version: 4.0.3
+      mcp-remote:
+        specifier: ^0.1.37
+        version: 0.1.37
+      zod:
+        specifier: ^4.3.5
+        version: 4.3.5
+    devDependencies:
+      '@backlog-mcp/shared':
+        specifier: workspace:*
+        version: link:../shared
+      memfs:
+        specifier: ^4.56.10
+        version: 4.56.10(tslib@2.8.1)
+
+  packages/shared: {}
+
+  packages/viewer:
+    dependencies:
+      '@backlog-mcp/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@orama/highlight':
+        specifier: ^0.1.9
+        version: 0.1.9
       diff:
         specifier: ^8.0.3
         version: 8.0.3
@@ -35,12 +89,6 @@ importers:
       dompurify:
         specifier: ^3.3.1
         version: 3.3.1
-      fastify:
-        specifier: ^5.7.1
-        version: 5.7.1
-      gray-matter:
-        specifier: ^4.0.3
-        version: 4.0.3
       highlight.js:
         specifier: ^11.11.1
         version: 11.11.1
@@ -50,40 +98,10 @@ importers:
       marked-highlight:
         specifier: ^2.2.3
         version: 2.2.3(marked@17.0.1)
-      mcp-remote:
-        specifier: ^0.1.37
-        version: 0.1.37
-      zod:
-        specifier: ^4.3.5
-        version: 4.3.5
     devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.19.7
-      concurrently:
-        specifier: ^9.2.1
-        version: 9.2.1
-      esbuild:
-        specifier: ^0.27.2
-        version: 0.27.2
       happy-dom:
         specifier: ^20.5.3
         version: 20.5.3
-      memfs:
-        specifier: ^4.56.10
-        version: 4.56.10(tslib@2.8.1)
-      tsdown:
-        specifier: ^0.20.1
-        version: 0.20.1(typescript@5.9.3)
-      tsx:
-        specifier: ^4.19.0
-        version: 4.21.0
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
-      vitest:
-        specifier: ^2.1.9
-        version: 2.1.9(@types/node@22.19.7)(happy-dom@20.5.3)
 
 packages:
 
@@ -1505,6 +1523,9 @@ packages:
     resolution: {integrity: sha512-DpLKbNU4WylpxJykQujfCcwYWiV/Jhm50Goo0wrVILAv5jOr9d+H+UR3PhSCD2rCCEIg0uc+G+muBTwD54JhDQ==}
     engines: {node: '>= 0.4'}
 
+  globrex@0.1.2:
+    resolution: {integrity: sha512-uHJgbwAMwNFf5mLst7IWLNg14x1CkeqglJb/K3doi4dw6q2IvAAmM/Y81kevy83wP+Sst+nutFTYOGg3d1lsxg==}
+
   gopd@1.2.0:
     resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==}
     engines: {node: '>= 0.4'}
@@ -2103,6 +2124,7 @@ packages:
   tar@7.5.7:
     resolution: {integrity: sha512-fov56fJiRuThVFXD6o6/Q354S7pnWMJIVlDBYijsTNx6jKSE4pvrDTs6lUnmGvNyfJwFQQwWy3owKz1ucIhveQ==}
     engines: {node: '>=18'}
+    deprecated: Old versions of tar are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
 
   thingies@2.5.0:
     resolution: {integrity: sha512-s+2Bwztg6PhWUD7XMfeYm5qliDdSiZm7M7n8KjTkIsm3l/2lgVRc2/Gx/v+ZX8lT4FMA+i8aQvhcWylldc+ZNw==}
@@ -2157,6 +2179,16 @@ packages:
   tree-kill@1.2.2:
     resolution: {integrity: sha512-L0Orpi8qGpRG//Nd+H90vFB+3iHnue1zSSGmNOOCh1GLJ7rUKVwV2HvijphGQS2UmhUZewS9VgvxYIdgr+fG1A==}
     hasBin: true
+
+  tsconfck@3.1.6:
+    resolution: {integrity: sha512-ks6Vjr/jEw0P1gmOVwutM3B7fWxoWBL2KRDb1JfqGVawBmO5UsvmWOQFGHBPl5yxYz4eERr19E6L7NMv+Fej4w==}
+    engines: {node: ^18 || >=20}
+    hasBin: true
+    peerDependencies:
+      typescript: ^5.0.0
+    peerDependenciesMeta:
+      typescript:
+        optional: true
 
   tsdown@0.20.1:
     resolution: {integrity: sha512-Wo1BzqNQVZ6SFQV8rjQBwMmNubO+yV3F+vp2WNTjEaS4S5CT1C1dHtUbeFMrCEasZpGy5w6TshpehNnfTe8QBQ==}
@@ -2244,6 +2276,11 @@ packages:
     resolution: {integrity: sha512-AM9aQ/IPrW/6ENLQg3AGY4K1N2TGZdR5e4gu/MmmR2xR3Ll1+dib+nook92g4TV3PXVyeyxdWwtaCAiUL0hMxA==}
     engines: {node: ^18.0.0 || >=20.0.0}
     hasBin: true
+
+  vite-tsconfig-paths@6.1.1:
+    resolution: {integrity: sha512-2cihq7zliibCCZ8P9cKJrQBkfgdvcFkOOc3Y02o3GWUDLgqjWsZudaoiuOwO/gzTzy17cS5F7ZPo4bsnS4DGkg==}
+    peerDependencies:
+      vite: '*'
 
   vite@5.4.21:
     resolution: {integrity: sha512-o5a9xKjbtuhY6Bi5S3+HvbRERmouabWbyUcpXXUA1u+GNUKoROi9byOJ8M0nHbHYHkYICiMlqxkg1KkYmm25Sw==}
@@ -3655,6 +3692,8 @@ snapshots:
       define-properties: 1.2.1
       gopd: 1.2.0
 
+  globrex@0.1.2: {}
+
   gopd@1.2.0: {}
 
   gray-matter@4.0.3:
@@ -4348,6 +4387,10 @@ snapshots:
 
   tree-kill@1.2.2: {}
 
+  tsconfck@3.1.6(typescript@5.9.3):
+    optionalDependencies:
+      typescript: 5.9.3
+
   tsdown@0.20.1(typescript@5.9.3):
     dependencies:
       ansis: 4.2.0
@@ -4435,6 +4478,16 @@ snapshots:
       - sugarss
       - supports-color
       - terser
+
+  vite-tsconfig-paths@6.1.1(typescript@5.9.3)(vite@5.4.21(@types/node@22.19.7)):
+    dependencies:
+      debug: 4.4.3
+      globrex: 0.1.2
+      tsconfck: 3.1.6(typescript@5.9.3)
+      vite: 5.4.21(@types/node@22.19.7)
+    transitivePeerDependencies:
+      - supports-color
+      - typescript
 
   vite@5.4.21(@types/node@22.19.7):
     dependencies:

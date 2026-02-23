@@ -1,85 +1,24 @@
 {
-  "name": "backlog-mcp",
-  "version": "0.40.0",
-  "description": "Minimal task backlog MCP server for Claude and AI agents",
-  "keywords": [
-    "mcp",
-    "model-context-protocol",
-    "claude",
-    "anthropic",
-    "ai",
-    "llm",
-    "backlog",
-    "task-management",
-    "claude-code"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/gkoreli/backlog-mcp.git"
-  },
-  "type": "module",
-  "main": "dist/index.mjs",
-  "types": "dist/index.d.mts",
-  "bin": {
-    "backlog-mcp": "./dist/cli/index.mjs"
-  },
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.mts",
-      "default": "./dist/index.mjs"
-    }
-  },
-  "files": [
-    "dist",
-    "viewer",
-    "README.md",
-    "LICENSE"
-  ],
+  "private": true,
   "scripts": {
-    "build": "pnpm typecheck && tsdown && pnpm build:viewer",
-    "typecheck": "tsc --noEmit && tsc -p viewer/tsconfig.json --noEmit",
-    "build:viewer": "esbuild viewer/main.ts --bundle --format=esm --outdir=dist/viewer --loader:.svg=file --loader:.css=css --asset-names=[name]-[hash] --alias:@framework=./viewer/framework",
-    "dev": "concurrently \"esbuild viewer/main.ts --bundle --format=esm --outdir=dist/viewer --loader:.svg=file --loader:.css=css --asset-names=[name]-[hash] --alias:@framework=./viewer/framework --watch\" \"tsx watch --env-file=.env src/server/fastify-server.ts\"",
-    "clean": "rm -rf dist",
-    "start": "node dist/cli/index.mjs",
-    "inspect": "pnpm build && npx @modelcontextprotocol/inspector dist/cli/index.mjs",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:integration": "pnpm build && kiro-cli chat --agent mcp-resource-validator --trust-all-tools --no-interactive 'Execute the complete validation test plan'",
-    "test:integration:resources": "pnpm build && kiro-cli chat --agent mcp-resource-validator --trust-all-tools --no-interactive 'Skip steps 1-7. Only test task-attached resources (step 8): First create a test task, then create ADR, modify it, create multiple resources, link to task, verify lifecycle management.'"
+    "build": "pnpm --filter @backlog-mcp/shared build && pnpm --filter @backlog-mcp/viewer build && pnpm --filter backlog-mcp build",
+    "typecheck": "pnpm --filter backlog-mcp typecheck && pnpm --filter @backlog-mcp/viewer typecheck",
+    "test": "pnpm -r test",
+    "test:watch": "pnpm --filter backlog-mcp test:watch",
+    "dev": "concurrently \"pnpm --filter @backlog-mcp/viewer dev\" \"pnpm --filter backlog-mcp dev\"",
+    "clean": "pnpm -r clean",
+    "start": "pnpm --filter backlog-mcp start",
+    "inspect": "pnpm build && npx @modelcontextprotocol/inspector packages/server/dist/cli/index.mjs"
   },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "license": "MIT",
   "devDependencies": {
     "@types/node": "^22.0.0",
     "concurrently": "^9.2.1",
     "esbuild": "^0.27.2",
-    "happy-dom": "^20.5.3",
-    "memfs": "^4.56.10",
     "tsdown": "^0.20.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
+    "vite-tsconfig-paths": "^6.1.1",
     "vitest": "^2.1.9"
-  },
-  "dependencies": {
-    "@fastify/cors": "^11.2.0",
-    "@fastify/static": "^9.0.0",
-    "@huggingface/transformers": "^3.8.1",
-    "@modelcontextprotocol/sdk": "^1.25.1",
-    "@orama/highlight": "^0.1.9",
-    "@orama/orama": "^3.1.18",
-    "diff": "^8.0.3",
-    "diff2html": "^3.4.56",
-    "dompurify": "^3.3.1",
-    "fastify": "^5.7.1",
-    "gray-matter": "^4.0.3",
-    "highlight.js": "^11.11.1",
-    "marked": "^17.0.1",
-    "marked-highlight": "^2.2.3",
-    "mcp-remote": "^0.1.37",
-    "zod": "^4.3.5"
   },
   "packageManager": "pnpm@10.17.1+sha512.17c560fca4867ae9473a3899ad84a88334914f379be46d455cbf92e5cf4b39d34985d452d2583baf19967fa76cb5c17bc9e245529d0b98745721aa7200ecaf7a"
 }

@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "declaration": false,
+    "sourceMap": false,
+    "baseUrl": ".",
+    "paths": {
+      "@framework/*": ["./framework/*"]
+    }
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["**/*.test.ts"]
+}

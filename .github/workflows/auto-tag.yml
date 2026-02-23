@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'package.json'
+      - 'packages/server/package.json'
 
 permissions:
   contents: write
@@ -23,7 +23,7 @@ jobs:
         id: version
         run: |
           git fetch --tags
-          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          CURRENT_VERSION=$(node -p "require('./packages/server/package.json').version")
           echo "current=$CURRENT_VERSION" >> $GITHUB_OUTPUT
           
           if git rev-parse "v$CURRENT_VERSION" >/dev/null 2>&1; then
@@ -69,4 +69,6 @@ jobs:
           pnpm build
           pnpm test || true
           npm install -g npm@latest
-          npm publish --provenance --access public
+          cd packages/server
+          pnpm pack
+          npm publish backlog-mcp-*.tgz --provenance --access public

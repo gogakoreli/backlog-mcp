@@ -167,3 +167,72 @@ describe('MyFeature', () => {
 - **Tests use real production code** - only I/O is faked
 - **Never rewrite tests to fit mocks** - fix the mock instead
 - **Unit tests only** - fast, deterministic, isolated
+
+## Code Style Rules
+
+- **`index.ts` files are barrel exports only** — never put implementation code in `index.ts`. Use descriptive file names for modules (e.g., `entity-types.ts`, not `index.ts`). Index files should only re-export from sibling modules.
+- **No re-exporting between packages** — import from the source, not through intermediaries. If you need `EntityType`, import from `@backlog-mcp/shared`, not from a module that re-exports it.
+
+## Monorepo Architecture
+
+### Package Structure
+
+Three workspace packages, one published npm package:
+
+- `packages/shared` — entity types, private, never published
+- `packages/server` — MCP server, published as `backlog-mcp` on npm
+- `packages/viewer` — web UI, private, built assets copied into server
+
+### Internal Package Pattern (Turborepo "Compiled Package")
+
+Shared exports source in dev, dist at publish time:
+
+```json
+// packages/shared/package.json
+{
+  "exports": { ".": "./src/index.ts" },
+  "publishConfig": {
+    "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } }
+  }
+}
+```
+
+- Dev: TypeScript resolves imports directly from source — no build step needed for typecheck
+- Build: tsdown inlines shared code into server's bundle via `noExternal: ['@backlog-mcp/shared']`
+
+### Why `devDependencies` for `@backlog-mcp/shared`
+
+Shared is in server's `devDependencies`, not `dependencies`. This is intentional:
+
+- **If `dependencies`**: consumers run `npm install backlog-mcp` → npm tries to fetch `@backlog-mcp/shared` from registry → fails (private, doesn't exist on npm)
+- **If `devDependencies`**: consumers never try to install it → no problem
+- tsdown bundles devDependencies that are imported, so the code is inlined regardless of placement
+
+### Publishing: `pnpm pack` → `npm publish`
+
+CI uses a two-step publish to handle two constraints:
+
+1. **`pnpm pack`** — resolves `workspace:*` to real version numbers (e.g., `0.40.0`). npm doesn't understand workspace protocol.
+2. **`npm publish <tarball>`** — required for OIDC trusted publishing. pnpm doesn't reliably support npm's trusted publishing (pnpm/pnpm#9812).
+
+```yaml
+# .github/workflows/auto-tag.yml
+cd packages/server
+pnpm pack                    # workspace:* → 0.40.0
+npm publish backlog-mcp-*.tgz --provenance --access public
+```
+
+### Why This Differs from Turborepo Examples
+
+Turborepo's internal package docs show apps (`apps/web`) consuming internal packages. Apps get **deployed** (e.g., to Vercel) — the whole repo is cloned, `pnpm install` resolves workspace links, and the built output goes to a CDN. `workspace:*` never leaves the repo.
+
+Our server is both an app AND a published npm package. The `package.json` goes to a public registry where strangers run `npm install`. That's why we need `devDependencies` + `pnpm pack` — to ensure no private/workspace references leak into published metadata.
+
+### tsdown Bundling Config
+
+```
+skipNodeModulesBundle: true   — externalize all node_modules
+noExternal: ['@backlog-mcp/shared']  — override: inline shared
+```
+
+Both are needed. Without `noExternal`, `skipNodeModulesBundle` would externalize shared via the pnpm workspace symlink in `node_modules`.

@@ -1,0 +1,65 @@
+{
+  "name": "backlog-mcp",
+  "version": "0.40.0",
+  "description": "Minimal task backlog MCP server for Claude and AI agents",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "anthropic",
+    "ai",
+    "llm",
+    "backlog",
+    "task-management",
+    "claude-code"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gkoreli/backlog-mcp.git"
+  },
+  "type": "module",
+  "main": "dist/index.mjs",
+  "types": "dist/index.d.mts",
+  "bin": {
+    "backlog-mcp": "./dist/cli/index.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc --noEmit && tsdown",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx watch --env-file=../../.env src/server/fastify-server.ts",
+    "clean": "rm -rf dist",
+    "start": "node dist/cli/index.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@backlog-mcp/shared": "workspace:*",
+    "memfs": "^4.56.10"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@fastify/static": "^9.0.0",
+    "@huggingface/transformers": "^3.8.1",
+    "@modelcontextprotocol/sdk": "^1.25.1",
+    "@orama/orama": "^3.1.18",
+    "fastify": "^5.7.1",
+    "gray-matter": "^4.0.3",
+    "mcp-remote": "^0.1.37",
+    "zod": "^4.3.5"
+  }
+}

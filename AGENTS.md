@@ -1,6 +1,8 @@
-# AGENTS.md - Testing Guidelines for backlog-mcp
+# AGENTS.md — Guidelines for AI Agents Working in backlog-mcp
 
-## Philosophy
+## Testing
+
+### Philosophy
 
 **Unit tests only. No integration tests.**
 
@@ -8,187 +10,115 @@
 - Tests should be fast, deterministic, and isolated
 - If tests touch real filesystem, they're not unit tests
 
-## Testing Strategy
+### How It Works
 
 All tests use **memfs** for in-memory filesystem mocking. Zero real file I/O.
 
-### How It Works
-
-1. `vitest.config.ts` loads `src/__tests__/helpers/setup.ts` globally
+1. `vitest.config.ts` loads `src/__tests__/helpers/setup.ts` globally (server package)
 2. `setup.ts` mocks `node:fs` with memfs before any test runs
 3. Tests call real production code (e.g., `storage.add()`)
 4. Production code calls `writeFileSync`/`readFileSync` → intercepted by memfs → stored in RAM
 5. Filesystem resets between test files (not between individual tests)
 
-### Why memfs?
+### Test Locations
 
-- Battle-tested library (recommended by Vitest docs)
-- Complete fs API implementation
-- No flaky tests from race conditions or temp directory issues
-- Tests cannot accidentally corrupt real data
+| Package | Test location | Count |
+|---------|--------------|-------|
+| Server | `packages/server/src/__tests__/*.test.ts` | 495 |
+| Framework | `packages/framework/src/*.test.ts` | 215 |
+| Viewer | `packages/viewer/**/*.test.ts` | 92 |
 
-### Key Files
+```bash
+pnpm test                                # All 802 tests
+pnpm --filter backlog-mcp test           # Server only
+pnpm --filter @nisli/core test           # Framework only
+pnpm --filter @backlog-mcp/viewer test   # Viewer only
+```
 
-- `src/__tests__/helpers/setup.ts` - Global setup, mocks `node:fs`
-- `src/__tests__/helpers/virtual-fs.ts` - memfs wrapper, pre-populates `package.json`
-- `vitest.config.ts` - References setup via `setupFiles`
+### Rules
 
-## Rules
-
-### DO
-
+**DO:**
 - Write unit tests that use the mocked fs automatically
-- Create test data within tests using production APIs (`storage.add()`, etc.)
+- Create test data using production APIs (`storage.add()`, etc.)
 - Use `beforeAll`/`afterAll` for setup/teardown within a test file
 - Mock external modules explicitly with `vi.mock()` when needed
-- Use `tmpdir()` for path strings - it's fine, only fs operations are mocked
+- Use `tmpdir()` for path strings — only fs operations are mocked
 
-### DON'T
-
-- Don't write custom fs mocks - use the global memfs setup
+**DON'T:**
+- Don't write custom fs mocks — use the global memfs setup
 - Don't use `beforeEach` to reset filesystem (breaks `beforeAll` patterns)
-- Don't rewrite tests to fit mocks - if tests need rewriting, the mock is wrong
+- Don't rewrite tests to fit mocks — fix the mock instead
 
-## Anti-Patterns
-
-### ❌ Custom fs mocks per test file
+### Correct Patterns
 
 ```typescript
-// BAD - duplicates setup, incomplete, inconsistent
-vi.mock('node:fs', () => ({
-  existsSync: vi.fn(),
-  readFileSync: vi.fn(),
-  // ... missing methods will break
-}));
-```
-
-### ❌ Useless tests that test nothing
-
-```typescript
-// BAD - if you're writing this, something is wrong
-it('should work', () => {
-  expect(true).toBe(true);
-});
-```
-
-### ❌ Rewriting tests to accommodate mocks
-
-If existing tests break when you add mocking, the mock is incomplete. Fix the mock, not the tests.
-
-## Correct Patterns
-
-### ✅ Test using production APIs
-
-```typescript
-// GOOD - uses real storage code, memfs handles I/O
+// Test using production APIs — memfs handles I/O
 it('should create a task', () => {
   const task = createTask({ id: 'TASK-0001', title: 'Test' });
   storage.add(task);
-  
   const retrieved = storage.get('TASK-0001');
   expect(retrieved?.title).toBe('Test');
 });
-```
 
-### ✅ Mock paths module when needed
-
-```typescript
-// GOOD - redirects storage to test directory
+// Mock paths module when needed
 beforeEach(() => {
   vi.spyOn(paths, 'backlogDataDir', 'get').mockReturnValue('/test/data');
 });
-```
 
-### ✅ Mock specific modules for isolation
-
-```typescript
-// GOOD - isolates unit under test from dependencies
+// Mock specific modules for isolation
 vi.mock('../storage/backlog.js', () => ({
-  storage: {
-    list: vi.fn(),
-    get: vi.fn(),
-  },
+  storage: { list: vi.fn(), get: vi.fn() },
 }));
 ```
 
-### ✅ Using tmpdir() is fine
+### Framework Tests
+
+Framework tests use `jsdom` environment (no memfs needed). They test signals, templates, components, and DOM behavior directly:
 
 ```typescript
-// OK - tmpdir() just returns a string, fs operations are mocked
-const testDir = join(tmpdir(), `test-${Date.now()}`);
-mkdirSync(testDir, { recursive: true }); // Goes to memfs, not disk
-```
+import { signal, computed, flush } from './signal.js';
 
-## Debugging Test Failures
-
-### "ENOENT: no such file or directory"
-
-- File wasn't created in virtual fs before reading
-- Check that `storage.add()` or `writeFileSync()` was called first
-- Verify `paths.backlogDataDir` is mocked to correct test path
-
-### "Cannot read properties of undefined"
-
-- Module loaded before mock was applied
-- Move `vi.mock()` calls to top of file, before imports
-
-### Tests pass individually but fail together
-
-- Shared state between test files
-- Filesystem resets per file, not per test - use `beforeAll` for setup
-
-## Adding New Tests
-
-1. Create test file in `src/__tests__/`
-2. Import what you need - fs is already mocked globally
-3. Mock `paths.backlogDataDir` if testing storage
-4. Write tests using production APIs
-5. Run `pnpm test` to verify
-
-```typescript
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { storage } from '../storage/backlog.js';
-import { paths } from '../utils/paths.js';
-
-describe('MyFeature', () => {
-  beforeEach(() => {
-    vi.spyOn(paths, 'backlogDataDir', 'get').mockReturnValue('/test/backlog');
-  });
-
-  it('should do something', () => {
-    // Test code here - fs operations go to memfs automatically
-  });
+it('should track dependencies', () => {
+  const a = signal(1);
+  const b = computed(() => a.value * 2);
+  expect(b.value).toBe(2);
+  a.set(5);
+  flush();
+  expect(b.value).toBe(10);
 });
 ```
 
-## Summary
+### Debugging Test Failures
 
-- **memfs mocks all fs operations globally** - no setup needed per test
-- **Tests use real production code** - only I/O is faked
-- **Never rewrite tests to fit mocks** - fix the mock instead
-- **Unit tests only** - fast, deterministic, isolated
+- **ENOENT** — file wasn't created in virtual fs before reading. Check `storage.add()` was called.
+- **Cannot read properties of undefined** — module loaded before mock. Move `vi.mock()` to top of file.
+- **Tests pass individually but fail together** — shared state. Filesystem resets per file, not per test.
 
-## Code Style Rules
+## Code Style
 
-- **`index.ts` files are barrel exports only** — never put implementation code in `index.ts`. Use descriptive file names for modules (e.g., `entity-types.ts`, not `index.ts`). Index files should only re-export from sibling modules.
-- **No re-exporting between packages** — import from the source, not through intermediaries. If you need `EntityType`, import from `@backlog-mcp/shared`, not from a module that re-exports it.
+- **`index.ts` files are barrel exports only** — never put implementation in `index.ts`
+- **No re-exporting between packages** — import from the source package directly
+- **Minimal code** — only what's needed to solve the problem
+- **Declarative with named functions** — not inline callbacks
 
 ## Monorepo Architecture
 
 ### Package Structure
 
-Three workspace packages, one published npm package:
+Four workspace packages:
 
-- `packages/shared` — entity types, private, never published
-- `packages/server` — MCP server, published as `backlog-mcp` on npm
-- `packages/viewer` — web UI, private, built assets copied into server
+| Package | npm name | Published | Purpose |
+|---------|----------|-----------|---------|
+| `packages/shared` | `@backlog-mcp/shared` | No (private) | Entity types, ID utilities |
+| `packages/server` | `backlog-mcp` | Yes | MCP server, CLI, HTTP API |
+| `packages/framework` | `@nisli/core` | Yes | Reactive web component framework |
+| `packages/viewer` | `@backlog-mcp/viewer` | No (private) | Web UI, built assets copied into server |
 
-### Internal Package Pattern (Turborepo "Compiled Package")
+### Internal Package Pattern (Compiled Package)
 
-Shared exports source in dev, dist at publish time:
+Shared and framework export source in dev, dist at publish time:
 
 ```json
-// packages/shared/package.json
 {
   "exports": { ".": "./src/index.ts" },
   "publishConfig": {
@@ -197,42 +127,43 @@ Shared exports source in dev, dist at publish time:
 }
 ```
 
-- Dev: TypeScript resolves imports directly from source — no build step needed for typecheck
+- Dev: TypeScript resolves imports directly from source — no build step needed
 - Build: tsdown inlines shared code into server's bundle via `noExternal: ['@backlog-mcp/shared']`
 
 ### Why `devDependencies` for `@backlog-mcp/shared`
 
-Shared is in server's `devDependencies`, not `dependencies`. This is intentional:
+Shared is in server's `devDependencies`, not `dependencies`:
 
-- **If `dependencies`**: consumers run `npm install backlog-mcp` → npm tries to fetch `@backlog-mcp/shared` from registry → fails (private, doesn't exist on npm)
+- **If `dependencies`**: `npm install backlog-mcp` tries to fetch `@backlog-mcp/shared` from registry → fails (private)
 - **If `devDependencies`**: consumers never try to install it → no problem
-- tsdown bundles devDependencies that are imported, so the code is inlined regardless of placement
+- tsdown bundles it regardless of placement since it's imported
 
-### Publishing: `pnpm pack` → `npm publish`
+### Publishing
 
-CI uses a two-step publish to handle two constraints:
+Two published packages, both via CI:
 
-1. **`pnpm pack`** — resolves `workspace:*` to real version numbers (e.g., `0.40.0`). npm doesn't understand workspace protocol.
-2. **`npm publish <tarball>`** — required for OIDC trusted publishing. pnpm doesn't reliably support npm's trusted publishing (pnpm/pnpm#9812).
-
+**Server** (`backlog-mcp`):
 ```yaml
-# .github/workflows/auto-tag.yml
 cd packages/server
-pnpm pack                    # workspace:* → 0.40.0
+cp ../../README.md README.md    # Root README for npm
+pnpm pack                       # workspace:* → real versions
 npm publish backlog-mcp-*.tgz --provenance --access public
 ```
 
-### Why This Differs from Turborepo Examples
+**Framework** (`@nisli/core`):
+```yaml
+cd packages/framework
+pnpm pack
+npm publish nisli-core-*.tgz --provenance --access public
+```
 
-Turborepo's internal package docs show apps (`apps/web`) consuming internal packages. Apps get **deployed** (e.g., to Vercel) — the whole repo is cloned, `pnpm install` resolves workspace links, and the built output goes to a CDN. `workspace:*` never leaves the repo.
-
-Our server is both an app AND a published npm package. The `package.json` goes to a public registry where strangers run `npm install`. That's why we need `devDependencies` + `pnpm pack` — to ensure no private/workspace references leak into published metadata.
+`pnpm pack` resolves `workspace:*` to real version numbers. `npm publish` is used (not `pnpm publish`) for OIDC trusted publishing support.
 
 ### tsdown Bundling Config
 
 ```
-skipNodeModulesBundle: true   — externalize all node_modules
-noExternal: ['@backlog-mcp/shared']  — override: inline shared
+skipNodeModulesBundle: true          # Externalize all node_modules
+noExternal: ['@backlog-mcp/shared']  # Override: inline shared
 ```
 
-Both are needed. Without `noExternal`, `skipNodeModulesBundle` would externalize shared via the pnpm workspace symlink in `node_modules`.
+Both are needed. Without `noExternal`, `skipNodeModulesBundle` would externalize shared via the pnpm workspace symlink.

@@ -1,6 +1,6 @@
 # Framework Architecture Decision Records
 
-ADRs for the `viewer/framework/` web component framework layer.
+ADRs for the `nisli` reactive web component library (`packages/framework/`).
 
 These are separate from the main project ADRs in `docs/adr/` because the framework is a self-contained subsystem with its own design trajectory.
 
@@ -17,3 +17,4 @@ These are separate from the main project ADRs in `docs/adr/` because the framewo
 - [0008. Effect Isolation and Loop Detection — Defense-in-Depth](./0008-effect-scheduling-and-batching-gaps.md) - Open - 2026-02-09
 - [0012. Migration Phase 14 — resource-viewer, activity-panel, Final Migration](./0012-migration-phase-14-final.md) - Active - 2026-02-11
 - [0015. Eliminate explicit batch() — automatic signal coalescing](./0015-eliminate-batch-automatic-coalescing.md) - Proposed - 2026-02-11
+- [0017. Framework Package Extraction — Standalone Reactive Web Component Library](./0017-framework-package-extraction.md) - Accepted - 2026-02-24

@@ -1,6 +1,4 @@
-import { signal, effect } from '@framework/signal.js';
-import { component } from '@framework/component.js';
-import { html, type TemplateResult } from '@framework/template.js';
+import { signal, effect, component, html, type TemplateResult } from 'nisli';
 import { SvgIcon } from './svg-icon.js';
 import { copyIcon } from '../icons/index.js';
 

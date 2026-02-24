@@ -4,7 +4,7 @@
  * Replaces document CustomEvent strings (filter-change, sort-change,
  * search-change) with typed, DI-injected events per emitter-typed-events.
  */
-import { Emitter } from '@framework/emitter.js';
+import { Emitter } from 'nisli';
 
 export class FilterEvents extends Emitter<{
   'filter-change': { filter: string; type: string; sort: string };

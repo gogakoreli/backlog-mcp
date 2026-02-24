@@ -13,12 +13,7 @@
  * Uses html:inner directive for highlighted search result titles/snippets
  * from @orama/highlight. See ADR 0011 Gap 1 / ADR 0012 / ADR 0071.
  */
-import { signal, computed, effect } from '@framework/signal.js';
-import { component } from '@framework/component.js';
-import { html, when, each } from '@framework/template.js';
-import { inject } from '@framework/injector.js';
-import { query } from '@framework/query.js';
-import { onMount, onCleanup } from '@framework/lifecycle.js';
+import { signal, computed, effect, component, html, when, each, inject, query, onMount, onCleanup } from 'nisli';
 import { Highlight } from '@orama/highlight';
 import type { Task } from '../utils/api.js';
 import { API_URL } from '../utils/api.js';

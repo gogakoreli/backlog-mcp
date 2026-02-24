@@ -7,8 +7,7 @@
  * @vitest-environment happy-dom
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { signal, flushEffects } from '@framework/signal.js';
-import { resetInjector, provide, inject } from '@framework/injector.js';
+import { signal, flushEffects, resetInjector, provide, inject } from 'nisli';
 import { AppState } from '../services/app-state.js';
 
 // ── Mock dependencies ────────────────────────────────────────────────

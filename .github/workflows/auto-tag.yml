@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'packages/server/package.json'
+      - 'packages/framework/package.json'
 
 permissions:
   contents: write
@@ -62,13 +63,26 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
           cache: 'pnpm'
 
-      - name: Publish to npm
+      - name: Install and build
         if: steps.version.outputs.changed == 'true'
         run: |
           pnpm install --frozen-lockfile
           pnpm build
           pnpm test || true
           npm install -g npm@latest
+
+      - name: Publish nisli to npm
+        if: steps.version.outputs.changed == 'true'
+        continue-on-error: true
+        run: |
+          cd packages/framework
+          pnpm build
+          pnpm pack
+          npm publish nisli-*.tgz --provenance --access public
+
+      - name: Publish backlog-mcp to npm
+        if: steps.version.outputs.changed == 'true'
+        run: |
           cd packages/server
           pnpm pack
           npm publish backlog-mcp-*.tgz --provenance --access public

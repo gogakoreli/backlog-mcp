@@ -10,11 +10,7 @@
 import * as Diff2Html from 'diff2html';
 import { ColorSchemeType } from 'diff2html/lib/types';
 import { createTwoFilesPatch } from 'diff';
-import { signal, computed, effect } from '@framework/signal.js';
-import { component } from '@framework/component.js';
-import { html, when, each } from '@framework/template.js';
-import { inject } from '@framework/injector.js';
-import { onCleanup } from '@framework/lifecycle.js';
+import { signal, computed, effect, component, html, when, each, inject, onCleanup } from 'nisli';
 import { AppState } from '../services/app-state.js';
 import { SplitPaneState } from '../services/split-pane-state.js';
 import { backlogEvents, type ChangeCallback } from '../services/event-source-client.js';

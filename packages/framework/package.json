@@ -1,0 +1,42 @@
+{
+  "name": "nisli",
+  "version": "0.43.0",
+  "description": "A reactive web component framework. Signals, templates, dependency injection — no build step, no virtual DOM, no dependencies.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gkoreli/backlog-mcp",
+    "directory": "packages/framework"
+  },
+  "keywords": [
+    "web-components",
+    "signals",
+    "reactive",
+    "framework",
+    "template-literals",
+    "dependency-injection"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  }
+}

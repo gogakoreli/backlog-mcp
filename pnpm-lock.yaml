@@ -33,6 +33,8 @@ importers:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@22.19.7)(happy-dom@20.5.3)
 
+  packages/framework: {}
+
   packages/server:
     dependencies:
       '@fastify/cors':
@@ -101,6 +103,9 @@ importers:
       mermaid:
         specifier: ^11.12.3
         version: 11.12.3
+      nisli:
+        specifier: workspace:*
+        version: link:../framework
     devDependencies:
       happy-dom:
         specifier: ^20.5.3

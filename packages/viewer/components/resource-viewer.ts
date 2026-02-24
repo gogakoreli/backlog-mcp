@@ -5,10 +5,7 @@
  * Delegates markdown rendering to DocumentView (link interception,
  * MetadataCard, md-block). Handles code/text files directly.
  */
-import { signal, computed, effect } from '@framework/signal.js';
-import { component } from '@framework/component.js';
-import { html } from '@framework/template.js';
-import { inject } from '@framework/injector.js';
+import { signal, computed, effect, component, html, inject } from 'nisli';
 import { SplitPaneState } from '../services/split-pane-state.js';
 import { hljs } from '../services/markdown.js';
 import { DocumentView } from './document-view.js';

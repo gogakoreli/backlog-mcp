@@ -7,10 +7,7 @@
  *
  * Uses: component, computed, html, when, inject, Emitter
  */
-import { computed } from '@framework/signal.js';
-import { component } from '@framework/component.js';
-import { html, when } from '@framework/template.js';
-import { inject } from '@framework/injector.js';
+import { computed, component, html, when, inject } from 'nisli';
 import { getTypeConfig } from '../type-registry.js';
 import { AppState } from '../services/app-state.js';
 import { TaskBadge } from './task-badge.js';

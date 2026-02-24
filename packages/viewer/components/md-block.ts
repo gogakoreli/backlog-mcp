@@ -9,11 +9,7 @@
  */
 
 import { marked } from '../services/markdown.js';
-import { computed, effect } from '@framework/signal.js';
-import { component } from '@framework/component.js';
-import { html } from '@framework/template.js';
-import { useHostEvent } from '@framework/lifecycle.js';
-import { ref } from '@framework/ref.js';
+import { computed, effect, component, html, useHostEvent, ref } from 'nisli';
 
 export type MdBlockProps = {
   content: string;

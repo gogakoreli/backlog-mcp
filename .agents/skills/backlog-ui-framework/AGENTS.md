@@ -1,8 +1,8 @@
 # Backlog UI Framework — Complete Agent Guide
 
-This document contains every rule for writing, reviewing, and migrating components using the reactive web component framework in `viewer/framework/`. Each rule includes the invariant, the bug it prevents, and correct/incorrect code examples.
+This document contains every rule for writing, reviewing, and migrating components using the reactive web component framework in `packages/framework/`. Each rule includes the invariant, the bug it prevents, and correct/incorrect code examples.
 
-**Framework source**: `viewer/framework/` (signal.ts, context.ts, emitter.ts, injector.ts, component.ts, template.ts, query.ts, index.ts)
+**Framework source**: `packages/framework/src/` (signal.ts, context.ts, emitter.ts, injector.ts, component.ts, template.ts, query.ts, index.ts)
 **ADR documentation**: `docs/framework-adr/`
 **Migrated component reference**: `viewer/components/task-filter-bar.ts`
 

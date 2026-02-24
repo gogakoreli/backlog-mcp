@@ -1,6 +1,6 @@
 ---
 name: backlog-ui-framework
-description: Reactive web component framework guidelines for the backlog viewer. This skill should be used when writing, reviewing, migrating, or refactoring components in `viewer/components/` that use the framework primitives from `viewer/framework/`. Triggers on tasks involving component creation, signal-based state, template rendering, dependency injection, emitter events, or query-based data loading.
+description: Reactive web component framework guidelines for the backlog viewer. This skill should be used when writing, reviewing, migrating, or refactoring components in `viewer/components/` that use the framework primitives from `packages/framework/`. Triggers on tasks involving component creation, signal-based state, template rendering, dependency injection, emitter events, or query-based data loading.
 license: MIT
 metadata:
   author: backlog-team
@@ -9,7 +9,7 @@ metadata:
 
 # Backlog UI Framework — Agent Skill
 
-Comprehensive guide for building reactive web components using the custom signals-based framework in `viewer/framework/`. Contains rules across 9 categories covering component authoring, reactivity, templates, dependency injection, events, data loading, error handling, migration, and testing.
+Comprehensive guide for building reactive web components using the custom signals-based framework in `packages/framework/`. Contains rules across 9 categories covering component authoring, reactivity, templates, dependency injection, events, data loading, error handling, migration, and testing.
 
 ## When to Apply
 

@@ -8,7 +8,7 @@
 import { marked } from 'marked';
 import hljs from 'highlight.js/lib/core';
 import { markedHighlight } from 'marked-highlight';
-import 'highlight.js/styles/github-dark-dimmed.css';
+import 'highlight.js/styles/github-dark.css';
 
 import typescript from 'highlight.js/lib/languages/typescript';
 import javascript from 'highlight.js/lib/languages/javascript';

@@ -154,21 +154,23 @@ backlog_context task_id="TASK-0001" include_related=false  # Skip semantic searc
 
 ### write_resource
 
-Edit task content or create standalone resource files:
+Edit existing files on the MCP server. All creation goes through `backlog_create`.
 
 ```
-# Edit task body (use str_replace, not create — protects frontmatter)
+# Edit task body (use str_replace — protects frontmatter)
 write_resource uri="mcp://backlog/tasks/TASK-0001.md" \
   operation={type: "str_replace", old_str: "old text", new_str: "new text"}
 
-# Create standalone resource
-write_resource uri="mcp://backlog/resources/notes.md" \
-  operation={type: "create", file_text: "# Notes\n\nContent here"}
+# Insert after a specific line
+write_resource uri="mcp://backlog/tasks/TASK-0001.md" \
+  operation={type: "insert", insert_line: 5, new_str: "inserted line"}
 
-# Append to resource
+# Append to a file
 write_resource uri="mcp://backlog/resources/log.md" \
   operation={type: "append", new_str: "New entry"}
 ```
+
+Operations: `str_replace` (exact match, must be unique), `insert` (after line number), `append` (end of file).
 
 ## How It Works
 

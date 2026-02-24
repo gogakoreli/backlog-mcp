@@ -7,3 +7,4 @@ data/
 .mcp.json
 .env
 .studio-agents/
+packages/server/README.md

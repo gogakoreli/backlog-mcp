@@ -6,7 +6,7 @@
  *
  * See ADR 0007 (shared services) for the open/close signal pattern.
  */
-import { computed, component, html, inject, query, onMount } from 'nisli';
+import { computed, component, html, inject, query, onMount } from '@nisli/core';
 import { AppState } from '../services/app-state.js';
 import { CopyButton } from './copy-button.js';
 import { API_URL } from '../utils/api.js';

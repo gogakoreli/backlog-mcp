@@ -11,14 +11,14 @@
  * Works for known entities (task, epic, milestone, artifact, folder)
  * and arbitrary markdown files with frontmatter.
  */
-import { signal, computed, component, html, when, each, inject, useHostEvent } from 'nisli';
+import { signal, computed, component, html, when, each, inject, useHostEvent } from '@nisli/core';
 import { SplitPaneState } from '../services/split-pane-state.js';
 import { getTypeFromId } from '@backlog-mcp/shared';
 import { getTypeConfig, getParentId } from '../type-registry.js';
 import { TaskBadge } from './task-badge.js';
 import { MetadataCard } from './metadata-card.js';
 import { MdBlock } from './md-block.js';
-import type { ReadonlySignal } from 'nisli';
+import type { ReadonlySignal } from '@nisli/core';
 
 type DocumentViewProps = {
   frontmatter: Record<string, unknown>;

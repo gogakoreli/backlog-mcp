@@ -10,7 +10,7 @@
  * <div class="right-pane">...</div>
  * ```
  */
-import { component, html, onMount, onCleanup, useHostEvent } from 'nisli';
+import { component, html, onMount, onCleanup, useHostEvent } from '@nisli/core';
 
 type ResizeHandleProps = {
   storageKey: string;

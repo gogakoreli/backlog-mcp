@@ -7,7 +7,7 @@
  *
  * See ADR 0007 for design rationale.
  */
-import { signal, effect } from 'nisli';
+import { signal, effect } from '@nisli/core';
 import { getTypeFromId } from '@backlog-mcp/shared';
 import { getTypeConfig } from '../type-registry.js';
 import { UrlState } from './url-state.js';

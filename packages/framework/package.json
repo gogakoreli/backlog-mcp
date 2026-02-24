@@ -1,5 +1,5 @@
 {
-  "name": "nisli",
+  "name": "@nisli/core",
   "version": "0.43.0",
   "description": "A reactive web component framework. Signals, templates, dependency injection — no build step, no virtual DOM, no dependencies.",
   "type": "module",

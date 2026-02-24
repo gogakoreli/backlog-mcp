@@ -7,7 +7,7 @@
  *
  * Uses: component, computed, html, when, inject, Emitter
  */
-import { computed, component, html, when, inject } from 'nisli';
+import { computed, component, html, when, inject } from '@nisli/core';
 import { getTypeConfig } from '../type-registry.js';
 import { AppState } from '../services/app-state.js';
 import { TaskBadge } from './task-badge.js';

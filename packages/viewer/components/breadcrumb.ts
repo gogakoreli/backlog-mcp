@@ -4,7 +4,7 @@
  * Reads scopeId from AppState, receives tasks as prop from task-list.
  * Uses each() for the path segments, @click to set scope.
  */
-import { computed, type ReadonlySignal, component, html, each, inject } from 'nisli';
+import { computed, type ReadonlySignal, component, html, each, inject } from '@nisli/core';
 import { getTypeConfig, getParentId } from '../type-registry.js';
 import { AppState } from '../services/app-state.js';
 import { SvgIcon } from './svg-icon.js';

@@ -78,7 +78,7 @@ jobs:
           cd packages/framework
           pnpm build
           pnpm pack
-          npm publish nisli-*.tgz --provenance --access public
+          npm publish nisli-core-*.tgz --provenance --access public
 
       - name: Publish backlog-mcp to npm
         if: steps.version.outputs.changed == 'true'

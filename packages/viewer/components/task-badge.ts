@@ -1,7 +1,7 @@
 /**
  * task-badge.ts — Reactive badge showing type icon + task ID.
  */
-import { computed, effect, signal, component, html } from 'nisli';
+import { computed, effect, signal, component, html } from '@nisli/core';
 import { getTypeFromId } from '@backlog-mcp/shared';
 import { getTypeConfig } from '../type-registry.js';
 import { SvgIcon } from './svg-icon.js';

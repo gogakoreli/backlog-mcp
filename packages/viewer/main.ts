@@ -14,7 +14,7 @@ import './components/spotlight-search.js';
 import './components/activity-panel.js';
 import './components/backlog-app.js';
 import { backlogEvents } from './services/event-source-client.js';
-import { inject } from 'nisli';
+import { inject } from '@nisli/core';
 import { AppState } from './services/app-state.js';
 import { SplitPaneState } from './services/split-pane-state.js';
 

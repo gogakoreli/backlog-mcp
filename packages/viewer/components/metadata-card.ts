@@ -8,7 +8,7 @@
  * Reference values (objects with url/title) get clickable links
  * that route file:// and mcp:// to the split-pane viewer.
  */
-import { signal, computed, type ReadonlySignal, component, html, when, each, type TemplateResult, inject } from 'nisli';
+import { signal, computed, type ReadonlySignal, component, html, when, each, type TemplateResult, inject } from '@nisli/core';
 import { SplitPaneState } from '../services/split-pane-state.js';
 
 type MetadataCardProps = {

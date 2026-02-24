@@ -4,7 +4,7 @@
  * Reads/writes AppState signals directly (ADR 0007 shared services).
  * URL updates happen automatically via AppState's signal→URL sync.
  */
-import { signal, computed, effect, component, html, inject, ref } from 'nisli';
+import { signal, computed, effect, component, html, inject, ref } from '@nisli/core';
 import { TYPE_REGISTRY } from '../type-registry.js';
 import { AppState } from '../services/app-state.js';
 

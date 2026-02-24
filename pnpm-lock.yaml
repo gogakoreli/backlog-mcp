@@ -79,6 +79,9 @@ importers:
       '@backlog-mcp/shared':
         specifier: workspace:*
         version: link:../shared
+      '@nisli/core':
+        specifier: workspace:*
+        version: link:../framework
       '@orama/highlight':
         specifier: ^0.1.9
         version: 0.1.9
@@ -103,9 +106,6 @@ importers:
       mermaid:
         specifier: ^11.12.3
         version: 11.12.3
-      nisli:
-        specifier: workspace:*
-        version: link:../framework
     devDependencies:
       happy-dom:
         specifier: ^20.5.3

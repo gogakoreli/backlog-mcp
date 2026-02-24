@@ -1,8 +1,8 @@
 {
   "private": true,
   "scripts": {
-    "build": "pnpm --filter @backlog-mcp/shared build && pnpm --filter nisli typecheck && pnpm --filter @backlog-mcp/viewer build && pnpm --filter backlog-mcp build",
-    "typecheck": "pnpm --filter backlog-mcp typecheck && pnpm --filter nisli typecheck && pnpm --filter @backlog-mcp/viewer typecheck",
+    "build": "pnpm --filter @backlog-mcp/shared build && pnpm --filter @nisli/core typecheck && pnpm --filter @backlog-mcp/viewer build && pnpm --filter backlog-mcp build",
+    "typecheck": "pnpm --filter backlog-mcp typecheck && pnpm --filter @nisli/core typecheck && pnpm --filter @backlog-mcp/viewer typecheck",
     "test": "pnpm -r test",
     "test:watch": "pnpm --filter backlog-mcp test:watch",
     "dev": "concurrently \"pnpm --filter @backlog-mcp/viewer dev\" \"pnpm --filter backlog-mcp dev\"",

@@ -7,7 +7,7 @@
  * Owns its own pane header (Phase 15) — no cross-tree DOM updates.
  * Opens activity via inject(SplitPaneState).openActivity() directly.
  */
-import { signal, computed, component, html, when, inject, query, onCleanup } from 'nisli';
+import { signal, computed, component, html, when, inject, query, onCleanup } from '@nisli/core';
 import { fetchTask, fetchOperationCount, type TaskResponse } from '../utils/api.js';
 import { backlogEvents } from '../services/event-source-client.js';
 import { getTypeFromId } from '@backlog-mcp/shared';

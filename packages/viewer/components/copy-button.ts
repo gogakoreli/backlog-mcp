@@ -1,4 +1,4 @@
-import { signal, effect, component, html, type TemplateResult } from 'nisli';
+import { signal, effect, component, html, type TemplateResult } from '@nisli/core';
 import { SvgIcon } from './svg-icon.js';
 import { copyIcon } from '../icons/index.js';
 

@@ -5,13 +5,13 @@ A reactive web component framework. Signals, templates, dependency injection —
 ## Install
 
 ```bash
-npm install nisli
+npm install @nisli/core
 ```
 
 ## Quick Start
 
 ```typescript
-import { signal, component, html } from 'nisli';
+import { signal, component, html } from '@nisli/core';
 
 const Counter = component('x-counter', () => {
   const count = signal(0);

@@ -32,7 +32,7 @@
  * @prop {string} src - Path to SVG file (from icon imports)
  * @prop {string} [size="1em"] - Icon size (any CSS unit)
  */
-import { effect, component, html } from 'nisli';
+import { effect, component, html } from '@nisli/core';
 
 export const SvgIcon = component<{ src: string; size?: string; class?: string }>('svg-icon', (props, host) => {
   // BRIDGE:ATTR — HTML-parser attributes to prop signals. Needed when <svg-icon>

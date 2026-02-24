@@ -10,7 +10,7 @@
  *
  * See ADR 0010 Gap 2, ADR 0011 for design rationale.
  */
-import { signal } from 'nisli';
+import { signal } from '@nisli/core';
 
 export type PaneContent = 'resource' | 'mcp' | 'activity';
 

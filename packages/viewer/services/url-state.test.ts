@@ -9,7 +9,7 @@
  * @vitest-environment happy-dom
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { flushEffects } from 'nisli';
+import { flushEffects } from '@nisli/core';
 import { UrlState } from './url-state.js';
 
 // Stub window.location and history for JSDOM

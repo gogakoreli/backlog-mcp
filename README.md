@@ -36,7 +36,7 @@ Add to your MCP config (`.mcp.json` or your MCP client config):
 
 ## Web Viewer
 
-The web viewer is always available when the server is running — open `http://localhost:3030` in your browser. No separate command needed; the MCP server and viewer are the same process.
+Open `http://localhost:3030` — always available when the server is running.
 
 Features:
 - Split pane layout with task list and detail view
@@ -46,12 +46,6 @@ Features:
 - Filter by status, type, epic
 - GitHub-style markdown rendering with Mermaid diagrams
 - URL state persistence
-
-For development with hot reload (port 3040):
-
-```bash
-pnpm dev
-```
 
 ## Entity Types
 
@@ -176,17 +170,28 @@ write_resource uri="mcp://backlog/resources/log.md" \
   operation={type: "append", new_str: "New entry"}
 ```
 
+## How It Works
+
+Running `npx -y backlog-mcp` (the default MCP config) does the following:
+
+1. **Starts a persistent HTTP server** as a detached background process — serves both the MCP endpoint (`/mcp`) and the web viewer (`/`) on port 3030
+2. **Bridges stdio to it** — your MCP client communicates via stdio, which gets forwarded to the HTTP server via `mcp-remote`
+3. **Auto-updates**: `npx -y` always pulls the latest published version. If the running server is an older version, it's automatically shut down and restarted with the new one
+4. **Resilient recovery**: If the bridge loses connection, a supervisor restarts it with exponential backoff (up to 10 retries). Connection errors like `ECONNREFUSED` are detected and handled automatically
+
+The HTTP server persists across agent sessions — multiple MCP clients can share it. The web viewer is always available at `http://localhost:3030`.
+
 ## CLI
 
-```bash
-backlog-mcp              # stdio MCP server (default — auto-spawns HTTP server, bridges stdio to it)
-backlog-mcp serve        # Run HTTP server directly (MCP + viewer, no stdio bridge)
-backlog-mcp version      # Show version
-backlog-mcp status       # Server status (port, version, task count, uptime)
-backlog-mcp stop         # Stop the server
-```
+All commands via npx:
 
-The default mode auto-spawns a persistent HTTP server that serves both the MCP endpoint (`/mcp`) and the web viewer (`/`). The stdio bridge connects your MCP client to it. The HTTP server persists across sessions so multiple clients can share it.
+```bash
+npx backlog-mcp              # Start stdio bridge + auto-spawn HTTP server (default)
+npx backlog-mcp serve        # Run HTTP server directly, no stdio bridge (optional)
+npx backlog-mcp status       # Server status (port, version, task count, uptime)
+npx backlog-mcp stop         # Stop the server
+npx backlog-mcp version      # Show version
+```
 
 ## Configuration
 

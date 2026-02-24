@@ -8,7 +8,7 @@ export default defineConfig({
   unbundle: true,
   skipNodeModulesBundle: true,
   noExternal: ['@backlog-mcp/shared'],
-  dts: true,
+  dts: { eager: true },
   clean: true,
   sourcemap: true,
   treeshake: true,

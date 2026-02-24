@@ -8,6 +8,7 @@ const shared = {
   ],
   bundle: true,
   format: 'esm',
+  splitting: true,
   outdir: 'dist',
   assetNames: '[name]-[hash]',
   alias: { '@framework': './framework' },

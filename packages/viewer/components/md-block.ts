@@ -9,10 +9,11 @@
  */
 
 import { marked } from '../services/markdown.js';
-import { computed } from '@framework/signal.js';
+import { computed, effect } from '@framework/signal.js';
 import { component } from '@framework/component.js';
 import { html } from '@framework/template.js';
 import { useHostEvent } from '@framework/lifecycle.js';
+import { ref } from '@framework/ref.js';
 
 export type MdBlockProps = {
   content: string;
@@ -23,6 +24,14 @@ export const MdBlock = component<MdBlockProps>('md-block', (props, host) => {
     const md = props.content.value;
     if (!md) return '';
     return marked.parse(md) as string;
+  });
+
+  const bodyRef = ref<HTMLDivElement>();
+
+  effect(() => {
+    rendered.value; // track
+    const el = bodyRef.current;
+    if (el) renderMermaid(el);
   });
 
   // Bubble anchor clicks as a typed custom event — parent decides routing
@@ -40,5 +49,13 @@ export const MdBlock = component<MdBlockProps>('md-block', (props, host) => {
     }
   });
 
-  return html`<div class="markdown-body" html:inner=${rendered}></div>`;
+  return html`<div class="markdown-body" ref=${bodyRef} html:inner=${rendered}></div>`;
+
+  async function renderMermaid(container: HTMLElement) {
+    const nodes = container.querySelectorAll<HTMLPreElement>('pre.mermaid');
+    if (!nodes.length) return;
+    const { default: mermaid } = await import('mermaid');
+    mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+    await mermaid.run({ nodes });
+  }
 });

@@ -42,6 +42,7 @@ marked.use(markedHighlight({
   emptyLangClass: 'hljs',
   langPrefix: 'hljs language-',
   highlight(code: string, lang: string) {
+    if (lang === 'mermaid') return code;
     if (lang && hljs.getLanguage(lang)) {
       return hljs.highlight(code, { language: lang }).value;
     }
@@ -60,6 +61,12 @@ marked.use({
     },
   }],
   renderer: {
+    code(token: { text: string; lang?: string }) {
+      if (token.lang === 'mermaid') {
+        return `<pre class="mermaid">${token.text}</pre>`;
+      }
+      return false as unknown as string;
+    },
     heading(token: { text: string; depth: number }) {
       const level = Math.min(6, token.depth);
       const id = token.text.toLowerCase().replace(/[^\w]+/g, '-');

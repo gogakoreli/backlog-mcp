@@ -18,3 +18,4 @@ These are separate from the main project ADRs in `docs/adr/` because the framewo
 - [0012. Migration Phase 14 — resource-viewer, activity-panel, Final Migration](./0012-migration-phase-14-final.md) - Active - 2026-02-11
 - [0015. Eliminate explicit batch() — automatic signal coalescing](./0015-eliminate-batch-automatic-coalescing.md) - Proposed - 2026-02-11
 - [0017. Framework Package Extraction — Standalone Reactive Web Component Library](./0017-framework-package-extraction.md) - Accepted - 2026-02-24
+- [0018. Server-Side Rendering — `renderToString()` via `@nisli/core/server`](./0018-server-side-rendering-renderToString.md) - Proposed - 2026-03-05

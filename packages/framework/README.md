@@ -16,7 +16,7 @@ import { signal, component, html } from '@nisli/core';
 const Counter = component('x-counter', () => {
   const count = signal(0);
   return html`
-    <button @click=${() => count.set(count() + 1)}>
+    <button @click=${() => count.set(count.value + 1)}>
       Count: ${count}
     </button>
   `;

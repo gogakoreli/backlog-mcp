@@ -24,7 +24,20 @@ html`<div>${name}</div>`
 
 ### Key Architectural Insight
 
-The string-building phase (step 1, lines 134-155 of `template.ts`) is already DOM-free — pure string concatenation with a state machine for auto-quoting (ADR 0069). The DOM dependency begins at step 2. For SSR, we resolve signal values into the string instead of inserting markers, and skip DOM entirely. This separation point is the foundation for the entire SSR architecture.
+The string-building phase (step 1, lines 134-155 of `template.ts`) is already DOM-free — pure string concatenation with a state machine for auto-quoting (ADR 0069). The DOM dependency begins at step 2. For SSR, we resolve signal values into the string instead of inserting markers, and skip DOM entirely.
+
+### Framework Philosophy Alignment
+
+From ADR 0001 and the framework skill guide, the core design principles are:
+
+- **Pure setup functions** — take props, return TemplateResult. No DOM access in setup itself.
+- **Signals for reactivity** — fine-grained, automatic dependency tracking via `.value`
+- **DI via `inject()`** — auto-singleton, synchronous, works without DOM
+- **`effect()` is for side effects** — DOM, network, localStorage. NOT for derived state.
+- **`onMount()` is for DOM access** — runs after template is mounted, explicitly client-only
+- **Context is synchronous** — exists only during `setup()`, does not survive async boundaries
+
+This philosophy maps cleanly to SSR. The framework already separates "setup-time" (pure, synchronous, no DOM) from "runtime" (DOM, async, effects). **SSR runs setup-time only.**
 
 ### Component System Coupling Points
 
@@ -33,544 +46,619 @@ The `component()` function has three browser-only dependencies:
 2. `HTMLElement` — base class for the component
 3. `connectedCallback()` — lifecycle hook that runs setup and mounts template
 
-For server rendering, we need an alternative path that runs the setup function and captures the template result without any of these.
+### How Lit SSR Works (Reference Architecture)
+
+Lit's SSR (`@lit-labs/ssr`) provides key design patterns we draw from:
+
+1. **`RenderResult` is a sync iterable**, not a string. Contains strings, nested iterables, and optionally Promises. This enables streaming without async overhead. Convenience wrappers: `collectResult()` (async), `collectResultSync()` (sync, throws on Promise).
+
+2. **Minimal DOM shim** — Lit provides `HTMLElement`, `customElements`, `Element.setAttribute()` etc. as lightweight stubs so the same component code runs on server. We take a different approach (environment-aware `component()`) because our template engine's string-building is already DOM-free.
+
+3. **Hydration is a separate module** — `@lit-labs/ssr-client/lit-element-hydrate-support.js` must load BEFORE any component modules. It patches `LitElement` to detect SSR'd content. Clean separation of concerns.
+
+4. **`isServer` flag** — `import { isServer } from 'lit'` lets components guard browser-only code.
+
+5. **`defer-hydration` attribute** — server adds this to components. Removing it triggers hydration. Enables lazy/progressive hydration.
+
+6. **Server lifecycle is minimal** — only `constructor()`, `willUpdate()`, and `render()` run on server. `connectedCallback()`, `updated()`, `firstUpdated()` are client-only.
+
+7. **No async SSR** — no mechanism to wait for async results. Data must be pre-fetched before rendering. `until()` directive only renders the highest-priority non-promise fallback.
 
 ## Problem
 
-The task requires four changes:
+The task requires four interconnected changes:
 
 1. **`renderToString(templateResult)`** — serialize templates to HTML strings, resolving signals to `.value`
 2. **Server-mode `component()`** — run setup functions without `customElements.define` or DOM APIs
 3. **Hydration markers** — embed comment markers in SSR output for client reconnection
 4. **Client hydration** — teach `.mount()` to detect existing SSR'd DOM and attach bindings without re-rendering
 
-These are not independent features — they form a pipeline. renderToString without component rendering can't SSR component trees. Component rendering without hydration means the client re-renders everything from scratch (potentially worse than no SSR due to layout shift). Hydration without markers has nothing to reconnect to.
+These form a pipeline. renderToString without component rendering can't SSR component trees. Component rendering without hydration means the client re-renders everything from scratch. Hydration without markers has nothing to reconnect to.
 
 ## Proposals Considered
 
 ### Option 1: Standalone `renderToString()` — Templates Only `[SHORT-TERM]` `[LOW]`
 
-New `@nisli/core/server` entry point with a server-only `html()` that resolves signals to values and returns a plain HTML string. No DOM, no hydration, no component system.
+Server-only `html()` that resolves signals to values. No components, no hydration.
 
-**Why it falls short**: Only delivers requirement #1 of 4. Can't render component trees (the actual problem — `<nisli-theme-toggle>` outputs empty). Without hydration, client JS re-renders everything from scratch, causing content → blank → re-rendered content flash that can be *worse* than no SSR. The "upgrade path to P2" is misleading — P1's `resolveValue()` strips everything to plain strings with no concept of expression boundaries or component slots. Adding hydration markers later isn't extending, it's rewriting.
+**Why it falls short**: Delivers 1 of 4 requirements. Can't render component trees. Without hydration, client re-renders from scratch — content → blank → re-rendered flash that's *worse* than no SSR. The "upgrade path to P2" is misleading — P1's `resolveValue()` strips to plain strings with no expression boundary awareness. Adding markers later is a rewrite, not an extension.
 
 ### Option 2: Server Component Registry + Hydration `[MEDIUM-TERM]` `[HIGH]`
 
-Environment-aware `component()` that auto-detects Node vs browser. Server rendering of full component trees with hydration markers. Client `hydrate()` that reconnects bindings to existing DOM.
+Environment-aware `component()`, server rendering of full component trees with hydration markers, client `hydrate()` that reconnects bindings.
 
-**Strengths**: Delivers all 4 requirements. Designed as a pipeline from the start — each phase builds on the previous one's architecture. Single `component()` call works in both environments.
+**Selected.** Delivers all 4 requirements. Designed as a pipeline from the start.
 
 ### Option 3: Universal Template IR `[LONG-TERM]` `[HIGH]`
 
-Refactor `html()` to produce a renderer-agnostic intermediate representation consumed by pluggable renderers (DOM, string, hydration).
+Refactor `html()` to produce a renderer-agnostic IR consumed by pluggable renderers.
 
-**Why it's over-engineered**: Rewrites the rendering hot path for a framework with one consumer. IR allocation adds measurable overhead to every template render. Months of work before any SSR ships. Enormous blast radius — every component affected. The abstraction solves a problem (multiple render targets) that doesn't exist yet and may never exist.
-
-### Rubric Comparison
-
-| Anchor | P1 | P2 | P3 |
-|--------|----|----|-----|
-| Time-to-ship | 5 | 2 | 1 |
-| Risk | 5 | 3 | 2 |
-| Testability | 5 | 3 | 5 |
-| Future flexibility | 2 | 5 | 5 |
-| Operational complexity | 5 | 4 | 4 |
-| Blast radius | 5 | 3 | 1 |
-| **Solves stated requirements** | **1/4** | **4/4** | **4/4** |
-
-### Why P1 Was Initially Selected (and Why That Was Wrong)
-
-The rubric optimized for conservatism — time-to-ship, risk, blast radius. P1 scored highest on those dimensions. But the rubric failed to weight the most important dimension: *does it actually solve the problem?* SSR without hydration for interactive components is like building a car without an engine. P1 is a partial solution that doesn't address the stated requirements and creates a false foundation that would need rewriting.
+**Rejected.** Rewrites the rendering hot path for a framework with one consumer. Months before anything ships. Enormous blast radius. Can be revisited if multiple render targets are ever needed.
 
 ## Decision
 
 **Option 2: Server Component Registry + Hydration**, delivered in 4 phases.
 
-P2 is the only option that delivers all 4 required changes. The hydration complexity is real, but it's *inherent* complexity — you can't have interactive SSR without it. The question isn't "should we build hydration" but "how do we deliver it incrementally."
-
-The critical architectural decision: **design for the full pipeline from Phase 1**, even though phases ship incrementally. Every phase's code is written with awareness of what comes next, so later phases extend rather than rewrite.
+Each phase is architecturally aware of the full pipeline. Phase 1 code is designed with markers and components in mind, so later phases extend rather than rewrite.
 
 ## Design
 
-### Entry Point: `@nisli/core/server`
+### Core Primitives
+
+#### `isServer` Flag
+
+Exported from `@nisli/core`. Components use this to guard browser-only code.
 
 ```ts
-import { html, renderToString, renderComponent } from '@nisli/core/server';
+// @nisli/core/server.ts sets this before any rendering
+export let isServer = false;
+export function setServerMode(value: boolean) { isServer = value; }
 ```
 
-Server-only module. Zero DOM dependencies. Tree-shaken from client bundles.
-
-### Phase 1: Server `html()` + `renderToString()`
-
-Server `html()` that resolves signals to values and produces HTML strings. Unlike the P1 design, this version is **marker-aware from day 1** — it tracks expression slot indices and component boundaries in its internal state, even though markers aren't emitted until Phase 3.
+**Anti-pattern**: Do NOT use `isServer` to render *different* content. If server and client produce different HTML, hydration will mismatch. The only safe use is to *skip* code (effects, event listeners), not to change output.
 
 ```ts
-export interface ServerTemplateResult {
-  toString(options?: RenderOptions): string;
-  __serverTemplate: true;
-}
+// ❌ WRONG — hydration mismatch
+const greeting = isServer ? 'Loading...' : 'Hello!';
 
-export interface RenderOptions {
-  /** Emit hydration markers in output (Phase 3) */
-  hydrate?: boolean;
+// ✅ CORRECT — skip side effects, same output
+component('my-comp', (props, host) => {
+  const data = signal('Hello!');
+  if (!isServer) {
+    onMount(() => host.querySelector('input')?.focus());
+  }
+  return html`<div>${data}</div>`;
+});
+```
+
+#### `RenderResult` as Sync Iterable (Inspired by Lit)
+
+Instead of returning a plain string, the server `render()` produces a `RenderResult` — a sync iterable of string chunks. This enables streaming without async overhead.
+
+```ts
+export type RenderResult = Iterable<string | RenderResult>;
+
+// Convenience wrappers
+export function collectResultSync(result: RenderResult): string { ... }
+export async function collectResult(result: RenderResult): Promise<string> { ... }
+
+// Shorthand (most common use case)
+export function renderToString(result: RenderResult): string {
+  return collectResultSync(result);
 }
+```
+
+Why iterable instead of string:
+- **Streaming**: pipe to `Readable.from(result)` for HTTP streaming
+- **Lazy evaluation**: nested components render on demand, not eagerly
+- **Future async support**: can contain Promises for async data fetching (Phase 5+)
+
+### Server Lifecycle Table
+
+Explicitly documents what runs on server vs client. This is the contract that component authors must understand.
+
+| Primitive | Server | Client | Notes |
+|-----------|--------|--------|-------|
+| `setup()` | ✅ YES | ✅ YES | The render function. Must be pure + synchronous. |
+| `signal()` | ✅ YES | ✅ YES | Created, `.value` read once. No subscriptions. |
+| `computed()` | ✅ YES | ✅ YES | Resolved immediately via `.value`. No lazy caching. |
+| `effect()` | ❌ NO-OP | ✅ YES | Suppressed on server. Effects are side effects. |
+| `inject()` | ✅ YES | ✅ YES | Singleton cache works. `resetInjector()` between renders. |
+| `provide()` | ✅ YES | ✅ YES | Override services for server context. |
+| `onMount()` | ⚠️ REGISTERED | ✅ YES | Callback registered but never invoked on server. |
+| `onCleanup()` | ⚠️ REGISTERED | ✅ YES | Callback registered but never invoked on server. |
+| `useHostEvent()` | ❌ NO-OP | ✅ YES | No EventTarget on server. Suppressed. |
+| `html\`...\`` | ✅ SERVER VERSION | ✅ CLIENT VERSION | Server resolves values inline. Client creates bindings. |
+| `when()` | ✅ YES | ✅ YES | Resolves to current branch. No reactivity. |
+| `each()` | ✅ YES | ✅ YES | Resolves to current items. No reconciliation. |
+| `query()` | ❌ NO | ✅ YES | Async data loading. Pre-fetch before SSR. |
+
+### Entry Points
+
+```
+@nisli/core              — Client framework (existing, unchanged)
+@nisli/core/server       — Server rendering: html(), render(), renderToString()
+@nisli/core/hydrate      — Client hydration support (load BEFORE component modules)
+```
+
+Package exports in `package.json`:
+```json
+{
+  "exports": {
+    ".":        { "import": "./dist/index.js" },
+    "./server": { "import": "./dist/server.js" },
+    "./hydrate": { "import": "./dist/hydrate.js" }
+  }
+}
+```
+
+### Phase 1: Server `html()` + `render()`
+
+Server `html()` resolves signals to values and produces string chunks. Designed with marker slots from day 1 — `resolveSlot()` takes an index parameter even though markers aren't emitted until Phase 3.
+
+```ts
+// packages/framework/src/server.ts
+import { isSignal, type ReadonlySignal } from './signal.js';
 
 export function html(
   strings: TemplateStringsArray,
   ...values: unknown[]
-): ServerTemplateResult {
+): RenderResult {
   return {
-    __serverTemplate: true as const,
-    toString(options?: RenderOptions): string {
-      let out = '';
+    *[Symbol.iterator]() {
       for (let i = 0; i < strings.length; i++) {
-        out += strings[i] ?? '';
+        yield strings[i] ?? '';
         if (i < values.length) {
-          out += resolveSlot(i, values[i], options);
+          yield* resolveSlot(i, values[i]);
         }
       }
-      return out;
     },
   };
 }
-
-export function renderToString(
-  result: ServerTemplateResult,
-  options?: RenderOptions,
-): string {
-  return result.toString(options);
-}
 ```
 
-#### Value Resolution (marker-aware)
+#### Value Resolution
 
 ```ts
-function resolveSlot(
-  index: number,
-  value: unknown,
-  options?: RenderOptions,
-): string {
-  const resolved = resolveValue(value, options);
-  // Phase 3 will wrap resolved content with markers:
-  // `<!--nh-t:${index}-->${resolved}<!--/nh-t:${index}-->`
-  return resolved;
+function* resolveSlot(index: number, value: unknown): RenderResult {
+  // Phase 3 hook: wrap with markers when hydrate option is set
+  yield* resolveValue(value);
 }
 
-function resolveValue(value: unknown, options?: RenderOptions): string {
+function* resolveValue(value: unknown): RenderResult {
   if (isSignal(value)) {
-    return resolveValue((value as ReadonlySignal<unknown>).value, options);
+    yield* resolveValue((value as ReadonlySignal<unknown>).value);
+  } else if (isServerTemplate(value)) {
+    yield* value;  // Nested RenderResult — delegate iteration
+  } else if (isServerComponent(value)) {
+    yield* renderServerComponent(value);  // Phase 2
+  } else if (Array.isArray(value)) {
+    for (const item of value) yield* resolveValue(item);
+  } else if (value == null || value === false) {
+    // Render nothing
+  } else if (typeof value === 'function') {
+    // Event handler — strip
+  } else {
+    yield escapeHtml(String(value));
   }
-  if (value && typeof value === 'object' && '__serverTemplate' in value) {
-    return (value as ServerTemplateResult).toString(options);
-  }
-  if (value && typeof value === 'object' && '__serverComponent' in value) {
-    return renderServerComponent(value as ServerComponentResult, options);
-  }
-  if (Array.isArray(value)) {
-    return value.map(v => resolveValue(v, options)).join('');
-  }
-  if (value == null || value === false) return '';
-  if (typeof value === 'function') return '';
-  return escapeHtml(String(value));
 }
 ```
+
+**Note on HTML escaping**: The client `html()` uses `textNode.data = ...` which auto-escapes. The server `html()` must explicitly escape `<`, `>`, `&`, `"` in text content to prevent XSS. This is a divergence point — the server is stricter.
 
 #### Attribute Handling
 
 The server `html()` does NOT need the auto-quoting state machine from ADR 0069. That machine exists because comment markers (`<!--bk-N-->`) contain `>` which breaks unquoted attribute parsing. Server rendering resolves values inline — no comment markers, no `>` problem.
 
-Directive handling:
-- `@event` attributes: value resolves to `""` (function → empty), attribute name `@click` is invalid HTML — browsers ignore it. Harmless in static output.
-- `class:name` directives: value resolves to `"true"` or `"false"`. Phase 3 will strip these and apply resolved classes to the `class` attribute.
+Directive handling in Phase 1:
+- `@event` attributes: value resolves to `""` (function → empty). Attribute name `@click` is invalid HTML — browsers ignore it.
+- `class:name` directives: value resolves to `"true"` or `"false"`. Phase 3 will resolve these to actual class application.
 - `html:inner` directive: resolves the signal value as trusted HTML content.
 - `ref` directive: stripped entirely (client-only DOM reference).
 
-### Phase 2: Environment-Aware `component()`
+### Phase 2: Environment-Aware `component()` + Server Component Rendering
 
-Instead of a separate `defineServer()`, make `component()` itself detect the runtime environment:
+`component()` detects the runtime environment and branches:
 
 ```ts
-// In Node.js (no customElements global):
-//   → Register setup function in server registry
-//   → Return factory that produces ServerComponentResult
-//
-// In browser (customElements exists):
-//   → customElements.define() as today
-//   → Return factory that produces TemplateResult (unchanged)
+const serverRegistry = new Map<string, SetupFunction<any>>();
 
 export function component<P>(
   tagName: string,
   setup: SetupFunction<P>,
   options?: ComponentOptions,
 ): ComponentFactory<P> {
-  if (typeof customElements === 'undefined') {
-    // Server path
+  if (isServer) {
     serverRegistry.set(tagName, setup);
-    return (props) => ({
-      __serverComponent: true,
-      tagName,
-      props,
+    return (props, hostAttrs?) => ({
+      __serverComponent: true as const,
+      tagName, props, hostAttrs,
     }) as unknown as TemplateResult;
   }
-  // Browser path — existing implementation unchanged
+  // Browser path — existing implementation, completely unchanged
   // ...
 }
 ```
 
 #### Server Component Rendering
 
-When `resolveValue()` encounters a `__serverComponent` result:
-
 ```ts
-function renderServerComponent(
-  result: ServerComponentResult,
-  options?: RenderOptions,
-): string {
+function* renderServerComponent(result: ServerComponentResult): RenderResult {
   const setup = serverRegistry.get(result.tagName);
-  if (!setup) return `<${result.tagName}></${result.tagName}>`;
+  if (!setup) {
+    yield `<${result.tagName}></${result.tagName}>`;
+    return;
+  }
 
-  // Create reactive props (signals with initial values)
+  // Create a lightweight host proxy (not a real HTMLElement)
+  const hostProxy = createServerHostProxy(result.tagName);
+
+  // Create reactive props with initial values
   const reactiveProps = createServerProps(result.props);
 
-  // Run setup — returns a ServerTemplateResult
-  const templateResult = setup(reactiveProps, null /* no host element */);
+  // Run setup in a server context (effects suppressed, onMount registered but not called)
+  const templateResult = runServerSetup(setup, reactiveProps, hostProxy);
 
-  // Serialize the component's template
-  const inner = templateResult.toString(options);
+  // Emit opening tag with resolved attributes
+  yield `<${result.tagName}`;
+  if (result.hostAttrs?.class) {
+    const cls = isSignal(result.hostAttrs.class)
+      ? (result.hostAttrs.class as ReadonlySignal<string>).value
+      : result.hostAttrs.class;
+    if (cls) yield ` class="${escapeHtml(String(cls))}"`;
+  }
+  yield `>`;
 
-  return `<${result.tagName}>${inner}</${result.tagName}>`;
+  // Recursively render the component's template
+  yield* templateResult;
+
+  yield `</${result.tagName}>`;
 }
 ```
 
-**Key constraint**: The setup function receives `null` for the host element. Components that access `host` for DOM measurement, focus management, or imperative DOM manipulation will not work in SSR. This is expected — those are client-only concerns. The setup function must be written to handle `host` being null (or we provide a no-op proxy).
+#### Server Host Proxy
 
-### Phase 3: Hydration Markers
-
-When `options.hydrate === true`, the server output includes comment markers at expression boundaries:
-
-```html
-<div class="card">
-  <!--nh-t:0-->Hello World<!--/nh-t:0-->
-  <span class="badge <!--nh-a:1:class-->status-open">
-    <!--nh-t:2-->Open<!--/nh-t:2-->
-  </span>
-  <!--nh-w:3-->                          <!-- when() block -->
-  <p>Conditional content</p>
-  <!--/nh-w:3-->
-  <!--nh-e:4-->                          <!-- each() block -->
-  <li>Item 1</li>
-  <li>Item 2</li>
-  <!--/nh-e:4-->
-  <!--nh-c:5:my-component-->             <!-- component boundary -->
-  <my-component>
-    <!--nh-t:0-->inner content<!--/nh-t:0-->
-  </my-component>
-  <!--/nh-c:5:my-component-->
-</div>
-```
-
-Marker format: `nh` = nisli-hydrate, followed by type code and slot index.
-
-| Marker | Meaning | Wraps |
-|--------|---------|-------|
-| `nh-t:N` | Text expression | Resolved text content |
-| `nh-a:N:name` | Attribute expression | Attribute value |
-| `nh-w:N` | `when()` conditional | Conditional branch content |
-| `nh-e:N` | `each()` list | List items |
-| `nh-c:N:tag` | Component boundary | Component's inner HTML |
-
-Marker indices reset per component scope (each component's template has its own slot numbering starting from 0).
-
-### Phase 4: Client Hydration
-
-Teach `mount()` to detect existing SSR'd DOM and attach bindings without replacing content.
+Setup functions receive `host: HTMLElement` as the second argument. On the server, we provide a lightweight proxy that supports safe operations and throws on DOM measurement:
 
 ```ts
-// In connectedCallback():
-connectedCallback() {
-  if (this._mounted) return;
-  this._mounted = true;
+function createServerHostProxy(tagName: string): HTMLElement {
+  return new Proxy({} as HTMLElement, {
+    get(_, prop: string) {
+      // Safe operations
+      if (prop === 'tagName') return tagName.toUpperCase();
+      if (prop === 'getAttribute') return () => null;
+      if (prop === 'setAttribute') return () => {};
+      if (prop === 'classList') return { add() {}, remove() {}, toggle() {}, contains: () => false };
 
-  untrack(() => {
-    const host = new ComponentHostImpl(this);
-    this._host = host;
-
-    // Detect SSR'd content
-    const hasSSRContent = this.firstChild?.nodeType === Node.COMMENT_NODE
-      && (this.firstChild as Comment).data.startsWith('nh-');
-
-    runWithContext(host, () => {
-      this._templateResult = setup(this._propsProxy!.props, this);
-    });
-
-    if (hasSSRContent && this._templateResult) {
-      // HYDRATE: walk existing DOM, match markers to expression slots,
-      // attach signal subscriptions to existing nodes
-      hydrateTemplate(this, this._templateResult);
-    } else {
-      // MOUNT: normal client-side rendering (existing behavior)
-      mountTemplate(this, this._templateResult, host);
-    }
-
-    runMountCallbacks(host);
+      // Explicitly unsupported — clear error message
+      if (['querySelector', 'querySelectorAll', 'getBoundingClientRect',
+           'offsetWidth', 'offsetHeight', 'scrollTo', 'focus', 'blur'].includes(prop)) {
+        return () => {
+          throw new Error(
+            `Cannot access host.${prop}() during SSR. ` +
+            `Use onMount() for DOM measurement — it only runs client-side.`
+          );
+        };
+      }
+      return undefined;
+    },
   });
 }
 ```
 
-The `hydrateTemplate()` function walks the existing DOM tree:
-1. Find `nh-t:N` markers → attach signal subscription to the text node between start/end markers
-2. Find `nh-a:N:name` markers → attach signal subscription to the attribute
-3. Find `nh-w:N` markers → attach `when()` effect to the conditional block
-4. Find `nh-e:N` markers → attach `each()` reconciler to the list block
-5. Find `nh-c:N:tag` markers → the child component hydrates itself via its own `connectedCallback()`
-6. Attach event listeners (`@click`, etc.) — these were stripped during SSR
+#### DI Scoping
 
-### Package Exports
+`inject()` uses a global singleton cache. On the server, singletons persist across renders unless cleared.
 
-```json
-{
-  "exports": {
-    ".": { "import": "./dist/index.js", "types": "./dist/index.d.ts" },
-    "./server": { "import": "./dist/server.js", "types": "./dist/server.d.ts" }
-  }
-}
-```
-
-### Usage
+**Rule**: Call `resetInjector()` before each server render to ensure clean state.
 
 ```ts
-// === Server (build time) ===
-import { signal } from '@nisli/core';
-import { html, renderToString } from '@nisli/core/server';
+import { resetInjector } from '@nisli/core';
+import { renderToString, html } from '@nisli/core/server';
 
-// component() auto-detects Node environment
-import { component } from '@nisli/core';
-
-const ThemeToggle = component('theme-toggle', (props) => {
-  const isDark = signal(false);
-  const label = computed(() => isDark.value ? '🌙' : '☀️');
-  return html`
-    <button @click=${() => isDark.value = !isDark.value}>
-      ${label}
-    </button>
-  `;
-});
-
-// Render to string with hydration markers
-const output = renderToString(
-  html`<div>${ThemeToggle({})}</div>`,
-  { hydrate: true }
-);
-// <div><!--nh-c:0:theme-toggle--><theme-toggle>
-//   <button><!--nh-t:0-->☀️<!--/nh-t:0--></button>
-// </theme-toggle><!--/nh-c:0:theme-toggle--></div>
-
-// === Client (browser) ===
-// Same component() call registers via customElements.define()
-// connectedCallback() detects nh- markers → hydrates instead of re-rendering
-// Event listeners attached, signals connected, component is interactive
+// Per-render isolation
+resetInjector();
+const result = renderToString(html`<my-app></my-app>`);
 ```
+
+For SSG (single build-time render), this isn't needed. For SSR (per-request), it's mandatory.
+
+### Phase 3: Hydration Markers
+
+When rendering with `{ hydrate: true }`, the server output includes comment markers at expression boundaries. The client uses these to reconnect reactive bindings to existing DOM.
+
+#### Marker Format
+
+```html
+<div class="card">
+  <!--nh-t:0-->Hello World<!--/nh-t:0-->
+  <span class="badge status-open">
+    <!--nh-t:1-->Open<!--/nh-t:1-->
+  </span>
+  <!--nh-w:2-->
+  <p>Conditional content</p>
+  <!--/nh-w:2-->
+  <!--nh-e:3-->
+  <li>Item 1</li>
+  <li>Item 2</li>
+  <!--/nh-e:3-->
+</div>
+```
+
+| Marker | Type | Wraps |
+|--------|------|-------|
+| `nh-t:N` | Text expression | Resolved text content |
+| `nh-a:N:name` | Attribute expression | Attribute value |
+| `nh-w:N` | `when()` conditional | Conditional branch |
+| `nh-e:N` | `each()` list | List items |
+| `nh-c:N:tag` | Component boundary | Component inner HTML |
+
+Marker indices reset per component scope (each component's template has its own slot numbering from 0).
+
+#### Version Marker
+
+The root of SSR'd output includes `<!--nh-v:1-->`. The client hydrator checks this version. On mismatch, it falls back to full client render instead of broken hydration.
+
+#### `defer-hydration` Attribute (Inspired by Lit)
+
+Server adds `defer-hydration` to component elements:
+
+```html
+<my-component defer-hydration>
+  <!--nh-c:0:my-component-->
+  <button>☀️</button>
+  <!--/nh-c:0:my-component-->
+</my-component>
+```
+
+The client hydration module removes `defer-hydration` after attaching bindings. This enables:
+- **Progressive hydration**: hydrate above-the-fold components first
+- **Lazy hydration**: hydrate on interaction or viewport entry
+- **Selective hydration**: skip hydration for static components entirely
+
+### Phase 4: Client Hydration
+
+#### Hydration Support Module
+
+`@nisli/core/hydrate` must be imported BEFORE any component modules (same pattern as Lit's `lit-element-hydrate-support.js`). It patches `connectedCallback()` to detect SSR'd content.
+
+```ts
+// @nisli/core/hydrate — side-effect import
+// Must load before component modules
+
+import { patchConnectedCallback } from './component.js';
+
+patchConnectedCallback((original, element, setup, propsProxy, host) => {
+  const hasSSRContent = element.firstChild?.nodeType === 8 /* COMMENT */
+    && (element.firstChild as Comment).data.startsWith('nh-');
+
+  if (hasSSRContent) {
+    // Run setup to get the TemplateResult (same as normal)
+    const templateResult = setup(propsProxy.props, element);
+    // HYDRATE: walk existing DOM, match markers, attach bindings
+    hydrateTemplate(element, templateResult);
+    // Attach event listeners (stripped during SSR)
+    // Remove defer-hydration attribute
+    element.removeAttribute('defer-hydration');
+  } else {
+    // Normal mount path (no SSR content detected)
+    original();
+  }
+});
+```
+
+#### Hydration Walker
+
+`hydrateTemplate()` walks the existing DOM matching markers to expression slots:
+
+1. `nh-t:N` → find text node between markers → attach signal subscription
+2. `nh-a:N:name` → find attribute → attach signal subscription
+3. `nh-w:N` → find conditional block → attach `when()` effect
+4. `nh-e:N` → find list block → attach `each()` reconciler
+5. `nh-c:N:tag` → child component hydrates itself via its own `connectedCallback()`
+6. `@event` attributes → attach event listeners (these were stripped during SSR)
+
+#### Dev-Mode Mismatch Detection
+
+During hydration, compare the expected value from the client's signal with the text content of the SSR'd node. On mismatch, log a warning:
+
+```
+⚠️ Hydration mismatch in <my-component>:
+  Server rendered: "Hello World"
+  Client expected: "Hello Universe"
+  Expression slot: nh-t:0
+```
+
+This is dev-mode only (stripped in production builds). Same approach as React, Lit, and Solid.
 
 ## Gotchas and Anti-Patterns
 
-### 1. Host Element Access in Setup Functions
+### 1. Host Element Access in Setup
 
-**Problem**: Setup functions receive `host: HTMLElement` as the second argument. On the server, there is no host element. Passing `null` will crash components that call `host.querySelector()`, `host.getBoundingClientRect()`, etc.
+**Rule**: Never access `host` for DOM measurement during setup. Use `onMount()`.
 
-**Mitigation**: Provide a no-op proxy that returns safe defaults (`querySelector → null`, `getBoundingClientRect → zero rect`). Document that DOM-measuring code must be guarded with `onMount()` (which only runs client-side).
+```ts
+// ❌ WRONG — crashes on server
+component('my-comp', (props, host) => {
+  const width = host.offsetWidth; // throws in SSR
+  return html`<div style="width: ${width}px">...</div>`;
+});
 
-**Anti-pattern**: Don't access `host` during setup for DOM measurement. Use `onMount()` instead.
+// ✅ CORRECT — onMount is client-only
+component('my-comp', (props, host) => {
+  const width = signal(0);
+  onMount(() => { width.value = host.offsetWidth; });
+  return html`<div style="width: ${width}px">...</div>`;
+});
+```
 
-### 2. Signal Reads During SSR Are One-Shot
+### 2. Signal Reads Are One-Shot on Server
 
-**Problem**: On the server, signals are read once for their current `.value`. There's no reactivity — no effects, no subscriptions, no re-renders. If a computed depends on an async value that hasn't resolved yet, SSR captures the initial (possibly empty) state.
+Signals are read once for their current `.value`. No reactivity, no subscriptions, no re-renders. If a computed depends on async data that hasn't resolved, SSR captures the initial (empty) state.
 
-**Mitigation**: Ensure all data is loaded before calling `renderToString()`. SSR is synchronous — async data must be pre-fetched.
+**Rule**: Pre-fetch all data before calling `renderToString()`. SSR is synchronous.
 
-**Anti-pattern**: Don't rely on effects or async signal updates during SSR. Pre-populate all signals before rendering.
+### 3. Effects Are Suppressed on Server
 
-### 3. Hydration Mismatch
+`effect()` is a no-op during server rendering. Code inside effects will not run. This is correct — effects are for side effects (DOM manipulation, network calls, localStorage).
 
-**Problem**: If the server renders HTML that doesn't match what the client expects (different signal values, different conditional branches, race conditions), hydration silently produces broken UI — wrong text in wrong nodes, event listeners on wrong elements.
+**Rule**: Don't put rendering logic inside effects. Derived state belongs in `computed()`.
 
-**Mitigation**: Dev-mode mismatch detection. During hydration, compare the expected value from the client's signal with the text content of the SSR'd node. Log warnings on mismatch. This is how React, Lit, and Solid handle it.
+### 4. `query()` Does Not Work on Server
 
-**Anti-pattern**: Don't render different content server vs client (e.g., `typeof window !== 'undefined'` checks that change output). If content must differ, use `when()` with a client-only signal that starts `false` and flips to `true` in `onMount()`.
+`query()` is async data loading. It won't resolve during synchronous SSR. The signal will have its initial value (typically `undefined` or loading state).
 
-### 4. Marker Format Is a Versioned Contract
+**Rule**: Pre-fetch data and pass it as props or pre-populated signals.
 
-**Problem**: The hydration marker format (`nh-t:N`, `nh-c:N:tag`, etc.) is a contract between the server renderer and the client hydrator. If the format changes, old SSR'd HTML won't hydrate with new client code.
+### 5. Hydration Mismatch from Conditional Rendering
 
-**Mitigation**: Version the marker format. Include a version comment at the root: `<!--nh-v:1-->`. The client hydrator checks the version before attempting hydration. On version mismatch, fall back to full client render.
+If server and client render different content (e.g., `isServer` checks that change output, time-dependent rendering, random values), hydration will silently produce broken UI.
 
-### 5. Two `html()` Implementations Will Diverge
+**Rule**: Server and client must produce identical HTML for the same input data. Use `isServer` only to skip code, never to change output.
 
-**Problem**: Server `html()` and client `html()` are separate implementations. When the client template engine gains new features (new directives, new binding types), the server must be updated in lockstep.
+### 6. Marker Format Is a Versioned Contract
 
-**Mitigation**: Shared conformance test suite. Every template test renders with both server and client `html()` and compares output (ignoring hydration markers and event bindings). CI fails if they diverge.
+The hydration marker format (`nh-t:N`, `nh-c:N:tag`) is a contract between server and client. Changing the format breaks hydration of cached SSR output.
 
-**Anti-pattern**: Don't add client template features without adding the server equivalent. Treat them as a pair.
+**Mitigation**: Version marker (`<!--nh-v:1-->`). Client checks version, falls back to full render on mismatch.
 
-### 6. `each()` and `when()` on the Server
+### 7. DI Singletons Persist Across Server Renders
 
-**Problem**: Client-side `when()` returns a `computed` signal wrapping a TemplateResult. Client-side `each()` returns a TemplateResult with keyed reconciliation. On the server, these reactive wrappers are unnecessary — we just need the resolved output.
+`inject()` caches singletons globally. Without `resetInjector()`, state leaks between renders.
 
-**Mitigation**: Server `resolveValue()` handles these by unwrapping: signals are resolved to `.value`, TemplateResults are serialized. The reactive `when()` and `each()` from `@nisli/core` work on the server because `resolveValue()` chases through the signal/computed chain to the underlying TemplateResult. No server-specific `when()`/`each()` needed.
+**Rule**: Call `resetInjector()` before each server render in SSR (per-request) mode.
 
-### 7. Nested Component Depth
+### 8. Two `html()` Implementations Will Diverge
 
-**Problem**: Deeply nested component trees cause recursive `renderServerComponent()` calls. No stack overflow protection.
+Server and client `html()` are separate implementations. When the client gains new features, the server must be updated.
 
-**Mitigation**: Add a depth counter. Throw at a configurable max depth (default: 50). This catches infinite recursion from circular component references.
+**Mitigation**: Shared conformance test suite. Every template test renders with both and compares output (ignoring markers and event bindings). CI fails on divergence.
 
-### 8. Third-Party Web Components
+### 9. Nested Component Depth
 
-**Problem**: Components not registered with `@nisli/core`'s `component()` (e.g., third-party web components, native HTML elements) won't be in the server registry. They render as empty shells.
+Deeply nested component trees cause recursive rendering. No stack overflow protection.
 
-**Mitigation**: This is expected and documented. Only `@nisli/core` components participate in SSR. Third-party components render client-side only. The SSR output includes their tags but not their content.
+**Mitigation**: Depth counter with configurable max (default: 50). Throws on infinite recursion from circular component references.
+
+### 10. Third-Party Web Components
+
+Components not registered with `@nisli/core`'s `component()` won't be in the server registry. They render as empty shells.
+
+**Expected behavior**: Only `@nisli/core` components participate in SSR. Third-party components are client-only.
+
+### 11. `useHostEvent()` Is Suppressed on Server
+
+`useHostEvent()` registers DOM event listeners. On the server, there's no EventTarget. It becomes a no-op.
+
+**Rule**: Event-driven logic that affects rendering must use signals, not event listeners.
 
 ## Risks
 
 | Risk | Severity | Mitigation |
 |------|----------|------------|
 | Hydration mismatch bugs | High | Dev-mode mismatch detection, conformance test suite |
-| Marker format changes break cached SSR output | Medium | Version marker, fallback to full render on mismatch |
+| Marker format changes break cached SSR output | Medium | Version marker, fallback to full render |
 | Server/client `html()` divergence | Medium | Shared conformance tests in CI |
-| Setup functions crash on null host | Medium | No-op host proxy, document `onMount()` pattern |
-| Performance regression from hydration code in `connectedCallback()` | Low | Marker detection is a single comment node check — O(1) |
+| Setup functions crash on server host proxy | Medium | Proxy with clear error messages, `onMount()` pattern |
+| DI singleton leaks between server renders | Medium | Document `resetInjector()` requirement |
+| Performance regression from hydration in `connectedCallback()` | Low | O(1) marker detection check |
 
 ## Phased Delivery Plan
 
-### Phase 1: Server `html()` + `renderToString()` — Foundation
+### Phase 1: Server `html()` + `render()` + `renderToString()`
 
-**Scope**: `@nisli/core/server` entry point with server `html()`, `resolveSlot()`, `resolveValue()`, `renderToString()`. Handles signals, nested templates, arrays, null/false, event handler stripping.
-
-**Architecture note**: `resolveSlot()` takes an index parameter even though Phase 1 doesn't emit markers. This is the hook point for Phase 3.
-
-**Deliverables**:
-- `packages/framework/src/server.ts`
-- `packages/framework/src/server.test.ts`
+- `packages/framework/src/server.ts` — server `html()`, `render()`, `resolveSlot()`, `resolveValue()`, `renderToString()`, `collectResultSync()`
+- `packages/framework/src/server.test.ts` — template rendering tests
 - `./server` export in `package.json`
+- `isServer` flag export
+- HTML escaping for text content
 
-**Test strategy**: Pure function tests — template in, string out. Snapshot comparisons.
+### Phase 2: Environment-Aware `component()` + Server Components
 
-### Phase 2: Environment-Aware `component()` + Server Component Rendering
-
-**Scope**: `component()` detects `typeof customElements === 'undefined'` and registers in server registry. `resolveValue()` handles `__serverComponent` results by looking up the registry, running setup, and recursively serializing.
-
-**Deliverables**:
 - Server registry (`Map<string, SetupFunction>`)
-- `renderServerComponent()` in `server.ts`
-- Environment detection in `component.ts`
-- No-op host proxy for setup functions
+- `component()` environment detection
+- `renderServerComponent()` with recursive rendering
+- Server host proxy
+- `effect()` / `useHostEvent()` suppression on server
 - Depth-limited recursion
-
-**Test strategy**: Register components, render to string, verify full component tree output.
 
 ### Phase 3: Hydration Markers
 
-**Scope**: When `options.hydrate === true`, `resolveSlot()` wraps resolved content with `nh-*` comment markers. Attribute markers embedded in attribute values. Component boundary markers wrap component output.
-
-**Deliverables**:
-- Marker emission in `resolveSlot()` and `renderServerComponent()`
-- Version marker (`<!--nh-v:1-->`)
-- Marker format documentation
-
-**Test strategy**: Render with `{ hydrate: true }`, verify marker placement and format.
+- Marker emission in `resolveSlot()` when `{ hydrate: true }`
+- Component boundary markers
+- Version marker
+- `defer-hydration` attribute on server-rendered components
+- Attribute directive resolution (`class:name` → class attribute)
 
 ### Phase 4: Client Hydration
 
-**Scope**: `hydrateTemplate()` function that walks existing DOM matching markers to expression slots. `connectedCallback()` detects SSR'd content and calls hydrate instead of mount. Event listener attachment. Dev-mode mismatch detection.
-
-**Deliverables**:
-- `hydrateTemplate()` in `template.ts` (or new `hydrate.ts`)
-- Modified `connectedCallback()` in `component.ts`
-- Mismatch detection (dev mode only)
-- Version check with fallback
-
-**Test strategy**: Pre-populate DOM with SSR'd HTML (including markers), run hydration, verify bindings work. Test mismatch detection. Test version fallback.
+- `@nisli/core/hydrate` side-effect module
+- `hydrateTemplate()` DOM walker
+- `connectedCallback()` patch for SSR detection
+- Event listener attachment
+- `defer-hydration` removal
+- Dev-mode mismatch detection
 
 ## Files Changed (All Phases)
 
 | File | Phase | Change |
 |------|-------|--------|
-| `packages/framework/src/server.ts` | 1-3 | New — server `html()`, `renderToString()`, component rendering, markers |
+| `packages/framework/src/server.ts` | 1-3 | New — server rendering pipeline |
 | `packages/framework/src/server.test.ts` | 1-3 | New — server rendering tests |
-| `packages/framework/package.json` | 1 | Add `./server` export path |
-| `packages/framework/src/component.ts` | 2, 4 | Environment detection, hydration-aware `connectedCallback()` |
-| `packages/framework/src/template.ts` | 4 | `hydrateTemplate()` function (or new `hydrate.ts`) |
+| `packages/framework/package.json` | 1 | Add `./server` and `./hydrate` exports |
+| `packages/framework/src/component.ts` | 2 | Environment detection, server registry |
 | `packages/framework/src/hydrate.ts` | 4 | New — client hydration logic |
-| `packages/framework/src/hydrate.test.ts` | 4 | New — hydration tests with pre-populated DOM |
-
-## Assumptions
-
-1. The primary use case is SSG with hydration — static HTML at build time, interactive on client load
-2. All data is available synchronously at SSR time (no async rendering)
-3. Components that access `host` for DOM measurement use `onMount()` (not inline in setup)
-4. Third-party web components are client-only (expected, documented)
-5. The framework has a small number of consumers, so the phased rollout is manageable
-
-## Trade-offs Accepted
-
-1. Two `html()` implementations — mitigated by shared conformance test suite
-2. Hydration adds complexity to `connectedCallback()` — mitigated by O(1) marker detection check
-3. Marker format is a versioned contract — mitigated by version marker and fallback
-4. Setup functions can't access host DOM on server — mitigated by no-op proxy and `onMount()` pattern
-5. Higher implementation effort than P1 — but P1 doesn't solve the stated problem
+| `packages/framework/src/hydrate.test.ts` | 4 | New — hydration tests |
 
 ## Long-Term Vision
 
 ### Near-Term (Phases 1-4)
 
-Full SSR pipeline: server rendering → hydration markers → client hydration. Components render content at build time and become interactive without re-rendering. This is the Lit SSR / Solid / Qwik model.
+Full SSR pipeline: server rendering → hydration markers → client hydration. Components render content at build time and become interactive without re-rendering.
 
 ### Medium-Term: Streaming SSR
 
-Once the marker-based architecture is in place, streaming SSR is a natural extension. Instead of `renderToString()` returning a complete string, `renderToStream()` returns an async generator that yields HTML chunks as components resolve:
+The `RenderResult` iterable architecture enables streaming from Phase 1. `renderToStream()` pipes chunks to an HTTP response as they're generated:
 
 ```ts
-async function* renderToStream(result: ServerTemplateResult): AsyncGenerator<string> {
-  // Yield static parts immediately
-  // Yield component content as setup functions complete
-  // Yield closing markers after all children resolve
-}
+import { Readable } from 'node:stream';
+import { render } from '@nisli/core/server';
+
+app.get('/', (req, res) => {
+  const result = render(html`<my-app></my-app>`);
+  Readable.from(result).pipe(res);
+});
 ```
 
-This enables Time-to-First-Byte (TTFB) optimization — the browser starts parsing HTML before the entire page is rendered.
+For async data, `RenderResult` can contain Promises (Phase 5+). The stream pauses on Promises and resumes when they resolve. Same hybrid sync/async model as Lit.
 
 ### Medium-Term: Partial Hydration / Islands
 
-Not all components need to be interactive. A static header, footer, or content block can be SSR'd without hydration markers — the client never hydrates them, saving JS bundle size and hydration time.
-
-This could be expressed as a component option:
+Not all components need interactivity. Static components can skip hydration entirely:
 
 ```ts
 component('static-header', setup, { hydrate: false });
 // SSR output has no markers → client skips hydration → zero JS for this component
 ```
 
-Or at the template level:
-
-```ts
-html`<div>${StaticHeader({ title })} ${InteractiveSearch({})}</div>`
-// Only InteractiveSearch gets hydration markers
-```
+The `defer-hydration` attribute from Phase 3 is the foundation. Islands architecture layers on top: only interactive "islands" get hydration markers and client JS.
 
 ### Long-Term: Declarative Shadow DOM
 
-The current design renders into light DOM (component content is direct children). Declarative Shadow DOM (`<template shadowrootmode="open">`) would allow SSR'd content inside shadow roots, enabling style encapsulation without JS.
-
-This is explicitly out of scope for now — it requires browser support (Chrome 111+, Firefox 123+, Safari 16.4+) and changes the component model significantly.
+SSR into shadow roots via `<template shadowrootmode="open">`. Enables style encapsulation without JS. Requires browser support (Chrome 111+, Firefox 123+, Safari 16.4+). Out of scope — we use light DOM exclusively.
 
 ### Long-Term: Universal Template IR (P3 Revisited)
 
-If `@nisli/core` grows to need multiple render targets (native, test renderer, PDF), the IR approach from P3 becomes justified. The phased P2 architecture doesn't prevent this evolution — the server `html()` and `hydrateTemplate()` could be refactored into IR consumers later. But this refactor should be driven by actual need, not speculative architecture.
+If `@nisli/core` grows to need multiple render targets (native, test renderer, PDF), the IR approach becomes justified. The phased P2 architecture doesn't prevent this — server `html()` and `hydrateTemplate()` could be refactored into IR consumers. But this should be driven by actual need.
 
 ## References
 
 - TASK-0477 — original task with requirements
-- Framework ADR 0001 — web component framework design (mentions Lit SSR scope difference)
-- Framework ADR 0002 — implementation notes (signal invariants relevant to SSR signal resolution)
-- Framework ADR 0009 — observer isolation via `untrack()` (relevant to hydration in `connectedCallback()`)
-- Framework ADR 0069 — template auto-quoting (server `html()` doesn't need this — no comment markers)
-- Lit SSR approach: string-based, not DOM shim. They control the template engine and short-circuit DOM.
+- Framework ADR 0001 — web component framework design, philosophy
+- Framework ADR 0002 — implementation notes, signal invariants
+- Framework ADR 0009 — observer isolation via `untrack()` (relevant to hydration)
+- Framework ADR 0069 — template auto-quoting (server doesn't need this)
+- [Lit SSR server usage](https://lit.dev/docs/ssr/server-usage/) — RenderResult iterable, render options
+- [Lit SSR client usage](https://lit.dev/docs/ssr/client-usage/) — hydrate(), hydrate-support.js pattern
+- [Lit SSR authoring](https://lit.dev/docs/ssr/authoring/) — isServer, lifecycle table, async limitations
+- [Lit SSR DOM emulation](https://lit.dev/docs/ssr/dom-emulation/) — minimal shim approach (we use environment detection instead)

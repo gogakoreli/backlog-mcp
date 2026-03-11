@@ -10,8 +10,9 @@
 
 import type { Entity, Status, EntityType } from '@backlog-mcp/shared';
 import { D1StorageAdapter } from './d1-adapter.js';
+import type { IBacklogService } from './service-types.js';
 
-export class D1BacklogService {
+export class D1BacklogService implements IBacklogService {
   private storage: D1StorageAdapter;
 
   constructor(db: any) {

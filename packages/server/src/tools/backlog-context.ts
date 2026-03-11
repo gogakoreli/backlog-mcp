@@ -1,8 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { storage } from '../storage/backlog-service.js';
-import { resourceManager } from '../resources/manager.js';
-import { operationLogger } from '../operations/index.js';
+import type { IBacklogService } from '../storage/service-types.js';
 import { hydrateContext, type ContextResponse } from '../context/index.js';
 
 /**
@@ -31,7 +29,11 @@ import { hydrateContext, type ContextResponse } from '../context/index.js';
  * Use backlog_get for:
  *   - Getting raw content of a specific item by ID
  */
-export function registerBacklogContextTool(server: McpServer) {
+export function registerBacklogContextTool(
+  server: McpServer,
+  service: IBacklogService,
+  deps: { resourceManager: any; operationLogger: any },
+) {
   server.registerTool(
     'backlog_context',
     {
@@ -63,11 +65,11 @@ export function registerBacklogContextTool(server: McpServer) {
           include_activity: include_activity ?? true,
         },
         {
-          getTask: (id) => storage.get(id),
-          listTasks: (filter) => storage.listSync(filter),
-          listResources: () => resourceManager.list(),
-          searchUnified: async (q, options) => storage.searchUnified(q, options),
-          readOperations: (options) => operationLogger.read(options),
+          getTask: (id) => service.getSync?.(id),
+          listTasks: (filter) => service.listSync ? service.listSync(filter) : [],
+          listResources: () => deps.resourceManager.list(),
+          searchUnified: async (q, options) => service.searchUnified(q, options),
+          readOperations: (options) => deps.operationLogger.read(options),
         },
       );
 

@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { storage } from '../storage/backlog-service.js';
+import type { IBacklogService } from '../storage/service-types.js';
 import { STATUSES } from '@backlog-mcp/shared';
 import type { Entity } from '@backlog-mcp/shared';
 import type { Resource, SearchableType } from '../search/types.js';
@@ -21,7 +21,7 @@ import type { Resource, SearchableType } from '../search/types.js';
  *   - Filtering by status/type/parent (structured browsing)
  *   - Getting counts and metadata
  */
-export function registerBacklogSearchTool(server: McpServer) {
+export function registerBacklogSearchTool(server: McpServer, service: IBacklogService) {
   server.registerTool(
     'backlog_search',
     {
@@ -42,7 +42,7 @@ export function registerBacklogSearchTool(server: McpServer) {
         return { content: [{ type: 'text', text: JSON.stringify({ error: 'Query must not be empty' }) }], isError: true };
       }
 
-      const results = await storage.searchUnified(query, {
+      const results = await service.searchUnified(query, {
         types: types as SearchableType[] | undefined,
         status,
         parent_id,
@@ -50,7 +50,7 @@ export function registerBacklogSearchTool(server: McpServer) {
         limit: limit ?? 20,
       });
 
-      const searchMode = storage.isHybridSearchActive() ? 'hybrid' : 'bm25';
+      const searchMode = service.isHybridSearchActive?.() ?? false ? 'hybrid' : 'bm25';
 
       const formattedResults = results.map(r => {
         const isResource = r.type === 'resource';

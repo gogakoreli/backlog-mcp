@@ -37,7 +37,7 @@
   "scripts": {
     "build": "tsc --noEmit && tsdown",
     "typecheck": "tsc --noEmit",
-    "dev": "tsx watch --env-file=../../.env src/server/fastify-server.ts",
+    "dev": "tsx watch --env-file=../../.env src/node-server.ts",
     "clean": "rm -rf dist",
     "start": "node dist/cli/index.mjs",
     "test": "vitest run",
@@ -52,13 +52,12 @@
     "memfs": "^4.56.10"
   },
   "dependencies": {
-    "@fastify/cors": "^11.2.0",
-    "@fastify/static": "^9.0.0",
+    "@hono/node-server": "^1.14.0",
     "@huggingface/transformers": "^3.8.1",
     "@modelcontextprotocol/sdk": "^1.25.1",
     "@orama/orama": "^3.1.18",
-    "fastify": "^5.7.1",
     "gray-matter": "^4.0.3",
+    "hono": "^4.7.0",
     "mcp-remote": "^0.1.37",
     "zod": "^4.3.5"
   }

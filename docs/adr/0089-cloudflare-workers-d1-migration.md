@@ -1,7 +1,7 @@
 # 0089. Cloudflare Workers + D1 Migration — Serverless, Free, Edge
 
 **Date**: 2026-03-10
-**Status**: Accepted — Phases 1–3 complete
+**Status**: Accepted — Phases 1–3 complete; Phase 4 (Hono) in progress
 
 ## Context
 
@@ -596,6 +596,93 @@ All responses include CORS headers (`Access-Control-Allow-Origin: *`).
 - **Build-time URL injection**: `API_URL=https://backlog-mcp.gogakoreli.workers.dev node build.mjs` bakes the URL into the bundle. No runtime env vars in the browser. Local mode with no `API_URL` set defaults to `http://localhost:3030`.
 - **Pages project created via**: `wrangler pages project create backlog-mcp-viewer --production-branch main`
 - **Pages deploy command**: `API_URL=https://backlog-mcp.gogakoreli.workers.dev npx wrangler pages deploy packages/viewer/dist --project-name backlog-mcp-viewer --commit-dirty=true`
+
+---
+
+---
+
+## Phase 4 — Hono Migration (replaces Fastify)
+
+### Problem with Phases 1–3
+
+Phases 1–3 retrofitted cloud deployment onto an existing Fastify server. Fastify uses Node.js `http.IncomingMessage`/`ServerResponse` primitives which don't exist in the Workers runtime. The result was a parallel set of Worker-specific files:
+
+- `worker-tools.ts` — 340-line duplicate of all 6 MCP tools, only to swap the service instance
+- `worker-api-routes.ts` — duplicate of all viewer REST routes for Workers
+- `worker-handlers.ts` — band-aid shared layer on top of the above duplicates
+
+Cloudflare infrastructure had leaked into the application logic. A change to list filtering or search behavior required updates in two places.
+
+### Root cause: singleton import
+
+Every local tool file imports the filesystem service directly:
+```typescript
+import { storage } from '../storage/backlog-service.js'; // hardwired to filesystem
+```
+Because this module-level singleton exists, the tools are coupled to one concrete storage implementation. Swapping it for cloud mode required copying the entire tool file — hence `worker-tools.ts`.
+
+### Decision: replace Fastify with Hono
+
+**Hono** is a Fastify-equivalent web framework built on Web standard `Request`/`Response`. It runs identically on Node.js (`@hono/node-server`), Cloudflare Workers, Bun, and Deno. The same `app.get('/tasks', ...)` code works everywhere.
+
+This enables the target architecture:
+
+```
+src/
+  app.ts                ← single Hono app (all routes, service-injected)
+  node-server.ts        ← Node.js entry: serve(app, port) + signals
+  worker-entry.ts       ← Worker entry: export default { fetch: app.fetch }
+  tools/index.ts        ← registerTools(server, service) — no singleton
+```
+
+**Deleted entirely**: `worker-tools.ts`, `worker-api-routes.ts`, `worker-handlers.ts`, `server/fastify-server.ts`, `server/viewer-routes.ts`, `server/mcp-handler.ts`, `middleware/auth.ts`
+
+### Why not Fastify on a non-Workers host?
+
+Fastify could run on Railway/Fly.io/Render with filesystem storage — no Workers needed. But:
+- Free-tier Node.js hosts have cold starts or sleep on inactivity (Render spins down after 15 min)
+- D1 is only accessible via Workers bindings — using a non-Workers host means abandoning D1 (and needing Turso or Neon instead)
+- Hono achieves always-on Workers + D1 without any duplication — same benefit, no cost
+
+### MCP transport unification
+
+Phases 1–2 used two different transports:
+- Local: `StreamableHTTPServerTransport` — Node.js `IncomingMessage`/`ServerResponse`
+- Cloud: `WebStandardStreamableHTTPServerTransport` — Web `Request`/`Response`
+
+With Hono, both modes use `WebStandardStreamableHTTPServerTransport` (Hono exposes `c.req.raw` as a Web `Request` on all platforms). One transport, two entry points.
+
+### Service injection pattern
+
+`registerTools(server: McpServer, service: IBacklogService)` accepts any implementation of a shared async interface. No singleton import in tool files.
+
+```typescript
+// Node.js entry
+registerTools(server, BacklogService.getInstance())
+
+// Worker entry
+registerTools(server, new D1BacklogService(env.DB))
+```
+
+`BacklogService` wraps its sync methods (`counts`, `get`, `getMarkdown`) in `Promise.resolve()` to satisfy the async interface without behaviour change.
+
+### Node.js-only features
+
+Some routes and capabilities are filesystem-specific and not registered in cloud mode:
+- `GET /resource`, `GET /mcp/resource` — reads local files
+- `GET /open/:id` — opens file in system editor
+- `GET /events` — SSE with live eventBus push (Workers: heartbeat-only ReadableStream)
+- Static file serving (`serveStatic`) — Pages handles this in cloud mode
+- `backlog_context` MCP tool — uses resourceManager + operationLogger (local only)
+
+The app factory accepts an optional `deps` object: `createApp(service, { eventBus?, staticDir?, resourceManager?, operationLogger? })`. Routes and tools that require deps are only registered when deps are provided.
+
+### Distilled insights
+
+- **Hono should have been the starting point** — any project targeting Workers + Node.js should default to Hono over Fastify. Fastify is the wrong choice when multi-runtime deployment is a requirement.
+- **Service injection beats module singletons** — `import { storage } from '...'` in tools files is an anti-pattern for testability and multi-runtime support. Always inject via function parameter.
+- **One MCP transport** — `WebStandardStreamableHTTPServerTransport` works in Node.js 18+, Workers, Bun, Deno. Use it everywhere. `StreamableHTTPServerTransport` is Node.js-only and should be considered legacy.
+- **Cloudflare = entry point only** — the only Cloudflare-specific code is `worker-entry.ts` (~10 lines) and the D1/storage adapters. All application logic is runtime-agnostic.
 
 ---
 

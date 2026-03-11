@@ -32,7 +32,7 @@ async function getServerVersion(port: number): Promise<string | null> {
 }
 
 async function spawnServer(port: number): Promise<void> {
-  const serverPath = join(paths.distRoot, 'server', 'fastify-server.mjs');
+  const serverPath = join(paths.distRoot, 'node-server.mjs');
   const child = spawn(process.execPath, [serverPath], {
     detached: true,
     stdio: 'ignore',

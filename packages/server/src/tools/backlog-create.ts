@@ -3,8 +3,9 @@ import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { z } from 'zod';
-import { storage } from '../storage/backlog-service.js';
+import type { IBacklogService } from '../storage/service-types.js';
 import { ENTITY_TYPES, nextEntityId } from '@backlog-mcp/shared';
+import type { EntityType } from '@backlog-mcp/shared';
 import { createTask } from '../storage/schema.js';
 
 export function resolveSourcePath(sourcePath: string): string {
@@ -16,7 +17,7 @@ export function resolveSourcePath(sourcePath: string): string {
   return readFileSync(resolved, 'utf-8');
 }
 
-export function registerBacklogCreateTool(server: McpServer) {
+export function registerBacklogCreateTool(server: McpServer, service: IBacklogService) {
   server.registerTool(
     'backlog_create',
     {
@@ -46,11 +47,11 @@ export function registerBacklogCreateTool(server: McpServer) {
 
       // parent_id takes precedence; epic_id is alias for backward compat
       const resolvedParent = parent_id ?? epic_id;
-      const id = nextEntityId(storage.getMaxId(type), type);
+      const id = nextEntityId(await service.getMaxId(type as EntityType), type as EntityType);
       const task = createTask({ id, title, description: resolvedDescription, type, parent_id: resolvedParent, references });
       // Write epic_id too for backward compat when caller used epic_id
       if (epic_id && !parent_id) task.epic_id = epic_id;
-      storage.add(task);
+      await service.add(task);
       return { content: [{ type: 'text', text: `Created ${task.id}` }] };
     }
   );

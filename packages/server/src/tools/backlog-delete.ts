@@ -1,8 +1,8 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { storage } from '../storage/backlog-service.js';
+import type { IBacklogService } from '../storage/service-types.js';
 
-export function registerBacklogDeleteTool(server: McpServer) {
+export function registerBacklogDeleteTool(server: McpServer, service: IBacklogService) {
   server.registerTool(
     'backlog_delete',
     {
@@ -12,7 +12,7 @@ export function registerBacklogDeleteTool(server: McpServer) {
       }),
     },
     async ({ id }) => {
-      storage.delete(id);
+      await service.delete(id);
       return { content: [{ type: 'text', text: `Deleted ${id}` }] };
     }
   );

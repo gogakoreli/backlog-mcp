@@ -7,7 +7,7 @@ describe('MCP Integration Tests', () => {
   
   beforeAll(async () => {
     // Start server
-    serverProcess = spawn('node', ['dist/server/fastify-server.mjs'], {
+    serverProcess = spawn('node', ['dist/node-server.mjs'], {
       env: { ...process.env, BACKLOG_VIEWER_PORT: port.toString() },
       stdio: 'pipe'
     });

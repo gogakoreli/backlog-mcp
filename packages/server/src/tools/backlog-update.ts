@@ -1,9 +1,9 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { storage } from '../storage/backlog-service.js';
+import type { IBacklogService } from '../storage/service-types.js';
 import { STATUSES } from '@backlog-mcp/shared';
 
-export function registerBacklogUpdateTool(server: McpServer) {
+export function registerBacklogUpdateTool(server: McpServer, service: IBacklogService) {
   server.registerTool(
     'backlog_update',
     {
@@ -22,7 +22,7 @@ export function registerBacklogUpdateTool(server: McpServer) {
       }),
     },
     async ({ id, epic_id, parent_id, due_date, content_type, ...updates }) => {
-      const task = storage.get(id);
+      const task = await service.get(id);
       if (!task) return { content: [{ type: 'text', text: `Task ${id} not found` }], isError: true };
 
       // parent_id takes precedence over epic_id
@@ -50,7 +50,7 @@ export function registerBacklogUpdateTool(server: McpServer) {
       }
 
       Object.assign(task, updates, { updated_at: new Date().toISOString() });
-      storage.save(task);
+      await service.save(task);
       return { content: [{ type: 'text', text: `Updated ${id}` }] };
     }
   );

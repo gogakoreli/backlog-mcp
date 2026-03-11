@@ -1,9 +1,9 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { storage } from '../storage/backlog-service.js';
+import type { IBacklogService } from '../storage/service-types.js';
 import { ENTITY_TYPES, STATUSES } from '@backlog-mcp/shared';
 
-export function registerBacklogListTool(server: McpServer) {
+export function registerBacklogListTool(server: McpServer, service: IBacklogService) {
   server.registerTool(
     'backlog_list',
     {
@@ -21,7 +21,7 @@ export function registerBacklogListTool(server: McpServer) {
     async ({ status, type, epic_id, parent_id, query, counts, limit }) => {
       // parent_id takes precedence; epic_id is alias for backward compat
       const resolvedParent = parent_id ?? epic_id;
-      const tasks = await storage.list({ status, type, parent_id: resolvedParent, query, limit });
+      const tasks = await service.list({ status, type, parent_id: resolvedParent, query, limit });
       const list = tasks.map((t) => ({
         id: t.id,
         title: t.title,
@@ -30,7 +30,7 @@ export function registerBacklogListTool(server: McpServer) {
         parent_id: t.parent_id ?? t.epic_id,
       }));
       const result: any = { tasks: list };
-      if (counts) result.counts = storage.counts();
+      if (counts) result.counts = await service.counts();
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
     }
   );

@@ -5,12 +5,13 @@ import { OramaSearchService, type UnifiedSearchResult, type SearchableType, type
 import type { Resource } from '../search/types.js';
 import { resourceManager } from '../resources/manager.js';
 import { paths } from '../utils/paths.js';
+import type { IBacklogService } from './service-types.js';
 
 /**
  * Composes TaskStorage + SearchService + ResourceManager.
  * Orchestrates storage operations and search index updates.
  */
-class BacklogService {
+class BacklogService implements IBacklogService {
   private static instance: BacklogService;
   private taskStorage = new TaskStorage();
   private search: OramaSearchService;
@@ -45,11 +46,15 @@ class BacklogService {
     return this.taskStorage.getFilePath(id);
   }
 
-  get(id: string): Entity | undefined {
+  getSync(id: string): Entity | undefined {
     return this.taskStorage.get(id);
   }
 
-  getMarkdown(id: string): string | null {
+  async get(id: string): Promise<Entity | undefined> {
+    return this.taskStorage.get(id);
+  }
+
+  async getMarkdown(id: string): Promise<string | null> {
     return this.taskStorage.getMarkdown(id);
   }
 
@@ -126,23 +131,23 @@ class BacklogService {
     return this.search.isHybridSearchActive();
   }
 
-  add(task: Entity): void {
+  async add(task: Entity): Promise<void> {
     this.taskStorage.add(task);
     if (this.searchReady) this.search.addDocument(task);
   }
 
-  save(task: Entity): void {
+  async save(task: Entity): Promise<void> {
     this.taskStorage.save(task);
     if (this.searchReady) this.search.updateDocument(task);
   }
 
-  delete(id: string): boolean {
+  async delete(id: string): Promise<boolean> {
     const deleted = this.taskStorage.delete(id);
     if (deleted && this.searchReady) this.search.removeDocument(id);
     return deleted;
   }
 
-  counts(): { total_tasks: number; total_epics: number; by_status: Record<Status, number>; by_type: Record<string, number> } {
+  async counts(): Promise<{ total_tasks: number; total_epics: number; by_status: Record<Status, number>; by_type: Record<string, number> }> {
     return this.taskStorage.counts();
   }
 
@@ -157,7 +162,7 @@ class BacklogService {
     return this.taskStorage.list(filter);
   }
 
-  getMaxId(type?: EntityType): number {
+  async getMaxId(type?: EntityType): Promise<number> {
     return this.taskStorage.getMaxId(type);
   }
 }

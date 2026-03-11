@@ -1,0 +1,15 @@
+{
+  // Cloudflare Worker configuration for backlog-mcp server package.
+  // Run `wrangler d1 create backlog` to create the database and replace
+  // the placeholder database_id below with the returned UUID.
+  "name": "backlog-mcp",
+  "main": "src/worker-entry.ts",
+  "compatibility_date": "2025-01-01",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "backlog",
+      "database_id": "a6364201-aa49-42c0-b905-324451bdab43"
+    }
+  ]
+}

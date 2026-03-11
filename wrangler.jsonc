@@ -1,0 +1,15 @@
+{
+  // Root-level wrangler config — delegates to the server package.
+  // Run all wrangler commands from packages/server/ for full control,
+  // or use this file from the monorepo root as a convenience reference.
+  "name": "backlog-mcp",
+  "main": "packages/server/src/worker-entry.ts",
+  "compatibility_date": "2025-01-01",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "backlog",
+      "database_id": "REPLACE_WITH_ID_FROM_wrangler_d1_create"
+    }
+  ]
+}

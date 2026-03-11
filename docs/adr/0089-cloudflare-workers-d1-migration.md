@@ -1,7 +1,7 @@
 # 0089. Cloudflare Workers + D1 Migration — Serverless, Free, Edge
 
 **Date**: 2026-03-10
-**Status**: Accepted — Phases 1–3 complete; Phase 4 (Hono) in progress
+**Status**: Accepted — Phases 1–4 complete (Hono migration done)
 
 ## Context
 
@@ -666,16 +666,23 @@ registerTools(server, new D1BacklogService(env.DB))
 
 `BacklogService` wraps its sync methods (`counts`, `get`, `getMarkdown`) in `Promise.resolve()` to satisfy the async interface without behaviour change.
 
-### Node.js-only features
+### Node.js vs cloud feature matrix
 
-Some routes and capabilities are filesystem-specific and not registered in cloud mode:
-- `GET /resource`, `GET /mcp/resource` — reads local files
-- `GET /open/:id` — opens file in system editor
-- `GET /events` — SSE with live eventBus push (Workers: heartbeat-only ReadableStream)
-- Static file serving (`serveStatic`) — Pages handles this in cloud mode
-- `backlog_context` MCP tool — uses resourceManager + operationLogger (local only)
+| Feature | Local (Node.js) | Cloud (Workers + Pages) |
+|---|---|---|
+| `GET /resource`, `GET /mcp/resource` | Reads local filesystem files | Not available — no filesystem |
+| `GET /events` SSE | Live push via `eventBus` | Heartbeat-only `ReadableStream` (no Durable Objects) |
+| Static file serving | `serveStatic` from `@hono/node-server` | Served by Cloudflare Pages |
+| `backlog_context` MCP tool | Full — resourceManager + operationLogger | Full — service-injected, adapters differ |
+| All other MCP tools | Full | Full — same `registerTools()` call, different `IBacklogService` adapter |
 
-The app factory accepts an optional `deps` object: `createApp(service, { eventBus?, staticDir?, resourceManager?, operationLogger? })`. Routes and tools that require deps are only registered when deps are provided.
+**Notes:**
+- Resources (`/resource`, `/mcp/resource`) are needed by the viewer UI to display ADRs and design docs linked to tasks. These are filesystem-local concepts — cloud tasks reference external URLs or D1-stored content instead.
+- SSE is critical for the viewer UI auto-refresh (no manual reload when an agent mutates tasks). In Workers, real-time push requires Durable Objects (future work). Local mode delivers full SSE push.
+- `backlog_context` uses `service.getSync?.(id)` (optional sync lookup) for its synchronous hydration path. In cloud mode, the optional is absent and the async path runs. All functionality is preserved via the `IBacklogService` abstraction.
+- `GET /open/:id` (open file in OS editor) was removed — confirmed dead code, not used by any client.
+
+The app factory accepts an optional `deps` object: `createApp(service, { eventBus?, resourceManager?, operationLogger?, staticMiddleware?, wrapMcpServer? })`. Routes that require deps are only registered when deps are provided.
 
 ### Distilled insights
 
@@ -683,6 +690,96 @@ The app factory accepts an optional `deps` object: `createApp(service, { eventBu
 - **Service injection beats module singletons** — `import { storage } from '...'` in tools files is an anti-pattern for testability and multi-runtime support. Always inject via function parameter.
 - **One MCP transport** — `WebStandardStreamableHTTPServerTransport` works in Node.js 18+, Workers, Bun, Deno. Use it everywhere. `StreamableHTTPServerTransport` is Node.js-only and should be considered legacy.
 - **Cloudflare = entry point only** — the only Cloudflare-specific code is `worker-entry.ts` (~10 lines) and the D1/storage adapters. All application logic is runtime-agnostic.
+
+---
+
+## Phase 5 — OAuth 2.0 (Client Credentials)
+
+### Problem
+
+Claude.ai's web connector UI only accepts OAuth credentials (Client ID + Client Secret). A raw Bearer token (API key) cannot be configured there. The pre-Phase-5 server only supported `Authorization: Bearer <API_KEY>`, blocking Claude.ai web integration.
+
+### Why not reuse API_KEY as the access token?
+
+The naive shortcut — validate `client_secret`, then return `client_secret` as the access token — is an anti-pattern:
+- **No token lifetime**: the secret never expires without a full rotation
+- **No separation of concerns**: interception of an access token exposes the long-lived credential
+- **Not OAuth**: tools that inspect the token (e.g. introspection, audit logs) get the raw secret
+
+Proper OAuth issues a **short-lived signed token** (JWT) that is distinct from the credential used to obtain it.
+
+### Decision: OAuth 2.0 Authorization Code + PKCE with HS256 JWT
+
+Claude.ai web uses **Authorization Code + PKCE** (not Client Credentials). When a user adds a custom connector, Claude.ai redirects to `/authorize` on the MCP server. The user logs in there, and Claude.ai exchanges the resulting code for an access token.
+
+**Authorization Code + PKCE flow (Claude.ai web):**
+```
+Claude.ai → GET /authorize?response_type=code&code_challenge=<S256>&...
+           Server shows HTML form — user enters API key to approve
+           User submits → Server validates key, issues signed auth code JWT (5min TTL)
+          ← 302 redirect to claude.ai/api/mcp/auth_callback?code=<auth_code>
+Claude.ai → POST /oauth/token { grant_type=authorization_code, code, code_verifier, redirect_uri }
+           Server: verifyJWT(auth_code) + SHA256(code_verifier) == code_challenge (PKCE)
+          ← { access_token: <JWT>, expires_in: 3600 }
+Claude.ai → POST /mcp { Authorization: Bearer <JWT> }  ← MCP requests
+```
+
+**Client Credentials flow (kept for Claude Desktop / programmatic access):**
+```
+Client → POST /oauth/token { grant_type=client_credentials, client_secret }
+        ← { access_token: <JWT>, expires_in: 3600 }
+```
+
+**Discovery** — `/.well-known/oauth-authorization-server` (RFC 8414) advertises both endpoints. Claude.ai auto-discovers the authorization endpoint from this.
+
+### Stateless auth codes — no KV needed
+
+The auth code is a short-lived JWT (5min) signed with `JWT_SECRET`, containing `code_challenge` and `redirect_uri`. Token exchange verifies:
+1. JWT signature + expiry
+2. `redirect_uri` matches what was used during authorization
+3. PKCE: `SHA256(code_verifier)` base64url == `code_challenge`
+
+No server-side state storage required. Works in stateless Workers without KV.
+
+### Secrets — three separate concerns
+
+| Secret | Purpose | Who sees it |
+|---|---|---|
+| `API_KEY` | Direct Bearer auth (Claude Desktop) + authorization form password | Operator only |
+| `CLIENT_SECRET` | Client credentials grant (programmatic) | OAuth client only |
+| `JWT_SECRET` | Signs auth codes + access tokens — never exposed | Never leaves server |
+
+Rotating `JWT_SECRET` invalidates all outstanding tokens. Rotating `API_KEY` requires re-authorization via the form. These operations are independent.
+
+### Auth middleware — dual-path
+
+```
+Authorization: Bearer <token>
+  → verifyJWT(token, JWT_SECRET)  — OAuth path (Claude.ai, client credentials)
+  → token === API_KEY             — direct Bearer path (Claude Desktop)
+  → 401 if neither passes
+```
+
+If neither `API_KEY` nor `JWT_SECRET` is configured, auth is disabled (local dev mode).
+
+### JWT implementation — Web Crypto API
+
+`crypto.subtle` (HMAC-SHA256 + SHA-256 for PKCE) is available natively in Node.js 18+, Cloudflare Workers, Bun, and Deno. No JWT library needed.
+
+### Claude.ai connector setup
+
+- **URL**: `https://backlog-mcp.gogakoreli.workers.dev/mcp`
+- Claude.ai auto-discovers `/authorize` via `/.well-known/oauth-authorization-server`
+- User enters `API_KEY` in the authorization form to approve
+
+### Distilled insights
+
+- **Claude.ai uses Authorization Code + PKCE, not Client Credentials** — the web connector UI redirects to `/authorize` on the MCP server, not `/oauth/token` directly. Client Credentials is for programmatic/machine access only.
+- **Stateless auth codes via signed JWTs** — embedding `code_challenge` + `redirect_uri` in the auth code JWT eliminates KV dependency while preserving full PKCE security.
+- **Access token ≠ client secret** — returning the client secret as the access token removes all security properties OAuth provides.
+- **Web Crypto API is sufficient** — `crypto.subtle` covers HMAC-SHA256 (JWT signing) and SHA-256 (PKCE), no library needed, portable across all runtimes.
+- **Two secrets, three jobs** — `API_KEY` doubles as the authorization form password and direct Bearer credential. `JWT_SECRET` is server-internal only.
+- **Dual-path auth is additive** — Claude Desktop (direct Bearer) and Claude.ai web (OAuth JWT) coexist; neither breaks the other.
 
 ---
 

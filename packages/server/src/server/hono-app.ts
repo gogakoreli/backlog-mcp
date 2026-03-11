@@ -14,6 +14,10 @@ export interface AppDeps extends ToolDeps {
   // Server identity — passed explicitly to avoid importing paths.ts in Workers
   name?: string;
   version?: string;
+  // Auth secrets — injected from entry points (process.env in Node.js, env bindings in Workers)
+  apiKey?: string;         // direct Bearer token (Claude Desktop / programmatic)
+  clientSecret?: string;   // OAuth client_secret (Claude.ai web connector)
+  jwtSecret?: string;      // internal JWT signing key (never exposed to clients)
   // Node.js-only
   wrapMcpServer?: (server: McpServer) => McpServer; // e.g. withOperationLogging
   staticMiddleware?: any;  // result of serveStatic({ root: '...' }) from @hono/node-server/serve-static
@@ -27,15 +31,192 @@ export function createApp(service: IBacklogService, deps?: AppDeps): Hono {
   const app = new Hono();
   app.use('*', cors());
 
-  // Auth (optional API key for MCP)
+  // Auth middleware — accepts OAuth JWT (Claude.ai web) or direct API key (Claude Desktop)
+  // Secrets: injected via deps (Workers env bindings) or process.env fallback (Node.js)
   app.use('/mcp/*', async (c, next) => {
-    if (process.env.API_KEY) {
-      const auth = c.req.header('authorization');
-      if (auth !== `Bearer ${process.env.API_KEY}`) {
-        return c.json({ error: 'Unauthorized' }, 401);
-      }
+    const apiKey = deps?.apiKey ?? process.env.API_KEY;
+    const jwtSecret = deps?.jwtSecret ?? process.env.JWT_SECRET;
+    if (!apiKey && !jwtSecret) return next(); // auth not configured
+
+    const auth = c.req.header('authorization');
+    const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
+    if (!token) return c.json({ error: 'Unauthorized' }, 401);
+
+    if (jwtSecret) {
+      const payload = await verifyJWT(token, jwtSecret);
+      if (payload) return next();
     }
-    return next();
+    if (apiKey && token === apiKey) return next();
+
+    return c.json({ error: 'Unauthorized' }, 401);
+  });
+
+  // OAuth 2.0 discovery (RFC 8414)
+  app.get('/.well-known/oauth-authorization-server', (c) => {
+    const origin = new URL(c.req.url).origin;
+    return c.json({
+      issuer: origin,
+      authorization_endpoint: `${origin}/authorize`,
+      token_endpoint: `${origin}/oauth/token`,
+      grant_types_supported: ['authorization_code', 'client_credentials'],
+      response_types_supported: ['code'],
+      code_challenge_methods_supported: ['S256'],
+      token_endpoint_auth_methods_supported: ['client_secret_post', 'none'],
+    });
+  });
+
+  // OAuth 2.0 authorization endpoint — Authorization Code + PKCE
+  // Shows a confirmation page; user enters API key to approve access
+  app.get('/authorize', (c) => {
+    const q = (name: string) => c.req.query(name) ?? '';
+    const error = c.req.query('error');
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Authorize — backlog-mcp</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 420px; margin: 80px auto; padding: 0 20px; color: #111; }
+    h1 { font-size: 1.3rem; margin-bottom: 4px; }
+    p { color: #555; font-size: 0.95rem; margin-bottom: 24px; }
+    label { display: block; font-size: 0.9rem; margin-bottom: 6px; font-weight: 500; }
+    input[type=password] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 1rem; box-sizing: border-box; }
+    button { margin-top: 16px; width: 100%; padding: 11px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 1rem; cursor: pointer; }
+    button:hover { background: #1d4ed8; }
+    .error { color: #dc2626; font-size: 0.9rem; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Authorize backlog-mcp</h1>
+  <p><strong>${q('client_id') || 'A client'}</strong> is requesting access to your backlog. Enter your API key to approve.</p>
+  <form method="POST" action="/authorize">
+    <input type="hidden" name="response_type" value="${q('response_type') || ''}">
+    <input type="hidden" name="client_id" value="${q('client_id') || ''}">
+    <input type="hidden" name="redirect_uri" value="${q('redirect_uri') || ''}">
+    <input type="hidden" name="code_challenge" value="${q('code_challenge') || ''}">
+    <input type="hidden" name="code_challenge_method" value="${q('code_challenge_method') || ''}">
+    <input type="hidden" name="state" value="${q('state') || ''}">
+    <input type="hidden" name="scope" value="${q('scope') || ''}">
+    <label for="password">API Key</label>
+    <input type="password" id="password" name="password" autofocus placeholder="Your API key">
+    ${error ? `<p class="error">Invalid API key. Try again.</p>` : ''}
+    <button type="submit">Authorize Access</button>
+  </form>
+</body>
+</html>`;
+    return c.html(html);
+  });
+
+  app.post('/authorize', async (c) => {
+    const body = await c.req.parseBody();
+    const apiKey = deps?.apiKey ?? process.env.API_KEY;
+    const jwtSecret = deps?.jwtSecret ?? process.env.JWT_SECRET;
+
+    if (!apiKey || !jwtSecret) {
+      return c.json({ error: 'server_error', error_description: 'Auth not configured' }, 500);
+    }
+
+    if (body['password'] !== apiKey) {
+      // Re-show form with error, preserving all OAuth params
+      const params = new URLSearchParams({
+        response_type: body['response_type'] as string || '',
+        client_id: body['client_id'] as string || '',
+        redirect_uri: body['redirect_uri'] as string || '',
+        code_challenge: body['code_challenge'] as string || '',
+        code_challenge_method: body['code_challenge_method'] as string || '',
+        state: body['state'] as string || '',
+        scope: body['scope'] as string || '',
+        error: '1',
+      });
+      return c.redirect(`/authorize?${params}`);
+    }
+
+    const redirectUri = body['redirect_uri'] as string;
+    const state = body['state'] as string;
+    const codeChallenge = body['code_challenge'] as string;
+    const codeChallengeMethod = body['code_challenge_method'] as string;
+
+    // Issue a short-lived auth code as a signed JWT (stateless — no KV needed)
+    const now = Math.floor(Date.now() / 1000);
+    const authCode = await signJWT({
+      type: 'auth_code',
+      iss: new URL(c.req.url).origin,
+      redirect_uri: redirectUri,
+      code_challenge: codeChallenge,
+      code_challenge_method: codeChallengeMethod,
+      iat: now,
+      exp: now + 300, // 5 minutes
+    }, jwtSecret);
+
+    const callbackUrl = new URL(redirectUri);
+    callbackUrl.searchParams.set('code', authCode);
+    if (state) callbackUrl.searchParams.set('state', state);
+    return c.redirect(callbackUrl.toString());
+  });
+
+  // OAuth 2.0 token endpoint — authorization_code + client_credentials grants
+  app.post('/oauth/token', async (c) => {
+    const body = await c.req.parseBody();
+    const grantType = body['grant_type'] as string;
+    const jwtSecret = deps?.jwtSecret ?? process.env.JWT_SECRET;
+
+    if (!jwtSecret) {
+      return c.json({ error: 'server_error', error_description: 'OAuth not configured' }, 500);
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const expiresIn = 3600;
+    const origin = new URL(c.req.url).origin;
+
+    if (grantType === 'authorization_code') {
+      const code = body['code'] as string;
+      const codeVerifier = body['code_verifier'] as string;
+      const redirectUri = body['redirect_uri'] as string;
+
+      if (!code || !codeVerifier) {
+        return c.json({ error: 'invalid_request' }, 400);
+      }
+
+      // Verify auth code JWT
+      const authCodePayload = await verifyJWT(code, jwtSecret);
+      if (!authCodePayload || authCodePayload['type'] !== 'auth_code') {
+        return c.json({ error: 'invalid_grant', error_description: 'Invalid or expired authorization code' }, 400);
+      }
+
+      // Verify redirect_uri matches what was used during authorization
+      if (authCodePayload['redirect_uri'] !== redirectUri) {
+        return c.json({ error: 'invalid_grant', error_description: 'redirect_uri mismatch' }, 400);
+      }
+
+      // Verify PKCE: SHA256(code_verifier) base64url == code_challenge
+      const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(codeVerifier));
+      const computed = b64url(hash);
+      if (computed !== authCodePayload['code_challenge']) {
+        return c.json({ error: 'invalid_grant', error_description: 'PKCE verification failed' }, 400);
+      }
+
+      const accessToken = await signJWT({
+        iss: origin, aud: 'backlog-mcp', sub: body['client_id'] as string || 'claude',
+        iat: now, exp: now + expiresIn, scope: 'mcp',
+      }, jwtSecret);
+
+      return c.json({ access_token: accessToken, token_type: 'bearer', expires_in: expiresIn });
+    }
+
+    if (grantType === 'client_credentials') {
+      const clientSecret = deps?.clientSecret ?? process.env.CLIENT_SECRET;
+      if (!clientSecret || body['client_secret'] !== clientSecret) {
+        return c.json({ error: 'invalid_client' }, 401);
+      }
+      const accessToken = await signJWT({
+        iss: origin, aud: 'backlog-mcp', sub: body['client_id'] as string || 'backlog-mcp-client',
+        iat: now, exp: now + expiresIn, scope: 'mcp',
+      }, jwtSecret);
+      return c.json({ access_token: accessToken, token_type: 'bearer', expires_in: expiresIn });
+    }
+
+    return c.json({ error: 'unsupported_grant_type' }, 400);
   });
 
   // Health
@@ -355,15 +536,6 @@ export function createApp(service: IBacklogService, deps?: AppDeps): Hono {
         if (!uri) return c.json({ error: 'Missing uri' }, 400);
         return c.redirect(`/?resource=${encodeURIComponent(uri)}`);
       });
-
-      app.get('/open/:id', async (c) => {
-        const id = c.req.param('id');
-        const filePath = service.getFilePath?.(id);
-        if (!filePath) return c.json({ error: 'Task not found' }, 404);
-        const { exec } = await import('node:child_process');
-        exec(`open "${filePath}"`);
-        return c.json({ status: 'Opening...' });
-      });
     }
 
     // Shutdown (local only)
@@ -385,4 +557,44 @@ export function createApp(service: IBacklogService, deps?: AppDeps): Hono {
 function tryParseJson(value: string | null): unknown {
   if (!value) return value;
   try { return JSON.parse(value); } catch { return value; }
+}
+
+// ── JWT helpers — Web Crypto API (Node.js 18+, Cloudflare Workers, Bun, Deno) ──
+
+function b64url(buf: ArrayBuffer | Uint8Array): string {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+function b64urlDecode(s: string): Uint8Array {
+  return Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+}
+
+async function hmacKey(secret: string, usage: KeyUsage) {
+  return crypto.subtle.importKey('raw', new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' }, false, [usage]);
+}
+
+async function signJWT(payload: Record<string, unknown>, secret: string): Promise<string> {
+  const enc = new TextEncoder();
+  const header = b64url(enc.encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));
+  const body = b64url(enc.encode(JSON.stringify(payload)));
+  const input = `${header}.${body}`;
+  const key = await hmacKey(secret, 'sign');
+  const sig = b64url(await crypto.subtle.sign('HMAC', key, enc.encode(input)));
+  return `${input}.${sig}`;
+}
+
+async function verifyJWT(token: string, secret: string): Promise<Record<string, unknown> | null> {
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  const [h, p, s] = parts;
+  const key = await hmacKey(secret, 'verify');
+  const valid = await crypto.subtle.verify('HMAC', key, b64urlDecode(s),
+    new TextEncoder().encode(`${h}.${p}`));
+  if (!valid) return null;
+  const payload = JSON.parse(new TextDecoder().decode(b64urlDecode(p)));
+  if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+  return payload;
 }

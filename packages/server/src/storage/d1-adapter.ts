@@ -170,7 +170,7 @@ export class D1StorageAdapter implements AsyncStorageAdapter {
         .prepare(
           `INSERT INTO tasks
             (id, type, title, status, epic_id, parent_id,
-             blocked_reason, evidence, references,
+             blocked_reason, evidence, "references",
              due_date, content_type, path, body, created_at, updated_at)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
         )
@@ -208,7 +208,7 @@ export class D1StorageAdapter implements AsyncStorageAdapter {
         .prepare(
           `UPDATE tasks SET
             type = ?, title = ?, status = ?, epic_id = ?, parent_id = ?,
-            blocked_reason = ?, evidence = ?, references = ?,
+            blocked_reason = ?, evidence = ?, "references" = ?,
             due_date = ?, content_type = ?, path = ?, body = ?, updated_at = ?
            WHERE id = ?`
         )

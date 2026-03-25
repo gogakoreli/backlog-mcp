@@ -17,8 +17,12 @@ export function registerBacklogGetTool(server: McpServer, service: IBacklogServi
       if (ids.length === 0) {
         return { content: [{ type: 'text', text: 'Required: id' }], isError: true };
       }
-      const result = await getItems(service, ids);
-      return { content: [{ type: 'text', text: result.content }] };
+      const result = await getItems(service, { ids });
+      // MCP format: join items with separator, show "Not found" for nulls
+      const text = result.items
+        .map(item => item.content ?? `Not found: ${item.id}`)
+        .join('\n\n---\n\n');
+      return { content: [{ type: 'text', text }] };
     }
   );
 }

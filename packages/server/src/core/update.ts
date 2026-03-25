@@ -1,11 +1,11 @@
 import type { IBacklogService } from '../storage/service-types.js';
 import { NotFoundError, type UpdateParams, type UpdateResult } from './types.js';
 
-export async function updateItem(service: IBacklogService, id: string, params: UpdateParams): Promise<UpdateResult> {
+export async function updateItem(service: IBacklogService, params: UpdateParams): Promise<UpdateResult> {
+  const { id, epic_id, parent_id, due_date, content_type, ...updates } = params;
+
   const task = await service.get(id);
   if (!task) throw new NotFoundError(id);
-
-  const { epic_id, parent_id, due_date, content_type, ...updates } = params;
 
   // parent_id takes precedence over epic_id
   if (parent_id !== undefined) {

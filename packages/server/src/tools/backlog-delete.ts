@@ -13,7 +13,7 @@ export function registerBacklogDeleteTool(server: McpServer, service: IBacklogSe
       }),
     },
     async ({ id }) => {
-      const result = await deleteItem(service, id);
+      const result = await deleteItem(service, { id });
       return { content: [{ type: 'text', text: `Deleted ${result.id}` }] };
     }
   );

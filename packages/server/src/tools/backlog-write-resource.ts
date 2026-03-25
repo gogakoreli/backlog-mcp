@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { IBacklogService } from '../storage/service-types.js';
-import { writeBody, NotFoundError } from '../core/index.js';
+import { editItem, NotFoundError } from '../core/index.js';
 
 export function registerWriteResourceTool(server: McpServer, service: IBacklogService): void {
   server.registerTool(
@@ -25,7 +25,7 @@ export function registerWriteResourceTool(server: McpServer, service: IBacklogSe
     },
     async ({ id, operation }) => {
       try {
-        const result = await writeBody(service, { id, operation });
+        const result = await editItem(service, { id, operation });
         return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
       } catch (error) {
         if (error instanceof NotFoundError) {

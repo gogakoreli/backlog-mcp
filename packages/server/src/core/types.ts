@@ -1,8 +1,31 @@
 /**
- * Core function return types — transport-agnostic.
- * MCP and CLI wrappers format these for their respective outputs.
+ * Core function types — transport-agnostic.
+ *
+ * Design contracts:
+ * - All operations take a single params object (consistent signature)
+ * - NotFoundError: thrown when a required entity doesn't exist (update, edit)
+ * - ValidationError: thrown for invalid input (create with both desc+source_path, empty search query)
+ * - get: returns null per missing entity (not-found is a normal outcome for reads)
+ * - delete: returns { id, deleted } so caller knows if it existed
+ * - edit: returns { success, error? } for operation failures (expected outcome, not exceptional)
  */
-import type { Entity, Status, EntityType, Reference } from '@backlog-mcp/shared';
+import type { Status, EntityType, Reference } from '@backlog-mcp/shared';
+
+// ── Errors ──
+
+export class NotFoundError extends Error {
+  constructor(public readonly id: string) {
+    super(`Not found: ${id}`);
+    this.name = 'NotFoundError';
+  }
+}
+
+export class ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ValidationError';
+  }
+}
 
 // ── List ──
 
@@ -16,14 +39,16 @@ export interface ListParams {
   limit?: number;
 }
 
+export interface ListItem {
+  id: string;
+  title: string;
+  status: Status;
+  type: string;
+  parent_id?: string;
+}
+
 export interface ListResult {
-  tasks: Array<{
-    id: string;
-    title: string;
-    status: Status;
-    type: string;
-    parent_id?: string;
-  }>;
+  tasks: ListItem[];
   counts?: {
     total_tasks: number;
     total_epics: number;
@@ -34,8 +59,17 @@ export interface ListResult {
 
 // ── Get ──
 
+export interface GetParams {
+  ids: string[];
+}
+
+export interface GetItem {
+  id: string;
+  content: string | null;
+}
+
 export interface GetResult {
-  content: string;
+  items: GetItem[];
 }
 
 // ── Create ──
@@ -43,7 +77,6 @@ export interface GetResult {
 export interface CreateParams {
   title: string;
   description?: string;
-  source_path?: string;
   type?: EntityType;
   epic_id?: string;
   parent_id?: string;
@@ -57,6 +90,7 @@ export interface CreateResult {
 // ── Update ──
 
 export interface UpdateParams {
+  id: string;
   title?: string;
   status?: Status;
   epic_id?: string | null;
@@ -74,8 +108,13 @@ export interface UpdateResult {
 
 // ── Delete ──
 
+export interface DeleteParams {
+  id: string;
+}
+
 export interface DeleteResult {
   id: string;
+  deleted: boolean;
 }
 
 // ── Search ──
@@ -112,29 +151,22 @@ export interface SearchResult {
   search_mode: string;
 }
 
-// ── Write (edit body) ──
+// ── Edit (body operations) ──
 
-export interface WriteParams {
-  id: string;
-  operation: {
-    type: 'str_replace' | 'insert' | 'append';
-    old_str?: string;
-    new_str?: string;
-    insert_line?: number;
-  };
+export interface EditOperation {
+  type: 'str_replace' | 'insert' | 'append';
+  old_str?: string;
+  new_str?: string;
+  insert_line?: number;
 }
 
-export interface WriteResult {
+export interface EditParams {
+  id: string;
+  operation: EditOperation;
+}
+
+export interface EditResult {
   success: boolean;
   message?: string;
   error?: string;
-}
-
-// ── Errors ──
-
-export class NotFoundError extends Error {
-  constructor(id: string) {
-    super(`Not found: ${id}`);
-    this.name = 'NotFoundError';
-  }
 }

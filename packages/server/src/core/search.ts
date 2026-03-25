@@ -1,12 +1,12 @@
 import type { Entity } from '@backlog-mcp/shared';
 import type { IBacklogService } from '../storage/service-types.js';
 import type { Resource, SearchableType } from '../search/types.js';
-import type { SearchParams, SearchResult, SearchResultItem } from './types.js';
+import { ValidationError, type SearchParams, type SearchResult, type SearchResultItem } from './types.js';
 
 export async function searchItems(service: IBacklogService, params: SearchParams): Promise<SearchResult> {
   const { query, types, status, parent_id, sort, limit, include_content, include_scores } = params;
 
-  if (!query.trim()) throw new Error('Query must not be empty');
+  if (!query.trim()) throw new ValidationError('Query must not be empty');
 
   const results = await service.searchUnified(query, {
     types: types as SearchableType[] | undefined,

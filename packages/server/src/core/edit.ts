@@ -1,8 +1,8 @@
 import type { IBacklogService } from '../storage/service-types.js';
 import { applyOperation } from '../resources/operations.js';
-import { NotFoundError, type WriteParams, type WriteResult } from './types.js';
+import { NotFoundError, type EditParams, type EditResult } from './types.js';
 
-export async function writeBody(service: IBacklogService, params: WriteParams): Promise<WriteResult> {
+export async function editItem(service: IBacklogService, params: EditParams): Promise<EditResult> {
   const { id, operation } = params;
   const task = await service.get(id);
   if (!task) throw new NotFoundError(id);

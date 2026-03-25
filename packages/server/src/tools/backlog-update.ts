@@ -22,13 +22,13 @@ export function registerBacklogUpdateTool(server: McpServer, service: IBacklogSe
         content_type: z.union([z.string(), z.null()]).optional().describe('Content type for artifacts (e.g. text/markdown). Null to clear.'),
       }),
     },
-    async ({ id, ...params }) => {
+    async (params) => {
       try {
-        const result = await updateItem(service, id, params);
+        const result = await updateItem(service, params);
         return { content: [{ type: 'text', text: `Updated ${result.id}` }] };
       } catch (error) {
         if (error instanceof NotFoundError) {
-          return { content: [{ type: 'text', text: `Task ${id} not found` }], isError: true };
+          return { content: [{ type: 'text', text: `Task ${params.id} not found` }], isError: true };
         }
         throw error;
       }

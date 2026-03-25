@@ -1,17 +1,17 @@
 export { listItems } from './list.js';
 export { getItems } from './get.js';
-export { createItem, resolveSourcePath } from './create.js';
+export { createItem } from './create.js';
 export { updateItem } from './update.js';
 export { deleteItem } from './delete.js';
 export { searchItems } from './search.js';
-export { writeBody } from './write.js';
-export { NotFoundError } from './types.js';
+export { editItem } from './edit.js';
+export { NotFoundError, ValidationError } from './types.js';
 export type {
-  ListParams, ListResult,
-  GetResult,
+  ListParams, ListItem, ListResult,
+  GetParams, GetItem, GetResult,
   CreateParams, CreateResult,
   UpdateParams, UpdateResult,
-  DeleteResult,
+  DeleteParams, DeleteResult,
   SearchParams, SearchResult, SearchResultItem,
-  WriteParams, WriteResult,
+  EditOperation, EditParams, EditResult,
 } from './types.js';

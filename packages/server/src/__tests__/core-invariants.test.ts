@@ -2,12 +2,17 @@
  * Core function invariant tests.
  *
  * These tests verify the behavioral contract of each core function
- * independent of transport (MCP/CLI). They serve as the regression
- * safety net for the refactoring in ADR-0090.
+ * independent of transport (MCP/CLI). They are the regression safety
+ * net for ADR-0090.
  *
- * Every invariant here must hold regardless of how the function is called.
+ * Error contract:
+ * - NotFoundError: thrown when a required entity doesn't exist (update, edit)
+ * - ValidationError: thrown for invalid input (empty search query, empty id list)
+ * - get: returns { id, content: null } for missing entities (not-found is normal for reads)
+ * - delete: returns { id, deleted: boolean } so caller knows if it existed
+ * - edit: returns { success: false, error } for operation failures (expected, not exceptional)
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { IBacklogService } from '../storage/service-types.js';
 import type { Entity } from '@backlog-mcp/shared';
 import { listItems } from '../core/list.js';
@@ -16,8 +21,8 @@ import { createItem } from '../core/create.js';
 import { updateItem } from '../core/update.js';
 import { deleteItem } from '../core/delete.js';
 import { searchItems } from '../core/search.js';
-import { writeBody } from '../core/write.js';
-import { NotFoundError } from '../core/types.js';
+import { editItem } from '../core/edit.js';
+import { NotFoundError, ValidationError } from '../core/types.js';
 
 // ── Mock Service Factory ──
 
@@ -61,7 +66,7 @@ function mockService(entities: Entity[] = []): IBacklogService {
       by_type: { task: [...store.values()].filter(e => (e.type ?? 'task') === 'task').length },
     })),
     getMaxId: vi.fn(async () => store.size),
-    searchUnified: vi.fn(async (query: string, options?: any) => {
+    searchUnified: vi.fn(async (query: string) => {
       const matches = [...store.values()].filter(e =>
         e.title.toLowerCase().includes(query.toLowerCase()) ||
         (e.description ?? '').toLowerCase().includes(query.toLowerCase())
@@ -83,7 +88,9 @@ function mockService(entities: Entity[] = []): IBacklogService {
   };
 }
 
-// ── listItems ──
+// ═══════════════════════════════════════════════════════════════════
+// listItems
+// ═══════════════════════════════════════════════════════════════════
 
 describe('core/listItems', () => {
   it('returns tasks with normalized shape', async () => {
@@ -96,25 +103,22 @@ describe('core/listItems', () => {
     expect(result.tasks[0]).toEqual({
       id: 'TASK-0001', title: 'First', status: 'open', type: 'task', parent_id: 'EPIC-0001',
     });
-    // No parent_id → undefined in output
     expect(result.tasks[1].parent_id).toBeUndefined();
   });
 
-  it('resolves parent_id from epic_id alias', async () => {
-    const svc = mockService([
-      makeEntity({ id: 'TASK-0001', title: 'T', epic_id: 'EPIC-0001' }),
-    ]);
+  it('resolves parent_id from epic_id alias on entities', async () => {
+    const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'T', epic_id: 'EPIC-0001' })]);
     const result = await listItems(svc, {});
     expect(result.tasks[0].parent_id).toBe('EPIC-0001');
   });
 
-  it('parent_id takes precedence over epic_id in filter', async () => {
+  it('parent_id filter takes precedence over epic_id filter', async () => {
     const svc = mockService();
     await listItems(svc, { epic_id: 'EPIC-0001', parent_id: 'FLDR-0001' });
     expect(svc.list).toHaveBeenCalledWith(expect.objectContaining({ parent_id: 'FLDR-0001' }));
   });
 
-  it('falls back to epic_id when parent_id not provided', async () => {
+  it('falls back to epic_id when parent_id filter not provided', async () => {
     const svc = mockService();
     await listItems(svc, { epic_id: 'EPIC-0001' });
     expect(svc.list).toHaveBeenCalledWith(expect.objectContaining({ parent_id: 'EPIC-0001' }));
@@ -122,81 +126,76 @@ describe('core/listItems', () => {
 
   it('includes counts only when requested', async () => {
     const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'T' })]);
-    const without = await listItems(svc, {});
-    expect(without.counts).toBeUndefined();
-
-    const with_ = await listItems(svc, { counts: true });
-    expect(with_.counts).toBeDefined();
-    expect(with_.counts!.total_tasks).toBe(1);
+    expect((await listItems(svc, {})).counts).toBeUndefined();
+    expect((await listItems(svc, { counts: true })).counts).toBeDefined();
+    expect((await listItems(svc, { counts: true })).counts!.total_tasks).toBe(1);
   });
 
-  it('passes status filter through', async () => {
+  it('passes status, type, limit filters through to service', async () => {
     const svc = mockService();
-    await listItems(svc, { status: ['done'] });
-    expect(svc.list).toHaveBeenCalledWith(expect.objectContaining({ status: ['done'] }));
-  });
-
-  it('passes type filter through', async () => {
-    const svc = mockService();
-    await listItems(svc, { type: 'epic' as any });
-    expect(svc.list).toHaveBeenCalledWith(expect.objectContaining({ type: 'epic' }));
-  });
-
-  it('passes limit through', async () => {
-    const svc = mockService();
-    await listItems(svc, { limit: 5 });
-    expect(svc.list).toHaveBeenCalledWith(expect.objectContaining({ limit: 5 }));
+    await listItems(svc, { status: ['done'], type: 'epic' as any, limit: 5 });
+    expect(svc.list).toHaveBeenCalledWith(expect.objectContaining({ status: ['done'], type: 'epic', limit: 5 }));
   });
 });
 
-// ── getItems ──
+// ═══════════════════════════════════════════════════════════════════
+// getItems — returns structured data, null for missing
+// ═══════════════════════════════════════════════════════════════════
 
 describe('core/getItems', () => {
-  it('returns markdown for a single task', async () => {
+  it('returns structured items with content', async () => {
     const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'Test' })]);
-    const result = await getItems(svc, ['TASK-0001']);
-    expect(result.content).toContain('TASK-0001');
-    expect(result.content).toContain('Test');
+    const result = await getItems(svc, { ids: ['TASK-0001'] });
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].id).toBe('TASK-0001');
+    expect(result.items[0].content).toContain('Test');
   });
 
-  it('returns "Not found" for missing task', async () => {
+  it('returns null content for missing task', async () => {
     const svc = mockService();
-    const result = await getItems(svc, ['TASK-9999']);
-    expect(result.content).toBe('Not found: TASK-9999');
+    const result = await getItems(svc, { ids: ['TASK-9999'] });
+    expect(result.items[0]).toEqual({ id: 'TASK-9999', content: null });
   });
 
-  it('batch fetches multiple IDs with separator', async () => {
+  it('batch fetches multiple IDs preserving order', async () => {
     const svc = mockService([
       makeEntity({ id: 'TASK-0001', title: 'First' }),
       makeEntity({ id: 'TASK-0002', title: 'Second' }),
     ]);
-    const result = await getItems(svc, ['TASK-0001', 'TASK-0002']);
-    expect(result.content).toContain('First');
-    expect(result.content).toContain('Second');
-    expect(result.content).toContain('---');
+    const result = await getItems(svc, { ids: ['TASK-0001', 'TASK-0002'] });
+    expect(result.items).toHaveLength(2);
+    expect(result.items[0].id).toBe('TASK-0001');
+    expect(result.items[1].id).toBe('TASK-0002');
   });
 
   it('handles resource URIs', async () => {
     const svc = mockService();
-    const result = await getItems(svc, ['mcp://backlog/resources/test.md']);
-    expect(result.content).toContain('# Resource: mcp://backlog/resources/test.md');
-    expect(result.content).toContain('MIME: text/markdown');
-    expect(result.content).toContain('# Test Resource');
+    const result = await getItems(svc, { ids: ['mcp://backlog/resources/test.md'] });
+    expect(result.items[0].content).toContain('# Test Resource');
   });
 
-  it('returns "Not found" for missing resource URI', async () => {
+  it('returns null for missing resource URI', async () => {
     const svc = mockService();
-    const result = await getItems(svc, ['mcp://backlog/resources/missing.md']);
-    expect(result.content).toContain('Not found: mcp://backlog/resources/missing.md');
+    const result = await getItems(svc, { ids: ['mcp://backlog/resources/missing.md'] });
+    expect(result.items[0].content).toBeNull();
   });
 
-  it('throws on empty ID array', async () => {
+  it('throws ValidationError on empty ID array', async () => {
     const svc = mockService();
-    await expect(getItems(svc, [])).rejects.toThrow('Required: id');
+    await expect(getItems(svc, { ids: [] })).rejects.toThrow(ValidationError);
+  });
+
+  it('mixes found and not-found in batch', async () => {
+    const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'Found' })]);
+    const result = await getItems(svc, { ids: ['TASK-0001', 'TASK-9999'] });
+    expect(result.items[0].content).toContain('Found');
+    expect(result.items[1].content).toBeNull();
   });
 });
 
-// ── createItem ──
+// ═══════════════════════════════════════════════════════════════════
+// createItem — no filesystem I/O, transport resolves source_path
+// ═══════════════════════════════════════════════════════════════════
 
 describe('core/createItem', () => {
   it('generates sequential ID and adds to service', async () => {
@@ -208,10 +207,9 @@ describe('core/createItem', () => {
     }));
   });
 
-  it('generates epic ID for type=epic', async () => {
+  it('generates type-specific ID prefix', async () => {
     const svc = mockService();
-    const result = await createItem(svc, { title: 'New epic', type: 'epic' as any });
-    expect(result.id).toBe('EPIC-0001');
+    expect((await createItem(svc, { title: 'E', type: 'epic' as any })).id).toBe('EPIC-0001');
   });
 
   it('sets parent_id when provided', async () => {
@@ -232,11 +230,10 @@ describe('core/createItem', () => {
     expect(svc.add).toHaveBeenCalledWith(expect.objectContaining({ epic_id: 'EPIC-0001' }));
   });
 
-  it('throws when both description and source_path provided', async () => {
+  it('accepts pre-resolved description (no source_path in core)', async () => {
     const svc = mockService();
-    await expect(createItem(svc, {
-      title: 'T', description: 'desc', source_path: '/some/file.md',
-    })).rejects.toThrow('Cannot provide both description and source_path');
+    await createItem(svc, { title: 'T', description: 'Content from file' });
+    expect(svc.add).toHaveBeenCalledWith(expect.objectContaining({ description: 'Content from file' }));
   });
 
   it('includes references when provided', async () => {
@@ -247,30 +244,33 @@ describe('core/createItem', () => {
   });
 });
 
-// ── updateItem ──
+// ═══════════════════════════════════════════════════════════════════
+// updateItem — consistent params object with id inside
+// ═══════════════════════════════════════════════════════════════════
 
 describe('core/updateItem', () => {
   it('updates status', async () => {
     const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'T' })]);
-    const result = await updateItem(svc, 'TASK-0001', { status: 'done' });
+    const result = await updateItem(svc, { id: 'TASK-0001', status: 'done' });
     expect(result.id).toBe('TASK-0001');
     expect(svc.save).toHaveBeenCalledWith(expect.objectContaining({ status: 'done' }));
   });
 
   it('throws NotFoundError for missing task', async () => {
     const svc = mockService();
-    await expect(updateItem(svc, 'TASK-9999', { status: 'done' })).rejects.toThrow(NotFoundError);
+    await expect(updateItem(svc, { id: 'TASK-9999', status: 'done' })).rejects.toThrow(NotFoundError);
+    await expect(updateItem(svc, { id: 'TASK-9999' })).rejects.toThrow(NotFoundError);
   });
 
   it('parent_id takes precedence over epic_id', async () => {
     const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'T' })]);
-    await updateItem(svc, 'TASK-0001', { epic_id: 'EPIC-0001', parent_id: 'FLDR-0001' });
+    await updateItem(svc, { id: 'TASK-0001', epic_id: 'EPIC-0001', parent_id: 'FLDR-0001' });
     expect(svc.save).toHaveBeenCalledWith(expect.objectContaining({ parent_id: 'FLDR-0001' }));
   });
 
   it('null parent_id clears both parent_id and epic_id', async () => {
     const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'T', parent_id: 'EPIC-0001', epic_id: 'EPIC-0001' })]);
-    await updateItem(svc, 'TASK-0001', { parent_id: null });
+    await updateItem(svc, { id: 'TASK-0001', parent_id: null });
     const saved = (svc.save as any).mock.calls[0][0];
     expect(saved.parent_id).toBeUndefined();
     expect(saved.epic_id).toBeUndefined();
@@ -278,7 +278,7 @@ describe('core/updateItem', () => {
 
   it('null epic_id clears both epic_id and parent_id', async () => {
     const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'T', parent_id: 'EPIC-0001', epic_id: 'EPIC-0001' })]);
-    await updateItem(svc, 'TASK-0001', { epic_id: null });
+    await updateItem(svc, { id: 'TASK-0001', epic_id: null });
     const saved = (svc.save as any).mock.calls[0][0];
     expect(saved.parent_id).toBeUndefined();
     expect(saved.epic_id).toBeUndefined();
@@ -286,51 +286,57 @@ describe('core/updateItem', () => {
 
   it('setting epic_id also sets parent_id', async () => {
     const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'T' })]);
-    await updateItem(svc, 'TASK-0001', { epic_id: 'EPIC-0002' });
-    expect(svc.save).toHaveBeenCalledWith(expect.objectContaining({
-      epic_id: 'EPIC-0002', parent_id: 'EPIC-0002',
-    }));
+    await updateItem(svc, { id: 'TASK-0001', epic_id: 'EPIC-0002' });
+    expect(svc.save).toHaveBeenCalledWith(expect.objectContaining({ epic_id: 'EPIC-0002', parent_id: 'EPIC-0002' }));
   });
 
   it('null due_date clears the field', async () => {
     const svc = mockService([makeEntity({ id: 'MLST-0001', title: 'M', due_date: '2026-03-01' })]);
-    await updateItem(svc, 'MLST-0001', { due_date: null });
-    const saved = (svc.save as any).mock.calls[0][0];
-    expect(saved.due_date).toBeUndefined();
+    await updateItem(svc, { id: 'MLST-0001', due_date: null });
+    expect((svc.save as any).mock.calls[0][0].due_date).toBeUndefined();
   });
 
   it('sets due_date when string provided', async () => {
     const svc = mockService([makeEntity({ id: 'MLST-0001', title: 'M' })]);
-    await updateItem(svc, 'MLST-0001', { due_date: '2026-06-01' });
+    await updateItem(svc, { id: 'MLST-0001', due_date: '2026-06-01' });
     expect(svc.save).toHaveBeenCalledWith(expect.objectContaining({ due_date: '2026-06-01' }));
   });
 
   it('updates evidence array', async () => {
     const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'T' })]);
-    await updateItem(svc, 'TASK-0001', { evidence: ['Fixed in PR #1'] });
+    await updateItem(svc, { id: 'TASK-0001', evidence: ['Fixed in PR #1'] });
     expect(svc.save).toHaveBeenCalledWith(expect.objectContaining({ evidence: ['Fixed in PR #1'] }));
   });
 
-  it('sets updated_at timestamp', async () => {
+  it('always sets updated_at timestamp', async () => {
     const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'T' })]);
-    await updateItem(svc, 'TASK-0001', { title: 'New' });
-    const saved = (svc.save as any).mock.calls[0][0];
-    expect(saved.updated_at).not.toBe('2026-01-01T00:00:00.000Z');
+    await updateItem(svc, { id: 'TASK-0001', title: 'New' });
+    expect((svc.save as any).mock.calls[0][0].updated_at).not.toBe('2026-01-01T00:00:00.000Z');
   });
 });
 
-// ── deleteItem ──
+// ═══════════════════════════════════════════════════════════════════
+// deleteItem — returns { id, deleted } boolean
+// ═══════════════════════════════════════════════════════════════════
 
 describe('core/deleteItem', () => {
-  it('calls service.delete and returns id', async () => {
+  it('returns deleted=true when item existed', async () => {
     const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'T' })]);
-    const result = await deleteItem(svc, 'TASK-0001');
-    expect(result.id).toBe('TASK-0001');
+    const result = await deleteItem(svc, { id: 'TASK-0001' });
+    expect(result).toEqual({ id: 'TASK-0001', deleted: true });
     expect(svc.delete).toHaveBeenCalledWith('TASK-0001');
+  });
+
+  it('returns deleted=false when item did not exist', async () => {
+    const svc = mockService();
+    const result = await deleteItem(svc, { id: 'TASK-9999' });
+    expect(result).toEqual({ id: 'TASK-9999', deleted: false });
   });
 });
 
-// ── searchItems ──
+// ═══════════════════════════════════════════════════════════════════
+// searchItems
+// ═══════════════════════════════════════════════════════════════════
 
 describe('core/searchItems', () => {
   it('returns formatted results with total and query', async () => {
@@ -342,34 +348,28 @@ describe('core/searchItems', () => {
     expect(result.results[0]).toMatchObject({ id: 'TASK-0001', title: 'Auth bug', type: 'task' });
   });
 
-  it('throws on empty query', async () => {
+  it('throws ValidationError on empty query', async () => {
     const svc = mockService();
-    await expect(searchItems(svc, { query: '  ' })).rejects.toThrow('Query must not be empty');
+    await expect(searchItems(svc, { query: '  ' })).rejects.toThrow(ValidationError);
   });
 
   it('includes scores only when requested', async () => {
     const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'Test' })]);
-    const without = await searchItems(svc, { query: 'test' });
-    expect(without.results[0].score).toBeUndefined();
-
-    const with_ = await searchItems(svc, { query: 'test', include_scores: true });
-    expect(with_.results[0].score).toBeDefined();
+    expect((await searchItems(svc, { query: 'test' })).results[0].score).toBeUndefined();
+    expect((await searchItems(svc, { query: 'test', include_scores: true })).results[0].score).toBeDefined();
   });
 
   it('includes content only when requested', async () => {
     const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'Test', description: 'Full desc' })]);
-    const without = await searchItems(svc, { query: 'test' });
-    expect(without.results[0].description).toBeUndefined();
-
-    const with_ = await searchItems(svc, { query: 'test', include_content: true });
-    expect(with_.results[0].description).toBe('Full desc');
+    expect((await searchItems(svc, { query: 'test' })).results[0].description).toBeUndefined();
+    expect((await searchItems(svc, { query: 'test', include_content: true })).results[0].description).toBe('Full desc');
   });
 
   it('includes snippet and matched_fields', async () => {
     const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'Test' })]);
-    const result = await searchItems(svc, { query: 'test' });
-    expect(result.results[0].snippet).toBe('Test');
-    expect(result.results[0].matched_fields).toEqual(['title']);
+    const r = (await searchItems(svc, { query: 'test' })).results[0];
+    expect(r.snippet).toBe('Test');
+    expect(r.matched_fields).toEqual(['title']);
   });
 
   it('includes parent_id from parent_id or epic_id', async () => {
@@ -385,11 +385,10 @@ describe('core/searchItems', () => {
   it('reports hybrid search mode when active', async () => {
     const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'Test' })]);
     (svc.isHybridSearchActive as any).mockReturnValue(true);
-    const result = await searchItems(svc, { query: 'test' });
-    expect(result.search_mode).toBe('hybrid');
+    expect((await searchItems(svc, { query: 'test' })).search_mode).toBe('hybrid');
   });
 
-  it('passes filters through to service', async () => {
+  it('passes all filters through to service', async () => {
     const svc = mockService();
     await searchItems(svc, { query: 'test', types: ['task'], status: ['open'], parent_id: 'EPIC-0001', sort: 'recent', limit: 5 });
     expect(svc.searchUnified).toHaveBeenCalledWith('test', {
@@ -398,84 +397,61 @@ describe('core/searchItems', () => {
   });
 });
 
-// ── writeBody ──
+// ═══════════════════════════════════════════════════════════════════
+// editItem — throws NotFoundError, returns { success: false } for op errors
+// ═══════════════════════════════════════════════════════════════════
 
-describe('core/writeBody', () => {
+describe('core/editItem', () => {
   it('applies str_replace operation', async () => {
     const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'T', description: 'Hello world' })]);
-    const result = await writeBody(svc, {
-      id: 'TASK-0001',
-      operation: { type: 'str_replace', old_str: 'Hello', new_str: 'Goodbye' },
-    });
+    const result = await editItem(svc, { id: 'TASK-0001', operation: { type: 'str_replace', old_str: 'Hello', new_str: 'Goodbye' } });
     expect(result.success).toBe(true);
     expect(svc.save).toHaveBeenCalledWith(expect.objectContaining({ description: 'Goodbye world' }));
   });
 
   it('applies append operation', async () => {
     const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'T', description: 'Line 1' })]);
-    const result = await writeBody(svc, {
-      id: 'TASK-0001',
-      operation: { type: 'append', new_str: 'Line 2' },
-    });
+    const result = await editItem(svc, { id: 'TASK-0001', operation: { type: 'append', new_str: 'Line 2' } });
     expect(result.success).toBe(true);
     expect(svc.save).toHaveBeenCalledWith(expect.objectContaining({ description: 'Line 1\nLine 2' }));
   });
 
   it('applies insert operation', async () => {
     const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'T', description: 'Line 1\nLine 3' })]);
-    const result = await writeBody(svc, {
-      id: 'TASK-0001',
-      operation: { type: 'insert', insert_line: 1, new_str: 'Line 2' },
-    });
+    const result = await editItem(svc, { id: 'TASK-0001', operation: { type: 'insert', insert_line: 1, new_str: 'Line 2' } });
     expect(result.success).toBe(true);
     expect(svc.save).toHaveBeenCalledWith(expect.objectContaining({ description: 'Line 1\nLine 2\nLine 3' }));
   });
 
   it('throws NotFoundError for missing task', async () => {
     const svc = mockService();
-    await expect(writeBody(svc, {
-      id: 'TASK-9999',
-      operation: { type: 'append', new_str: 'text' },
-    })).rejects.toThrow(NotFoundError);
+    await expect(editItem(svc, { id: 'TASK-9999', operation: { type: 'append', new_str: 'text' } })).rejects.toThrow(NotFoundError);
   });
 
-  it('returns error for failed str_replace (not found)', async () => {
+  it('returns { success: false } for failed str_replace (not found)', async () => {
     const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'T', description: 'Hello' })]);
-    const result = await writeBody(svc, {
-      id: 'TASK-0001',
-      operation: { type: 'str_replace', old_str: 'MISSING', new_str: 'X' },
-    });
+    const result = await editItem(svc, { id: 'TASK-0001', operation: { type: 'str_replace', old_str: 'MISSING', new_str: 'X' } });
     expect(result.success).toBe(false);
     expect(result.error).toContain('old_str not found');
   });
 
-  it('returns error for non-unique str_replace', async () => {
+  it('returns { success: false } for non-unique str_replace', async () => {
     const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'T', description: 'foo foo' })]);
-    const result = await writeBody(svc, {
-      id: 'TASK-0001',
-      operation: { type: 'str_replace', old_str: 'foo', new_str: 'bar' },
-    });
+    const result = await editItem(svc, { id: 'TASK-0001', operation: { type: 'str_replace', old_str: 'foo', new_str: 'bar' } });
     expect(result.success).toBe(false);
     expect(result.error).toContain('not unique');
   });
 
   it('handles empty description gracefully', async () => {
     const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'T' })]);
-    const result = await writeBody(svc, {
-      id: 'TASK-0001',
-      operation: { type: 'append', new_str: 'First content' },
-    });
+    const result = await editItem(svc, { id: 'TASK-0001', operation: { type: 'append', new_str: 'First content' } });
     expect(result.success).toBe(true);
     expect(svc.save).toHaveBeenCalledWith(expect.objectContaining({ description: 'First content' }));
   });
 
-  it('sets updated_at on successful write', async () => {
+  it('sets updated_at on successful edit', async () => {
     const svc = mockService([makeEntity({ id: 'TASK-0001', title: 'T', description: 'text' })]);
-    await writeBody(svc, {
-      id: 'TASK-0001',
-      operation: { type: 'append', new_str: 'more' },
-    });
-    const saved = (svc.save as any).mock.calls[0][0];
-    expect(saved.updated_at).not.toBe('2026-01-01T00:00:00.000Z');
+    await editItem(svc, { id: 'TASK-0001', operation: { type: 'append', new_str: 'more' } });
+    expect((svc.save as any).mock.calls[0][0].updated_at).not.toBe('2026-01-01T00:00:00.000Z');
   });
 });

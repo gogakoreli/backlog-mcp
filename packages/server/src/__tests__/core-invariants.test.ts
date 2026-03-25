@@ -168,16 +168,18 @@ describe('core/getItems', () => {
     expect(result.items[1].id).toBe('TASK-0002');
   });
 
-  it('handles resource URIs', async () => {
+  it('handles resource URIs — returns raw content with metadata', async () => {
     const svc = mockService();
     const result = await getItems(svc, { ids: ['mcp://backlog/resources/test.md'] });
-    expect(result.items[0].content).toContain('# Test Resource');
+    expect(result.items[0].content).toBe('# Test Resource');
+    expect(result.items[0].resource).toEqual({ content: '# Test Resource', mimeType: 'text/markdown' });
   });
 
   it('returns null for missing resource URI', async () => {
     const svc = mockService();
     const result = await getItems(svc, { ids: ['mcp://backlog/resources/missing.md'] });
     expect(result.items[0].content).toBeNull();
+    expect(result.items[0].resource).toBeUndefined();
   });
 
   it('throws ValidationError on empty ID array', async () => {

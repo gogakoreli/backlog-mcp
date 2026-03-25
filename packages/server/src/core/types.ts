@@ -66,6 +66,8 @@ export interface GetParams {
 export interface GetItem {
   id: string;
   content: string | null;
+  /** Present only for resource URIs — transport uses this for formatting */
+  resource?: { content: string; frontmatter?: Record<string, any>; mimeType: string };
 }
 
 export interface GetResult {

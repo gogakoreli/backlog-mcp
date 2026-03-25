@@ -8,15 +8,9 @@ function isResourceUri(id: string): boolean {
 async function fetchItem(id: string, service: IBacklogService): Promise<GetItem> {
   if (isResourceUri(id)) {
     const resource = service.getResource?.(id);
-    if (!resource) return { id, content: null };
-    const header = `# Resource: ${id}\nMIME: ${resource.mimeType}`;
-    const frontmatterStr = resource.frontmatter
-      ? `\nFrontmatter: ${JSON.stringify(resource.frontmatter)}`
-      : '';
-    return { id, content: `${header}${frontmatterStr}\n\n${resource.content}` };
+    return { id, content: resource?.content ?? null, resource };
   }
-  const markdown = await service.getMarkdown(id);
-  return { id, content: markdown };
+  return { id, content: await service.getMarkdown(id) };
 }
 
 export async function getItems(service: IBacklogService, params: GetParams): Promise<GetResult> {

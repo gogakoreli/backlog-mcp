@@ -1,7 +1,18 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { IBacklogService } from '../storage/service-types.js';
-import { getItems } from '../core/get.js';
+import { getItems, type GetItem } from '../core/index.js';
+
+/** MCP transport formatting — core returns raw data, we present it */
+function formatItem(item: GetItem): string {
+  if (item.content === null) return `Not found: ${item.id}`;
+  if (item.resource) {
+    const header = `# Resource: ${item.id}\nMIME: ${item.resource.mimeType}`;
+    const fm = item.resource.frontmatter ? `\nFrontmatter: ${JSON.stringify(item.resource.frontmatter)}` : '';
+    return `${header}${fm}\n\n${item.resource.content}`;
+  }
+  return item.content;
+}
 
 export function registerBacklogGetTool(server: McpServer, service: IBacklogService) {
   server.registerTool(
@@ -18,10 +29,7 @@ export function registerBacklogGetTool(server: McpServer, service: IBacklogServi
         return { content: [{ type: 'text', text: 'Required: id' }], isError: true };
       }
       const result = await getItems(service, { ids });
-      // MCP format: join items with separator, show "Not found" for nulls
-      const text = result.items
-        .map(item => item.content ?? `Not found: ${item.id}`)
-        .join('\n\n---\n\n');
+      const text = result.items.map(formatItem).join('\n\n---\n\n');
       return { content: [{ type: 'text', text }] };
     }
   );

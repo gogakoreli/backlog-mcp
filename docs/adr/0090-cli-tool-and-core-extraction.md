@@ -10,22 +10,22 @@ status: Accepted
 
 All business logic lives inside MCP tool registration callbacks (`src/tools/*.ts`). These functions are tightly coupled to the MCP SDK — they take `McpServer`, define zod schemas inline, and return MCP-formatted `{ content: [{ type: 'text', text: ... }] }` responses.
 
-This means:
-- No way to invoke operations from a CLI without going through MCP
-- No way to reuse logic from HTTP routes without duplicating it
-- Testing requires MCP server mocking
-- The project ships as an MCP-only tool — users without MCP clients can't interact with their backlog
+Consequences of this coupling:
+- No CLI access — users without MCP clients can't interact with their backlog
+- No reuse — HTTP routes in `hono-app.ts` duplicate logic instead of calling shared functions
+- Testing requires MCP server mocking — can't unit test business logic in isolation
+- Adding any new transport (WebSocket, REST, CLI) means duplicating all business logic
 
 ## Problem Space
 
 - **Who's affected**: Users who want CLI access (scripting, debugging, quick edits), developers testing operations, HTTP route handlers that duplicate logic
-- **Root cause**: Transport-coupled business logic. The "what to do" (create a task, search, etc.) is entangled with "how to receive the request" (MCP protocol)
-- **Constraint**: Must not break existing MCP behavior. MCP tools must continue to work identically.
-- **What if we're wrong**: If CLI adoption is zero, we still benefit from testable core functions and cleaner MCP wrappers
+- **Root cause**: Transport-coupled business logic — "what to do" is entangled with "how to receive the request"
+- **Constraint**: Must not break existing MCP behavior — tools must continue to work identically
+- **What if we're wrong**: If CLI adoption is zero, we still benefit from testable core functions and cleaner MCP wrappers — the extraction pays for itself
 
 ## Context
 
-### Current Architecture
+### Architecture Before Extraction
 
 ```
 MCP Client → McpServer.registerTool() → inline callback (business logic + MCP formatting)
@@ -33,169 +33,172 @@ MCP Client → McpServer.registerTool() → inline callback (business logic + MC
                                         IBacklogService (storage)
 ```
 
-Each tool file (`backlog-list.ts`, `backlog-create.ts`, etc.) exports a single `registerXxxTool(server, service)` function. Business logic is embedded in the callback:
-- `backlog-create`: resolves `source_path` from filesystem, generates next entity ID
-- `backlog-update`: handles `parent_id`/`epic_id` precedence, nullable field clearing
-- `backlog-get`: detects resource URIs vs task IDs, batch fetches with separators
-- `backlog-search`: formats results, detects hybrid search mode
-- `backlog-context`: delegates to hydration service with dependency injection
-- `write_resource`: applies text operations (str_replace, insert, append) to task body
+Each tool file exported a single `registerXxxTool(server, service)` function with business logic embedded in the callback:
+
+| Tool | Embedded Logic |
+|------|---------------|
+| `backlog-create` | `source_path` filesystem resolution, `nextEntityId()` generation, `parent_id`/`epic_id` precedence |
+| `backlog-update` | `parent_id`/`epic_id` precedence with null-clearing, nullable field handling (`due_date`, `content_type`) |
+| `backlog-get` | Resource URI detection (`mcp://backlog/`), batch fetch with `---` separators, frontmatter formatting |
+| `backlog-search` | Result formatting with optional scores/content/snippets, hybrid search mode detection |
+| `backlog-context` | Already well-factored — delegates to `hydrateContext()` (191 existing tests) |
+| `write_resource` | Delegates to `applyOperation()` for str_replace/insert/append on task body |
 
 ### Existing CLI
 
-Only server management: `serve`, `status`, `stop`, `version`, bridge mode. No task operations.
-
-### Inspiration: cbx CLI
-
-The cbx CLI (`/packages/cbx/src/commands/`) demonstrates the pattern well — each command file is a standalone function that handles args, calls APIs, and formats output. Clean separation between "what to do" and "how to present it."
+Only server management commands: `serve`, `status`, `stop`, `version`, bridge mode. Zero task operations.
 
 ## Proposed Solutions
 
 ### Option 1: Extract to `src/core/` — Standalone Tool Functions (Selected)
 
-Create a `src/core/` directory with one file per operation. Each exports a pure function that takes typed input + `IBacklogService`, returns typed output (plain objects, not MCP content).
+Create `src/core/` with one file per operation. Each exports a pure function taking typed input + `IBacklogService`, returning typed output (plain objects, not MCP content format).
 
-```
-src/core/
-  list.ts      → listItems(service, opts) → { tasks, counts? }
-  get.ts       → getItems(service, ids) → string
-  create.ts    → createItem(service, opts) → { id }
-  update.ts    → updateItem(service, id, opts) → { id }
-  delete.ts    → deleteItem(service, id) → { id }
-  search.ts    → searchItems(service, opts) → SearchResult
-  context.ts   → getContext(deps, opts) → ContextResponse
-  write.ts     → writeBody(service, id, op) → { success, message? }
-```
+- MCP tools become thin wrappers: parse zod → call core → wrap in `{ content: [{ type: 'text', text: JSON.stringify(result) }] }`
+- CLI commands become thin wrappers: parse args → call core → format for terminal
 
-MCP tools become thin wrappers: parse zod → call core → format MCP response.
-CLI commands become thin wrappers: parse Commander args → call core → format terminal output.
+**Pros**: Clean hexagonal architecture, independently testable, guaranteed MCP/CLI parity, HTTP routes can reuse
+**Cons**: 8 new files, return types to define, two layers of thin wrapper
 
-**Pros:**
-- Clean hexagonal architecture — core in center, transports on outside
-- Core functions are independently testable without MCP mocking
-- Guaranteed behavioral parity between MCP and CLI
-- HTTP routes can also call core functions (eliminates duplication in hono-app.ts)
-- Each layer has a single responsibility
+### Option 2: Refactor In-Place in `src/tools/`
 
-**Cons:**
-- New directory and layer (8 files)
-- Need to define return types for each core function
-- Two layers of thin wrapper could feel like boilerplate
+Export both standalone function and MCP registration from each tool file.
 
-### Option 2: Refactor In-Place — Export Functions from `src/tools/`
-
-Keep core logic in `src/tools/` but refactor each file to export both the standalone function AND the MCP registration.
-
-**Pros:**
-- Less file movement
-- Fewer new files
-
-**Cons:**
-- `src/tools/` becomes mixed concern (core logic + MCP registration in same file)
-- Harder to reason about what's "core" vs "transport"
-- Import paths become confusing — CLI importing from `tools/` suggests MCP dependency
+**Pros**: Less file movement
+**Cons**: Mixed concerns in `src/tools/`, confusing imports (CLI importing from `tools/` suggests MCP dependency)
 
 ### Option 3: Enhance IBacklogService
 
-Move all business logic into service methods. MCP and CLI both call service directly.
+Move all business logic into service methods.
 
-**Pros:**
-- Simplest — no new layer
-
-**Cons:**
-- Service becomes bloated with presentation concerns (formatting search results, batch get with separators)
-- Violates SRP — storage abstraction handles business logic
-- Some operations don't map cleanly (write_resource applies text ops, not storage)
-- Hardest to test individual operations in isolation
+**Pros**: Simplest — no new layer
+**Cons**: Fatal flaw — service is a storage abstraction. Adding presentation logic (formatting search results, batch get with separators) violates SRP. `write_resource` applies text operations, not storage.
 
 ## Decision
 
 **Selected**: Option 1 — Extract to `src/core/`
 
-**Rationale**: The core extraction creates a clean boundary between "what the system does" (core functions) and "how you talk to it" (MCP, CLI, HTTP). This is the textbook hexagonal/ports-and-adapters pattern. The "boilerplate" concern is minimal — each MCP wrapper is ~5 lines (parse → call → format), and each CLI command is ~10-15 lines (parse args → instantiate service → call → print).
+**Rationale**: Creates a clean boundary between "what the system does" (core) and "how you talk to it" (MCP, CLI, HTTP). The hexagonal/ports-and-adapters pattern. The "boilerplate" concern proved minimal in practice — each MCP wrapper is 5-10 lines.
 
-**For this decision to be correct, the following must be true:**
-- Core functions can be instantiated with just `IBacklogService` (and deps for context) — no MCP SDK dependency
+**Assumptions that must hold**:
+- Core functions depend only on `IBacklogService` (and deps for context) — no MCP SDK imports
 - Return types are simple enough that both MCP (JSON) and CLI (text) can format them trivially
 - The extraction doesn't change any observable behavior for existing MCP clients
 
-**Trade-offs accepted:**
-- 8 new files in `src/core/` — acceptable for the separation benefit
-- Commander.js as new dependency (~50KB) — acceptable for CLI UX (auto-help, subcommands, validation)
+## Architecture After Extraction (Phase 1 — Implemented)
 
-## CLI Design
+```
+MCP Client → src/tools/*.ts (thin wrapper) ──┐
+                                              ├──→ src/core/*.ts (business logic) → IBacklogService
+CLI User   → src/cli/commands/*.ts (thin)  ──┘
+```
+
+### Core Functions Implemented
+
+| File | Function | Signature | Key Logic |
+|------|----------|-----------|-----------|
+| `core/list.ts` | `listItems()` | `(service, ListParams) → ListResult` | parent_id/epic_id precedence, optional counts |
+| `core/get.ts` | `getItems()` | `(service, string[]) → GetResult` | Resource URI detection, batch with separators |
+| `core/create.ts` | `createItem()` | `(service, CreateParams) → CreateResult` | ID generation, source_path resolution, parent precedence |
+| `core/update.ts` | `updateItem()` | `(service, id, UpdateParams) → UpdateResult` | Null-clearing, parent/epic precedence, nullable fields |
+| `core/delete.ts` | `deleteItem()` | `(service, id) → DeleteResult` | Delegates to service |
+| `core/search.ts` | `searchItems()` | `(service, SearchParams) → SearchResult` | Result formatting, hybrid mode detection |
+| `core/write.ts` | `writeBody()` | `(service, WriteParams) → WriteResult` | str_replace/insert/append via `applyOperation()` |
+| `core/types.ts` | Types + `NotFoundError` | — | All param/result types, shared error class |
+
+### What Was NOT Extracted
+
+- `backlog-context` — already delegates to `hydrateContext()` which has 191 tests. The core function IS `hydrateContext`. No wrapper needed.
+- `resolveSourcePath` — moved to `core/create.ts` but re-exported from `tools/backlog-create.ts` for backward compat (`source-path.test.ts` imports it)
+
+### MCP Wrapper Pattern (Evidence)
+
+Each refactored tool follows this pattern (example: `backlog-list.ts`):
+
+```typescript
+async (params) => {
+  const result = await listItems(service, params);
+  return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+}
+```
+
+Error-handling tools add a try/catch for `NotFoundError`:
+
+```typescript
+async ({ id, ...params }) => {
+  try {
+    const result = await updateItem(service, id, params);
+    return { content: [{ type: 'text', text: `Updated ${result.id}` }] };
+  } catch (error) {
+    if (error instanceof NotFoundError) {
+      return { content: [{ type: 'text', text: `Task ${id} not found` }], isError: true };
+    }
+    throw error;
+  }
+}
+```
+
+### Regression Verification
+
+- **Before**: 456 passing, 24 failing (pre-existing — storage/substrate/yaml tests with async/await issues)
+- **After**: 504 passing (+48 new invariant tests), 24 failing (identical pre-existing)
+- **Zero regressions** from the extraction
+
+### Invariant Test Coverage (48 tests)
+
+Tests in `src/__tests__/core-invariants.test.ts` use a mock `IBacklogService` — no filesystem, no MCP SDK. Each test verifies a behavioral contract that must hold regardless of transport.
+
+| Suite | Count | Key Invariants |
+|-------|-------|---------------|
+| `listItems` | 8 | Normalized output shape, parent_id/epic_id precedence in filter, counts toggle, filter passthrough |
+| `getItems` | 6 | Single/batch fetch, resource URI handling, "Not found" for missing, empty array error |
+| `createItem` | 7 | Sequential ID generation, type-specific prefixes (EPIC-, FLDR-, etc.), parent precedence, epic_id backward compat, source_path mutual exclusion |
+| `updateItem` | 10 | NotFoundError, parent/epic precedence, null clears both fields, epic_id sets parent_id, nullable due_date/content_type, updated_at timestamp |
+| `deleteItem` | 1 | Delegates to service, returns ID |
+| `searchItems` | 7 | Empty query error, optional scores/content, snippet inclusion, hybrid mode detection, filter passthrough |
+| `writeBody` | 7 | All 3 operation types, NotFoundError, operation errors (not found, non-unique), empty description, updated_at |
+
+## CLI Design (Phase 2 — Planned)
 
 ### Command Mapping
 
 | MCP Tool | CLI Command | Notes |
 |----------|-------------|-------|
-| `backlog_list` | `backlog list` | Default: active items |
-| `backlog_get` | `backlog get <id...>` | Positional args for IDs |
-| `backlog_create` | `backlog create <title>` | Title as positional arg |
-| `backlog_update` | `backlog update <id>` | ID as positional, fields as flags |
-| `backlog_delete` | `backlog delete <id>` | Confirmation prompt (unless --force) |
-| `backlog_search` | `backlog search <query>` | Query as positional |
-| `backlog_context` | `backlog context <id>` | ID as positional |
-| `write_resource` | `backlog edit <id>` | More natural CLI name |
+| `backlog_list` | `backlog-mcp list` | Default: active items |
+| `backlog_get` | `backlog-mcp get <id...>` | Positional args for IDs |
+| `backlog_create` | `backlog-mcp create <title>` | Title as positional arg |
+| `backlog_update` | `backlog-mcp update <id>` | ID as positional, fields as flags |
+| `backlog_delete` | `backlog-mcp delete <id>` | Confirmation prompt (unless --force) |
+| `backlog_search` | `backlog-mcp search <query>` | Query as positional |
+| `backlog_context` | `backlog-mcp context <id>` | ID as positional |
+| `write_resource` | `backlog-mcp edit <id>` | More natural CLI name for body editing |
 
-### Output Format
+### Design Decisions
 
-- Human-readable by default (tables, formatted text)
-- `--json` flag for machine-readable output
-- Errors to stderr, data to stdout
+- **Commander.js** for CLI framework — auto-generated help, subcommand routing, type coercion. ~50KB, acceptable for CLI UX.
+- **Direct filesystem access** — CLI reads from same `BACKLOG_DATA_DIR` via `BacklogService.getInstance()`. No running server needed. Same pattern as `git` reading `.git/` directly.
+- **Human-readable default output**, `--json` flag for machine-readable — CLI primary audience is humans debugging/scripting
+- **Integrated into existing bin entry** — Commander routes known subcommands, falls through to existing bridge/serve/status logic for unknown commands
 
-### Service Instantiation
+### Bundling
 
-CLI commands need a `BacklogService` instance. Two approaches:
-1. **Direct**: Import `BacklogService.getInstance()` — works because it reads from the same `BACKLOG_DATA_DIR`
-2. **Via HTTP**: Call the running server's API — adds network dependency
-
-Decision: Direct instantiation. The CLI operates on the same filesystem. No server needs to be running for CLI to work. This is the same pattern as `git` — it reads `.git/` directly, doesn't need a daemon.
-
-### bin Entry
-
-The existing `backlog-mcp` bin entry handles MCP bridge mode. The CLI subcommands integrate into the same entry point — Commander routes to the right handler based on the first argument.
-
-```
-backlog-mcp                    → bridge mode (existing, default)
-backlog-mcp serve              → HTTP server (existing)
-backlog-mcp list               → CLI: list items (new)
-backlog-mcp create "Title"     → CLI: create item (new)
-backlog-mcp search "query"     → CLI: search (new)
-...
-```
+- `commander` goes in `dependencies` (needed at runtime by CLI)
+- No tsdown config changes — `src/core/` and `src/cli/commands/` already covered by `src/**/*.ts` entry pattern
+- `commander` is a Node.js module, so `skipNodeModulesBundle: true` externalizes it correctly
 
 ## Consequences
 
-**Positive:**
-- Every MCP operation is available from CLI
-- Core functions are independently testable
-- HTTP routes can reuse core functions (future cleanup)
-- Clean architecture with clear layer boundaries
+**Positive**:
+- Every MCP operation available from CLI — 1:1 mapping
+- Core functions independently testable (48 invariant tests prove this)
+- HTTP routes can reuse core functions (future cleanup of `hono-app.ts`)
+- Clean layer boundaries: core → tools (MCP) / commands (CLI) / routes (HTTP)
 
-**Negative:**
-- More files to maintain (8 core + 8 CLI commands)
-- Commander.js dependency added
-- Slightly more indirection for MCP tool calls (wrapper → core → service)
+**Negative**:
+- More files to maintain (8 core + 8 CLI commands + types)
+- Commander.js dependency added to published package
+- One extra function call in MCP path (wrapper → core → service)
 
-**Risks:**
-- CLI service instantiation could conflict with running server's file locks → mitigated: TaskStorage uses simple fs read/write, no locks
-- Commander.js could conflict with existing arg parsing in `cli/index.ts` → mitigated: Commander only activates for known subcommands, falls through to existing logic otherwise
-
-## Implementation Notes
-
-### Phase 1: Core Extraction
-1. Create `src/core/` with typed functions extracted from `src/tools/`
-2. Refactor `src/tools/` to be thin MCP wrappers calling core functions
-3. Verify all existing tests pass (behavior unchanged)
-
-### Phase 2: CLI Commands
-1. Add `commander` dependency
-2. Create `src/cli/commands/` with one file per command
-3. Wire Commander program in `src/cli/index.ts`
-4. Each command: parse args → `BacklogService.getInstance()` → call core → format output
-
-### Bundling
-- `commander` goes in `dependencies` (needed at runtime)
-- Core functions are already bundled (same package)
-- No changes to tsdown config needed — `src/core/` and `src/cli/commands/` are already covered by the `src/**/*.ts` entry pattern
+**Risks and Mitigations**:
+- CLI service instantiation conflicting with running server → mitigated: `TaskStorage` uses simple `readFileSync`/`writeFileSync`, no file locks
+- Commander conflicting with existing arg parsing → mitigated: Commander only activates for registered subcommands, unrecognized args fall through to existing `if/else` chain

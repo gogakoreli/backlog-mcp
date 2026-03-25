@@ -8,84 +8,11 @@ status: Accepted
 
 ## Problem Statement
 
-All business logic lives inside MCP tool registration callbacks (`src/tools/*.ts`). These functions are tightly coupled to the MCP SDK — they take `McpServer`, define zod schemas inline, and return MCP-formatted `{ content: [{ type: 'text', text: ... }] }` responses.
-
-Consequences of this coupling:
-- No CLI access — users without MCP clients can't interact with their backlog
-- No reuse — HTTP routes in `hono-app.ts` duplicate logic instead of calling shared functions
-- Testing requires MCP server mocking — can't unit test business logic in isolation
-- Adding any new transport (WebSocket, REST, CLI) means duplicating all business logic
-
-## Problem Space
-
-- **Who's affected**: Users who want CLI access (scripting, debugging, quick edits), developers testing operations, HTTP route handlers that duplicate logic
-- **Root cause**: Transport-coupled business logic — "what to do" is entangled with "how to receive the request"
-- **Constraint**: Must not break existing MCP behavior — tools must continue to work identically
-- **What if we're wrong**: If CLI adoption is zero, we still benefit from testable core functions and cleaner MCP wrappers — the extraction pays for itself
-
-## Context
-
-### Architecture Before Extraction
-
-```
-MCP Client → McpServer.registerTool() → inline callback (business logic + MCP formatting)
-                                              ↓
-                                        IBacklogService (storage)
-```
-
-Each tool file exported a single `registerXxxTool(server, service)` function with business logic embedded in the callback:
-
-| Tool | Embedded Logic |
-|------|---------------|
-| `backlog-create` | `source_path` filesystem resolution, `nextEntityId()` generation, `parent_id`/`epic_id` precedence |
-| `backlog-update` | `parent_id`/`epic_id` precedence with null-clearing, nullable field handling (`due_date`, `content_type`) |
-| `backlog-get` | Resource URI detection (`mcp://backlog/`), batch fetch with `---` separators, frontmatter formatting |
-| `backlog-search` | Result formatting with optional scores/content/snippets, hybrid search mode detection |
-| `backlog-context` | Already well-factored — delegates to `hydrateContext()` (191 existing tests) |
-| `write_resource` | Delegates to `applyOperation()` for str_replace/insert/append on task body |
-
-### Existing CLI
-
-Only server management commands: `serve`, `status`, `stop`, `version`, bridge mode. Zero task operations.
-
-## Proposed Solutions
-
-### Option 1: Extract to `src/core/` — Standalone Tool Functions (Selected)
-
-Create `src/core/` with one file per operation. Each exports a pure function taking typed input + `IBacklogService`, returning typed output (plain objects, not MCP content format).
-
-- MCP tools become thin wrappers: parse zod → call core → wrap in `{ content: [{ type: 'text', text: JSON.stringify(result) }] }`
-- CLI commands become thin wrappers: parse args → call core → format for terminal
-
-**Pros**: Clean hexagonal architecture, independently testable, guaranteed MCP/CLI parity, HTTP routes can reuse
-**Cons**: 8 new files, return types to define, two layers of thin wrapper
-
-### Option 2: Refactor In-Place in `src/tools/`
-
-Export both standalone function and MCP registration from each tool file.
-
-**Pros**: Less file movement
-**Cons**: Mixed concerns in `src/tools/`, confusing imports (CLI importing from `tools/` suggests MCP dependency)
-
-### Option 3: Enhance IBacklogService
-
-Move all business logic into service methods.
-
-**Pros**: Simplest — no new layer
-**Cons**: Fatal flaw — service is a storage abstraction. Adding presentation logic (formatting search results, batch get with separators) violates SRP. `write_resource` applies text operations, not storage.
+All business logic lives inside MCP tool registration callbacks (`src/tools/*.ts`), tightly coupled to the MCP SDK. This means no CLI access, no reuse from HTTP routes, and testing requires MCP server mocking.
 
 ## Decision
 
-**Selected**: Option 1 — Extract to `src/core/`
-
-**Rationale**: Creates a clean boundary between "what the system does" (core) and "how you talk to it" (MCP, CLI, HTTP). The hexagonal/ports-and-adapters pattern. The "boilerplate" concern proved minimal in practice — each MCP wrapper is 5-10 lines.
-
-**Assumptions that must hold**:
-- Core functions depend only on `IBacklogService` (and deps for context) — no MCP SDK imports
-- Return types are simple enough that both MCP (JSON) and CLI (text) can format them trivially
-- The extraction doesn't change any observable behavior for existing MCP clients
-
-## Architecture After Extraction (Phase 1 — Implemented)
+Extract business logic into `src/core/` — standalone functions that take `IBacklogService` + typed params and return typed results. MCP tools and CLI commands become thin transport wrappers.
 
 ```
 MCP Client → src/tools/*.ts (thin wrapper) ──┐
@@ -93,112 +20,129 @@ MCP Client → src/tools/*.ts (thin wrapper) ──┐
 CLI User   → src/cli/commands/*.ts (thin)  ──┘
 ```
 
-### Core Functions Implemented
+## Design Principles
 
-| File | Function | Signature | Key Logic |
-|------|----------|-----------|-----------|
-| `core/list.ts` | `listItems()` | `(service, ListParams) → ListResult` | parent_id/epic_id precedence, optional counts |
-| `core/get.ts` | `getItems()` | `(service, string[]) → GetResult` | Resource URI detection, batch with separators |
-| `core/create.ts` | `createItem()` | `(service, CreateParams) → CreateResult` | ID generation, source_path resolution, parent precedence |
-| `core/update.ts` | `updateItem()` | `(service, id, UpdateParams) → UpdateResult` | Null-clearing, parent/epic precedence, nullable fields |
-| `core/delete.ts` | `deleteItem()` | `(service, id) → DeleteResult` | Delegates to service |
-| `core/search.ts` | `searchItems()` | `(service, SearchParams) → SearchResult` | Result formatting, hybrid mode detection |
-| `core/write.ts` | `writeBody()` | `(service, WriteParams) → WriteResult` | str_replace/insert/append via `applyOperation()` |
-| `core/types.ts` | Types + `NotFoundError` | — | All param/result types, shared error class |
+### 1. Core is pure business logic — no I/O, no transport
 
-### What Was NOT Extracted
+Core functions never touch the filesystem, network, or MCP SDK. `resolveSourcePath` (filesystem read) lives in the MCP transport layer, not core. This enables Workers/D1 compatibility (ADR-0089).
 
-- `backlog-context` — already delegates to `hydrateContext()` which has 191 tests. The core function IS `hydrateContext`. No wrapper needed.
-- `resolveSourcePath` — moved to `core/create.ts` but re-exported from `tools/backlog-create.ts` for backward compat (`source-path.test.ts` imports it)
+### 2. Consistent error contract
 
-### MCP Wrapper Pattern (Evidence)
+Two error classes with clear semantics:
 
-Each refactored tool follows this pattern (example: `backlog-list.ts`):
+| Error | When | Used by |
+|-------|------|---------|
+| `NotFoundError` | Required entity doesn't exist | `updateItem`, `editItem` |
+| `ValidationError` | Invalid input | `getItems` (empty ids), `searchItems` (empty query) |
+
+For reads, not-found is a normal outcome — `getItems` returns `{ id, content: null }` per missing entity instead of throwing. For deletes, `deleteItem` returns `{ id, deleted: boolean }` so the caller knows if the item existed.
+
+Edit operations return `{ success: false, error }` for operation failures (str_replace not found, non-unique match) — these are expected outcomes, not exceptions.
+
+### 3. Consistent signatures — single params object
+
+Every core function takes `(service, params)` where params is a typed object:
 
 ```typescript
+listItems(service, { status, type, limit })
+getItems(service, { ids })
+createItem(service, { title, description, type, parent_id })
+updateItem(service, { id, status, title, parent_id })
+deleteItem(service, { id })
+searchItems(service, { query, types, status, limit })
+editItem(service, { id, operation })
+```
+
+No mixed signatures (separate `id` arg vs embedded in params). Consistent for both human reasoning and code generation.
+
+### 4. Transport formats, core returns data
+
+Core returns structured types. Transport decides presentation:
+- `getItems` returns `Array<{ id, content: string | null }>` — MCP joins with `---` separators and shows "Not found: X" for nulls. CLI could show a table.
+- `listItems` returns `{ tasks: ListItem[], counts? }` — MCP serializes to JSON. CLI could show a formatted list.
+
+### 5. Backward compatibility via re-export
+
+`resolveSourcePath` moved from `core/create.ts` to `tools/backlog-create.ts` but existing tests (`source-path.test.ts`) import from the tools path — no breakage.
+
+## Core Functions
+
+| File | Function | Returns | Throws |
+|------|----------|---------|--------|
+| `core/list.ts` | `listItems` | `{ tasks: ListItem[], counts? }` | — |
+| `core/get.ts` | `getItems` | `{ items: Array<{ id, content: string \| null }> }` | `ValidationError` (empty ids) |
+| `core/create.ts` | `createItem` | `{ id }` | — |
+| `core/update.ts` | `updateItem` | `{ id }` | `NotFoundError` |
+| `core/delete.ts` | `deleteItem` | `{ id, deleted: boolean }` | — |
+| `core/search.ts` | `searchItems` | `{ results, total, query, search_mode }` | `ValidationError` (empty query) |
+| `core/edit.ts` | `editItem` | `{ success, message?, error? }` | `NotFoundError` |
+
+`backlog-context` was NOT extracted — it already delegates to `hydrateContext()` which has 191 tests. The core function IS `hydrateContext`.
+
+## MCP Wrapper Pattern
+
+Each tool follows this pattern:
+
+```typescript
+// Happy path — core returns data, wrapper formats for MCP
 async (params) => {
   const result = await listItems(service, params);
   return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
 }
-```
 
-Error-handling tools add a try/catch for `NotFoundError`:
-
-```typescript
-async ({ id, ...params }) => {
+// With error handling — transport catches typed errors
+async (params) => {
   try {
-    const result = await updateItem(service, id, params);
+    const result = await updateItem(service, params);
     return { content: [{ type: 'text', text: `Updated ${result.id}` }] };
   } catch (error) {
-    if (error instanceof NotFoundError) {
-      return { content: [{ type: 'text', text: `Task ${id} not found` }], isError: true };
-    }
+    if (error instanceof NotFoundError)
+      return { content: [{ type: 'text', text: `Task ${params.id} not found` }], isError: true };
     throw error;
   }
 }
+
+// Transport-specific I/O — resolved before calling core
+async ({ source_path, ...params }) => {
+  let description = params.description;
+  if (source_path) description = resolveSourcePath(source_path); // fs read in transport
+  const result = await createItem(service, { ...params, description });
+  return { content: [{ type: 'text', text: `Created ${result.id}` }] };
+}
 ```
 
-### Regression Verification
+## Invariant Test Coverage
 
-- **Before**: 456 passing, 24 failing (pre-existing — storage/substrate/yaml tests with async/await issues)
-- **After**: 504 passing (+48 new invariant tests), 24 failing (identical pre-existing)
-- **Zero regressions** from the extraction
-
-### Invariant Test Coverage (48 tests)
-
-Tests in `src/__tests__/core-invariants.test.ts` use a mock `IBacklogService` — no filesystem, no MCP SDK. Each test verifies a behavioral contract that must hold regardless of transport.
+48 tests in `src/__tests__/core-invariants.test.ts` using a mock `IBacklogService` — no filesystem, no MCP SDK. Each test verifies a behavioral contract that must hold regardless of transport.
 
 | Suite | Count | Key Invariants |
 |-------|-------|---------------|
-| `listItems` | 8 | Normalized output shape, parent_id/epic_id precedence in filter, counts toggle, filter passthrough |
-| `getItems` | 6 | Single/batch fetch, resource URI handling, "Not found" for missing, empty array error |
-| `createItem` | 7 | Sequential ID generation, type-specific prefixes (EPIC-, FLDR-, etc.), parent precedence, epic_id backward compat, source_path mutual exclusion |
-| `updateItem` | 10 | NotFoundError, parent/epic precedence, null clears both fields, epic_id sets parent_id, nullable due_date/content_type, updated_at timestamp |
-| `deleteItem` | 1 | Delegates to service, returns ID |
-| `searchItems` | 7 | Empty query error, optional scores/content, snippet inclusion, hybrid mode detection, filter passthrough |
-| `writeBody` | 7 | All 3 operation types, NotFoundError, operation errors (not found, non-unique), empty description, updated_at |
+| `listItems` | 6 | Normalized shape, parent_id/epic_id precedence, counts toggle, filter passthrough |
+| `getItems` | 7 | Structured items, null for missing, batch order preserved, resource URIs, ValidationError on empty, mixed found/not-found |
+| `createItem` | 7 | Sequential ID, type-specific prefix, parent precedence, epic_id backward compat, pre-resolved description |
+| `updateItem` | 10 | NotFoundError, parent/epic precedence, null clears both, epic_id sets parent_id, nullable fields, updated_at |
+| `deleteItem` | 2 | Returns `deleted: true` when existed, `deleted: false` when not |
+| `searchItems` | 8 | ValidationError on empty, optional scores/content, snippets, hybrid mode, filter passthrough |
+| `editItem` | 8 | All 3 operations, NotFoundError, `{ success: false }` for op errors, empty description, updated_at |
 
 ## CLI Design (Phase 2 — Planned)
-
-### Command Mapping
 
 | MCP Tool | CLI Command | Notes |
 |----------|-------------|-------|
 | `backlog_list` | `backlog-mcp list` | Default: active items |
-| `backlog_get` | `backlog-mcp get <id...>` | Positional args for IDs |
-| `backlog_create` | `backlog-mcp create <title>` | Title as positional arg |
-| `backlog_update` | `backlog-mcp update <id>` | ID as positional, fields as flags |
-| `backlog_delete` | `backlog-mcp delete <id>` | Confirmation prompt (unless --force) |
+| `backlog_get` | `backlog-mcp get <id...>` | Positional args |
+| `backlog_create` | `backlog-mcp create <title>` | `--source` resolves file in CLI layer |
+| `backlog_update` | `backlog-mcp update <id>` | Fields as flags |
+| `backlog_delete` | `backlog-mcp delete <id>` | `--force` skips confirmation |
 | `backlog_search` | `backlog-mcp search <query>` | Query as positional |
-| `backlog_context` | `backlog-mcp context <id>` | ID as positional |
-| `write_resource` | `backlog-mcp edit <id>` | More natural CLI name for body editing |
+| `backlog_context` | `backlog-mcp context <id>` | Calls `hydrateContext` directly |
+| `write_resource` | `backlog-mcp edit <id>` | More natural CLI name |
 
-### Design Decisions
+Commander.js for CLI framework. Direct filesystem access via `BacklogService.getInstance()` — no running server needed. Human-readable default, `--json` flag for machine-readable.
 
-- **Commander.js** for CLI framework — auto-generated help, subcommand routing, type coercion. ~50KB, acceptable for CLI UX.
-- **Direct filesystem access** — CLI reads from same `BACKLOG_DATA_DIR` via `BacklogService.getInstance()`. No running server needed. Same pattern as `git` reading `.git/` directly.
-- **Human-readable default output**, `--json` flag for machine-readable — CLI primary audience is humans debugging/scripting
-- **Integrated into existing bin entry** — Commander routes known subcommands, falls through to existing bridge/serve/status logic for unknown commands
+## Regression Verification
 
-### Bundling
-
-- `commander` goes in `dependencies` (needed at runtime by CLI)
-- No tsdown config changes — `src/core/` and `src/cli/commands/` already covered by `src/**/*.ts` entry pattern
-- `commander` is a Node.js module, so `skipNodeModulesBundle: true` externalizes it correctly
-
-## Consequences
-
-**Positive**:
-- Every MCP operation available from CLI — 1:1 mapping
-- Core functions independently testable (48 invariant tests prove this)
-- HTTP routes can reuse core functions (future cleanup of `hono-app.ts`)
-- Clean layer boundaries: core → tools (MCP) / commands (CLI) / routes (HTTP)
-
-**Negative**:
-- More files to maintain (8 core + 8 CLI commands + types)
-- Commander.js dependency added to published package
-- One extra function call in MCP path (wrapper → core → service)
-
-**Risks and Mitigations**:
-- CLI service instantiation conflicting with running server → mitigated: `TaskStorage` uses simple `readFileSync`/`writeFileSync`, no file locks
-- Commander conflicting with existing arg parsing → mitigated: Commander only activates for registered subcommands, unrecognized args fall through to existing `if/else` chain
+- Before extraction: 456 passing, 24 failing (pre-existing)
+- After Phase 1 (mechanical extraction): 504 passing (+48 invariant tests), 24 failing
+- After Phase 1.5 (design fixes): 513 passing (+9 viewer-routes now passing), 24 failing
+- Zero regressions introduced by our changes

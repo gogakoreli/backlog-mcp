@@ -3,6 +3,10 @@ import type { IBacklogService } from '../storage/service-types.js';
 import type { Resource, SearchableType } from '../search/types.js';
 import { ValidationError, type SearchParams, type SearchResult, type SearchResultItem } from './types.js';
 
+function isResource(type: string): boolean {
+  return type === 'resource';
+}
+
 export async function searchItems(service: IBacklogService, params: SearchParams): Promise<SearchResult> {
   const { query, types, status, parent_id, sort, limit, include_content, include_scores } = params;
 
@@ -19,7 +23,7 @@ export async function searchItems(service: IBacklogService, params: SearchParams
   const searchMode = service.isHybridSearchActive?.() ?? false ? 'hybrid' : 'bm25';
 
   const formattedResults: SearchResultItem[] = results.map(r => {
-    if (r.type === 'resource') {
+    if (isResource(r.type)) {
       const resource = r.item as Resource;
       const item: SearchResultItem = { id: resource.id, title: resource.title, type: 'resource', path: resource.path };
       if (r.snippet) { item.snippet = r.snippet.text; item.matched_fields = r.snippet.matched_fields; }

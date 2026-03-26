@@ -26,10 +26,11 @@ export async function updateItem(service: IBacklogService, params: UpdateParams)
   }
 
   // Nullable type-specific fields: null clears, string sets
-  for (const [key, val] of Object.entries({ due_date, content_type })) {
-    if (val === null) delete (task as any)[key];
-    else if (val !== undefined) (task as any)[key] = val;
-  }
+  if (due_date === null) delete task.due_date;
+  else if (due_date !== undefined) task.due_date = due_date;
+
+  if (content_type === null) delete task.content_type;
+  else if (content_type !== undefined) task.content_type = content_type;
 
   Object.assign(task, updates, { updated_at: new Date().toISOString() });
   await service.save(task);

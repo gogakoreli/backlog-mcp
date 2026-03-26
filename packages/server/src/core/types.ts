@@ -10,6 +10,7 @@
  * - edit: returns { success, error? } for operation failures (expected outcome, not exceptional)
  */
 import type { Status, EntityType, Reference } from '@backlog-mcp/shared';
+import type { ResourceContent } from '../resources/manager.js';
 
 // ── Errors ──
 
@@ -67,7 +68,7 @@ export interface GetItem {
   id: string;
   content: string | null;
   /** Present only for resource URIs — transport uses this for formatting */
-  resource?: { content: string; frontmatter?: Record<string, any>; mimeType: string };
+  resource?: ResourceContent;
 }
 
 export interface GetResult {

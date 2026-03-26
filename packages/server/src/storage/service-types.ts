@@ -1,4 +1,6 @@
 import type { Entity, Status, EntityType } from '@backlog-mcp/shared';
+import type { UnifiedSearchResult, SearchableType } from '../search/types.js';
+import type { ResourceContent } from '../resources/manager.js';
 
 export interface ListFilter {
   status?: Status[];
@@ -18,11 +20,17 @@ export interface IBacklogService {
   delete(id: string): Promise<boolean>;
   counts(): Promise<{ total_tasks: number; total_epics: number; by_status: Record<string, number>; by_type: Record<string, number> }>;
   getMaxId(type?: EntityType): Promise<number>;
-  searchUnified(query: string, options?: { types?: Array<'task' | 'epic' | 'resource'>; status?: Status[]; parent_id?: string; sort?: string; limit?: number }): Promise<Array<{ item: Entity | any; score: number; type: 'task' | 'epic' | 'resource'; snippet?: any }>>;
+  searchUnified(query: string, options?: {
+    types?: SearchableType[];
+    status?: Status[];
+    parent_id?: string;
+    sort?: string;
+    limit?: number;
+  }): Promise<UnifiedSearchResult[]>;
   // Optional local-only methods
   getSync?(id: string): Entity | undefined;
-  getResource?(uri: string): any;
+  getResource?(uri: string): ResourceContent | undefined;
   isHybridSearchActive?(): boolean;
   getFilePath?(id: string): string | null;
-  listSync?(filter?: any): Entity[];
+  listSync?(filter?: ListFilter): Entity[];
 }

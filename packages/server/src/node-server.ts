@@ -15,6 +15,7 @@ const port = parseInt(process.env.BACKLOG_VIEWER_PORT || '3030');
 const app = createApp(service, {
   name: paths.packageJson.name,
   version: paths.getVersion(),
+  dataDir: paths.backlogDataDir,
   wrapMcpServer: withOperationLogging,
   resourceManager,
   operationLogger,

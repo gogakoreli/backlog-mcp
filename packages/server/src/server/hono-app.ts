@@ -14,6 +14,7 @@ export interface AppDeps extends ToolDeps {
   // Server identity — passed explicitly to avoid importing paths.ts in Workers
   name?: string;
   version?: string;
+  dataDir?: string;
   // Auth secrets — injected from entry points (process.env in Node.js, env bindings in Workers)
   apiKey?: string;         // direct Bearer token (Claude Desktop / programmatic)
   clientSecret?: string;   // OAuth client_secret (Claude.ai web connector)
@@ -294,12 +295,16 @@ export function createApp(service: IBacklogService, deps?: AppDeps): Hono {
   });
 
   // GET /api/status
+  const startTime = Date.now();
   app.get('/api/status', async (c) => {
     const counts = await service.counts();
     return c.json({
       version: deps?.version ?? '0.0.0',
       mode: deps?.db ? 'cloudflare-worker' : 'local',
       taskCount: counts.total_tasks + counts.total_epics,
+      dataDir: deps?.dataDir,
+      port: parseInt(c.req.header('host')?.split(':')[1] ?? '0'),
+      uptime: Math.floor((Date.now() - startTime) / 1000),
     });
   });
 

@@ -26,71 +26,63 @@ CLI User   → src/cli/commands/*.ts (thin)  ──┘
 
 Core functions never touch the filesystem, network, or MCP SDK. `resolveSourcePath` (filesystem read) lives in the MCP transport layer, not core. This enables Workers/D1 compatibility (ADR-0089).
 
-### 2. Consistent error contract
+### 2. Strict type safety — zero `any`
 
-Two error classes with clear semantics:
+- Core layer: zero `any` types. All params, results, and errors are fully typed.
+- `IBacklogService` interface: uses `UnifiedSearchResult`, `ResourceContent`, `ListFilter` — no `any` placeholders.
+- `Entity` fields accessed via typed properties, not `as any` casts. Nullable fields (`due_date`, `content_type`) use explicit typed assignments.
+- `EditOperation` maps to the `Operation` discriminated union from `resources/types.ts`.
+- Only legitimate `Record<string, unknown>` is YAML frontmatter — genuinely arbitrary key-value data.
+
+### 3. Consistent error contract
 
 | Error | When | Used by |
 |-------|------|---------|
 | `NotFoundError` | Required entity doesn't exist | `updateItem`, `editItem` |
 | `ValidationError` | Invalid input | `getItems` (empty ids), `searchItems` (empty query) |
 
-For reads, not-found is a normal outcome — `getItems` returns `{ id, content: null }` per missing entity instead of throwing. For deletes, `deleteItem` returns `{ id, deleted: boolean }` so the caller knows if the item existed.
+- Reads: not-found is normal — `getItems` returns `{ id, content: null }` per missing entity.
+- Deletes: `deleteItem` returns `{ id, deleted: boolean }` so caller knows if item existed.
+- Edits: `{ success: false, error }` for operation failures (expected outcomes, not exceptions).
 
-Edit operations return `{ success: false, error }` for operation failures (str_replace not found, non-unique match) — these are expected outcomes, not exceptions.
+### 4. Consistent signatures — single params object
 
-### 3. Consistent signatures — single params object
+Every core function takes `(service, params)` where params is a typed object. No mixed signatures.
 
-Every core function takes `(service, params)` where params is a typed object:
-
-```typescript
-listItems(service, { status, type, limit })
-getItems(service, { ids })
-createItem(service, { title, description, type, parent_id })
-updateItem(service, { id, status, title, parent_id })
-deleteItem(service, { id })
-searchItems(service, { query, types, status, limit })
-editItem(service, { id, operation })
-```
-
-No mixed signatures (separate `id` arg vs embedded in params). Consistent for both human reasoning and code generation.
-
-### 4. Transport formats, core returns data
+### 5. Transport formats, core returns data
 
 Core returns structured types. Transport decides presentation:
-- `getItems` returns `Array<{ id, content: string | null }>` — MCP joins with `---` separators and shows "Not found: X" for nulls. CLI could show a table.
-- `listItems` returns `{ tasks: ListItem[], counts? }` — MCP serializes to JSON. CLI could show a formatted list.
+- `getItems` returns `Array<{ id, content, resource? }>` — MCP joins with separators and formats resource headers. CLI could render differently.
+- `listItems` returns `{ tasks: ListItem[], counts? }` — MCP serializes to JSON. CLI could show a table.
 
-### 5. Backward compatibility via re-export
+### 6. Backward compatibility via re-export
 
-`resolveSourcePath` moved from `core/create.ts` to `tools/backlog-create.ts` but existing tests (`source-path.test.ts`) import from the tools path — no breakage.
+`resolveSourcePath` moved to MCP transport but re-exported from `tools/backlog-create.ts` for existing test imports.
 
-## Core Functions
+## Core Functions (Phase 1 — Complete)
 
 | File | Function | Returns | Throws |
 |------|----------|---------|--------|
 | `core/list.ts` | `listItems` | `{ tasks: ListItem[], counts? }` | — |
-| `core/get.ts` | `getItems` | `{ items: Array<{ id, content: string \| null }> }` | `ValidationError` (empty ids) |
+| `core/get.ts` | `getItems` | `{ items: GetItem[] }` | `ValidationError` |
 | `core/create.ts` | `createItem` | `{ id }` | — |
 | `core/update.ts` | `updateItem` | `{ id }` | `NotFoundError` |
-| `core/delete.ts` | `deleteItem` | `{ id, deleted: boolean }` | — |
-| `core/search.ts` | `searchItems` | `{ results, total, query, search_mode }` | `ValidationError` (empty query) |
+| `core/delete.ts` | `deleteItem` | `{ id, deleted }` | — |
+| `core/search.ts` | `searchItems` | `{ results, total, query, search_mode }` | `ValidationError` |
 | `core/edit.ts` | `editItem` | `{ success, message?, error? }` | `NotFoundError` |
 
-`backlog-context` was NOT extracted — it already delegates to `hydrateContext()` which has 191 tests. The core function IS `hydrateContext`.
+`backlog-context` was NOT extracted — already delegates to `hydrateContext()` (191 tests).
 
 ## MCP Wrapper Pattern
 
-Each tool follows this pattern:
-
 ```typescript
-// Happy path — core returns data, wrapper formats for MCP
+// Happy path
 async (params) => {
   const result = await listItems(service, params);
   return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
 }
 
-// With error handling — transport catches typed errors
+// Typed error handling
 async (params) => {
   try {
     const result = await updateItem(service, params);
@@ -102,30 +94,28 @@ async (params) => {
   }
 }
 
-// Transport-specific I/O — resolved before calling core
+// Transport-specific I/O before calling core
 async ({ source_path, ...params }) => {
   let description = params.description;
-  if (source_path) description = resolveSourcePath(source_path); // fs read in transport
+  if (source_path) description = resolveSourcePath(source_path);
   const result = await createItem(service, { ...params, description });
   return { content: [{ type: 'text', text: `Created ${result.id}` }] };
 }
 ```
 
-## Invariant Test Coverage
-
-48 tests in `src/__tests__/core-invariants.test.ts` using a mock `IBacklogService` — no filesystem, no MCP SDK. Each test verifies a behavioral contract that must hold regardless of transport.
+## Invariant Tests (48)
 
 | Suite | Count | Key Invariants |
 |-------|-------|---------------|
 | `listItems` | 6 | Normalized shape, parent_id/epic_id precedence, counts toggle, filter passthrough |
-| `getItems` | 7 | Structured items, null for missing, batch order preserved, resource URIs, ValidationError on empty, mixed found/not-found |
-| `createItem` | 7 | Sequential ID, type-specific prefix, parent precedence, epic_id backward compat, pre-resolved description |
-| `updateItem` | 10 | NotFoundError, parent/epic precedence, null clears both, epic_id sets parent_id, nullable fields, updated_at |
-| `deleteItem` | 2 | Returns `deleted: true` when existed, `deleted: false` when not |
-| `searchItems` | 8 | ValidationError on empty, optional scores/content, snippets, hybrid mode, filter passthrough |
-| `editItem` | 8 | All 3 operations, NotFoundError, `{ success: false }` for op errors, empty description, updated_at |
+| `getItems` | 7 | Structured items, null for missing, batch order, resource URIs with metadata, ValidationError on empty |
+| `createItem` | 7 | Sequential ID, type-specific prefix, parent precedence, epic_id backward compat |
+| `updateItem` | 10 | NotFoundError, parent/epic precedence, null clears both, nullable fields, updated_at |
+| `deleteItem` | 2 | `deleted: true` when existed, `deleted: false` when not |
+| `searchItems` | 8 | ValidationError on empty, optional scores/content, hybrid mode, filter passthrough |
+| `editItem` | 8 | All 3 operations, NotFoundError, `{ success: false }` for op errors, updated_at |
 
-## CLI Design (Phase 2 — Planned)
+## CLI (Phase 2 — Next)
 
 | MCP Tool | CLI Command | Notes |
 |----------|-------------|-------|
@@ -143,6 +133,6 @@ Commander.js for CLI framework. Direct filesystem access via `BacklogService.get
 ## Regression Verification
 
 - Before extraction: 456 passing, 24 failing (pre-existing)
-- After Phase 1 (mechanical extraction): 504 passing (+48 invariant tests), 24 failing
-- After Phase 1.5 (design fixes): 513 passing (+9 viewer-routes now passing), 24 failing
-- Zero regressions introduced by our changes
+- After Phase 1 complete: 513 passing, 24 failing (same pre-existing)
+- Typecheck: zero new errors (3 pre-existing in hono-app.ts OAuth code)
+- Zero `any` in core/ and service-types.ts

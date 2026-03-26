@@ -100,51 +100,48 @@ describe('Substrates Backend', () => {
   // ========================================================================
 
   describe('storage - new entity types', () => {
-    it('should create and retrieve a folder', () => {
-      const id = nextEntityId(storage.getMaxId('folder'), 'folder');
+    it('should create and retrieve a folder', async () => {
+      const id = nextEntityId(await storage.getMaxId('folder'), 'folder');
       expect(id).toBe('FLDR-0001');
       const task = createTask({ id, title: 'My Folder', type: 'folder' });
-      storage.add(task);
-      const retrieved = storage.get('FLDR-0001');
+      await storage.add(task);
+      const retrieved = await storage.get('FLDR-0001');
       expect(retrieved?.title).toBe('My Folder');
       expect(retrieved?.type).toBe('folder');
     });
 
-    it('should create and retrieve an artifact', () => {
-      const id = nextEntityId(storage.getMaxId('artifact'), 'artifact');
+    it('should create and retrieve an artifact', async () => {
+      const id = nextEntityId(await storage.getMaxId('artifact'), 'artifact');
       expect(id).toBe('ARTF-0001');
       const task = createTask({ id, title: 'Design Doc', type: 'artifact', content_type: 'text/markdown', path: '/docs/design.md' });
-      storage.add(task);
-      const retrieved = storage.get('ARTF-0001');
+      await storage.add(task);
+      const retrieved = await storage.get('ARTF-0001');
       expect(retrieved?.content_type).toBe('text/markdown');
       expect(retrieved?.path).toBe('/docs/design.md');
     });
 
-    it('should create and retrieve a milestone', () => {
-      const id = nextEntityId(storage.getMaxId('milestone'), 'milestone');
+    it('should create and retrieve a milestone', async () => {
+      const id = nextEntityId(await storage.getMaxId('milestone'), 'milestone');
       expect(id).toBe('MLST-0001');
       const task = createTask({ id, title: 'Q1 Release', type: 'milestone', due_date: '2026-03-31T00:00:00Z' });
-      storage.add(task);
-      const retrieved = storage.get('MLST-0001');
+      await storage.add(task);
+      const retrieved = await storage.get('MLST-0001');
       expect(retrieved?.due_date).toBe('2026-03-31T00:00:00Z');
     });
 
-    it('should generate independent IDs per type', () => {
-      // Create items of different types
-      storage.add(createTask({ id: 'TASK-0001', title: 'Task 1' }));
-      storage.add(createTask({ id: 'FLDR-0001', title: 'Folder 1', type: 'folder' }));
-      storage.add(createTask({ id: 'ARTF-0001', title: 'Artifact 1', type: 'artifact' }));
+    it('should generate independent IDs per type', async () => {
+      await storage.add(createTask({ id: 'TASK-0001', title: 'Task 1' }));
+      await storage.add(createTask({ id: 'FLDR-0001', title: 'Folder 1', type: 'folder' }));
+      await storage.add(createTask({ id: 'ARTF-0001', title: 'Artifact 1', type: 'artifact' }));
 
-      // Each type's max ID is independent
-      expect(storage.getMaxId('task')).toBe(1);
-      expect(storage.getMaxId('folder')).toBe(1);
-      expect(storage.getMaxId('artifact')).toBe(1);
-      expect(storage.getMaxId('milestone')).toBe(0);
+      expect(await storage.getMaxId('task')).toBe(1);
+      expect(await storage.getMaxId('folder')).toBe(1);
+      expect(await storage.getMaxId('artifact')).toBe(1);
+      expect(await storage.getMaxId('milestone')).toBe(0);
 
-      // Next IDs are correct
-      expect(nextEntityId(storage.getMaxId('task'), 'task')).toBe('TASK-0002');
-      expect(nextEntityId(storage.getMaxId('folder'), 'folder')).toBe('FLDR-0002');
-      expect(nextEntityId(storage.getMaxId('milestone'), 'milestone')).toBe('MLST-0001');
+      expect(nextEntityId(await storage.getMaxId('task'), 'task')).toBe('TASK-0002');
+      expect(nextEntityId(await storage.getMaxId('folder'), 'folder')).toBe('FLDR-0002');
+      expect(nextEntityId(await storage.getMaxId('milestone'), 'milestone')).toBe('MLST-0001');
     });
   });
 
@@ -154,10 +151,10 @@ describe('Substrates Backend', () => {
 
   describe('storage - parent_id', () => {
     it('should filter by parent_id', async () => {
-      storage.add(createTask({ id: 'FLDR-0001', title: 'Folder', type: 'folder' }));
-      storage.add(createTask({ id: 'TASK-0001', title: 'Child 1', parent_id: 'FLDR-0001' }));
-      storage.add(createTask({ id: 'TASK-0002', title: 'Child 2', parent_id: 'FLDR-0001' }));
-      storage.add(createTask({ id: 'TASK-0003', title: 'Orphan' }));
+      await storage.add(createTask({ id: 'FLDR-0001', title: 'Folder', type: 'folder' }));
+      await storage.add(createTask({ id: 'TASK-0001', title: 'Child 1', parent_id: 'FLDR-0001' }));
+      await storage.add(createTask({ id: 'TASK-0002', title: 'Child 2', parent_id: 'FLDR-0001' }));
+      await storage.add(createTask({ id: 'TASK-0003', title: 'Orphan' }));
 
       const children = await storage.list({ parent_id: 'FLDR-0001' });
       expect(children).toHaveLength(2);
@@ -165,22 +162,20 @@ describe('Substrates Backend', () => {
     });
 
     it('should filter by parent_id falling back to epic_id', async () => {
-      // Old-style task with only epic_id
       const task = createTask({ id: 'TASK-0001', title: 'Old task', epic_id: 'EPIC-0001' });
-      storage.add(task);
+      await storage.add(task);
 
-      // New-style task with parent_id
       const task2 = createTask({ id: 'TASK-0002', title: 'New task', parent_id: 'EPIC-0001' });
-      storage.add(task2);
+      await storage.add(task2);
 
       const children = await storage.list({ parent_id: 'EPIC-0001' });
       expect(children).toHaveLength(2);
     });
 
     it('should support subtasks (task parented to task)', async () => {
-      storage.add(createTask({ id: 'TASK-0001', title: 'Parent task' }));
-      storage.add(createTask({ id: 'TASK-0002', title: 'Subtask 1', parent_id: 'TASK-0001' }));
-      storage.add(createTask({ id: 'TASK-0003', title: 'Subtask 2', parent_id: 'TASK-0001' }));
+      await storage.add(createTask({ id: 'TASK-0001', title: 'Parent task' }));
+      await storage.add(createTask({ id: 'TASK-0002', title: 'Subtask 1', parent_id: 'TASK-0001' }));
+      await storage.add(createTask({ id: 'TASK-0003', title: 'Subtask 2', parent_id: 'TASK-0001' }));
 
       const subtasks = await storage.list({ parent_id: 'TASK-0001' });
       expect(subtasks).toHaveLength(2);
@@ -193,25 +188,25 @@ describe('Substrates Backend', () => {
 
   describe('backward compatibility - epic_id', () => {
     it('should still filter by epic_id', async () => {
-      storage.add(createTask({ id: 'EPIC-0001', title: 'Epic', type: 'epic' }));
-      storage.add(createTask({ id: 'TASK-0001', title: 'Task in epic', epic_id: 'EPIC-0001' }));
+      await storage.add(createTask({ id: 'EPIC-0001', title: 'Epic', type: 'epic' }));
+      await storage.add(createTask({ id: 'TASK-0001', title: 'Task in epic', epic_id: 'EPIC-0001' }));
 
       const tasks = await storage.list({ epic_id: 'EPIC-0001' });
       expect(tasks).toHaveLength(1);
       expect(tasks[0].id).toBe('TASK-0001');
     });
 
-    it('should still create tasks with epic_id', () => {
+    it('should still create tasks with epic_id', async () => {
       const task = createTask({ id: 'TASK-0001', title: 'Test', epic_id: 'EPIC-0001' });
       expect(task.epic_id).toBe('EPIC-0001');
-      storage.add(task);
-      const retrieved = storage.get('TASK-0001');
+      await storage.add(task);
+      const retrieved = await storage.get('TASK-0001');
       expect(retrieved?.epic_id).toBe('EPIC-0001');
     });
 
-    it('should still generate epic IDs correctly', () => {
-      storage.add(createTask({ id: 'EPIC-0001', title: 'Epic 1', type: 'epic' }));
-      const nextId = nextEntityId(storage.getMaxId('epic'), 'epic');
+    it('should still generate epic IDs correctly', async () => {
+      await storage.add(createTask({ id: 'EPIC-0001', title: 'Epic 1', type: 'epic' }));
+      const nextId = nextEntityId(await storage.getMaxId('epic'), 'epic');
       expect(nextId).toBe('EPIC-0002');
     });
   });
@@ -221,14 +216,14 @@ describe('Substrates Backend', () => {
   // ========================================================================
 
   describe('counts - by_type', () => {
-    it('should count all entity types', () => {
-      storage.add(createTask({ id: 'TASK-0001', title: 'Task' }));
-      storage.add(createTask({ id: 'EPIC-0001', title: 'Epic', type: 'epic' }));
-      storage.add(createTask({ id: 'FLDR-0001', title: 'Folder', type: 'folder' }));
-      storage.add(createTask({ id: 'ARTF-0001', title: 'Artifact', type: 'artifact' }));
-      storage.add(createTask({ id: 'MLST-0001', title: 'Milestone', type: 'milestone' }));
+    it('should count all entity types', async () => {
+      await storage.add(createTask({ id: 'TASK-0001', title: 'Task' }));
+      await storage.add(createTask({ id: 'EPIC-0001', title: 'Epic', type: 'epic' }));
+      await storage.add(createTask({ id: 'FLDR-0001', title: 'Folder', type: 'folder' }));
+      await storage.add(createTask({ id: 'ARTF-0001', title: 'Artifact', type: 'artifact' }));
+      await storage.add(createTask({ id: 'MLST-0001', title: 'Milestone', type: 'milestone' }));
 
-      const counts = storage.counts();
+      const counts = await storage.counts();
       expect(counts.by_type).toEqual({
         task: 1,
         epic: 1,
@@ -236,7 +231,6 @@ describe('Substrates Backend', () => {
         artifact: 1,
         milestone: 1,
       });
-      // total_tasks counts non-epics (backward compat)
       expect(counts.total_tasks).toBe(4);
       expect(counts.total_epics).toBe(1);
     });

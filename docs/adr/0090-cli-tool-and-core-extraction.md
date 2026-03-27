@@ -134,11 +134,17 @@ Consumers of src/core/*.ts:
 
 ### Why CLI exists
 
-CLI is faster than MCP for agents that have shell access. MCP path: agent → stdio bridge → HTTP server → handler → response → bridge → parse. CLI path: `BacklogService.getInstance()` → core function → stdout. No server, no bridge, no protocol framing — zero transport overhead.
+Local vs remote. CLI is the direct local path — no protocol, no bridge, no server. MCP is the remote access protocol — necessary when the agent isn't on the same machine.
 
-- Agents with shell access (Claude Code, Kiro, Codex, etc.) get lower latency by calling `backlog-mcp list --json` than by going through the MCP protocol.
-- MCP remains the standard interface for agents without shell access or in remote/cloud mode.
-- Humans also benefit from CLI for quick terminal operations, piping with `jq`, and scripting.
+```
+Local (CLI):   agent → BacklogService.getInstance() → core function → stdout
+Remote (MCP):  agent → stdio bridge → HTTP server → handler → response → bridge → parse
+```
+
+Locally, MCP is unnecessary ceremony. The CLI calls the same core functions and gets the same results without the transport stack.
+
+- CLI: local agents with shell access, humans in terminal.
+- MCP: remote agents, cloud mode (ADR-0089, ADR-0091), agents without shell access.
 
 ### Scope boundary — local only
 

@@ -8,6 +8,7 @@
     "dev": "concurrently \"pnpm --filter @backlog-mcp/viewer dev\" \"pnpm --filter backlog-mcp dev\"",
     "clean": "pnpm -r clean",
     "start": "pnpm --filter backlog-mcp start",
+    "deploy": "pnpm --filter backlog-mcp run deploy",
     "inspect": "pnpm build && npx @modelcontextprotocol/inspector packages/server/dist/cli/index.mjs"
   },
   "devDependencies": {

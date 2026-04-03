@@ -5,7 +5,8 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { createApp } from './server/hono-app.js';
 import { BacklogService } from './storage/backlog-service.js';
 import { resourceManager } from './resources/manager.js';
-import { operationLogger, withOperationLogging } from './operations/index.js';
+import { operationLogger } from './operations/index.js';
+import { withOperationLogging } from './operations/middleware.js';
 import { eventBus } from './events/index.js';
 import { paths } from './utils/paths.js';
 import { logger } from './utils/logger.js';
@@ -23,9 +24,9 @@ const app = createApp(service, {
   name: paths.packageJson.name,
   version: paths.getVersion(),
   dataDir: paths.backlogDataDir,
-  wrapMcpServer: withOperationLogging,
+  operationLog: operationLogger,
+  wrapMcpServer: withOperationLogging(operationLogger, { eventBus }),
   resourceManager,
-  operationLogger,
   eventBus,
   staticMiddleware: serveStatic({ root: paths.viewerDist }),
   readLocalFile,

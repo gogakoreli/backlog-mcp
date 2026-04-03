@@ -5,6 +5,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { GitHub } from 'arctic';
 import type { IBacklogService } from '../storage/service-types.js';
+import type { IOperationLog } from '../operations/types.js';
 import { registerTools, type ToolDeps } from '../tools/index.js';
 // Note: paths.ts and operations/index.ts are NOT imported here — they pull in
 // Node.js modules (import.meta.url, fs, path) that break the Workers bundle.
@@ -23,14 +24,14 @@ export interface AppDeps extends ToolDeps {
   githubClientId?: string;           // GitHub OAuth App client ID
   githubClientSecret?: string;       // GitHub OAuth App client secret
   allowedGithubUsernames?: string;   // comma-separated allowlist e.g. "gkoreli,gogakoreli"
+  // Operation log — same interface for local (JSONL) and cloud (D1)
+  operationLog?: IOperationLog;
   // Node.js-only
-  wrapMcpServer?: (server: McpServer) => McpServer; // e.g. withOperationLogging
+  wrapMcpServer?: (server: McpServer) => McpServer; // e.g. withOperationLogging(...)
   staticMiddleware?: any;  // result of serveStatic({ root: '...' }) from @hono/node-server/serve-static
   eventBus?: any;          // for SSE push
   readLocalFile?: (filePath: string) => string | null;  // injected by node-server.ts; absent in Worker
-  // Operation log — one of these is provided
-  operationLogger?: any;   // local: OperationLogger instance
-  db?: any;                // cloud: D1 database for operations queries
+  db?: any;                // cloud: D1 database — used for mode detection only
 }
 
 export function createApp(service: IBacklogService, deps?: AppDeps): Hono {
@@ -464,102 +465,54 @@ export function createApp(service: IBacklogService, deps?: AppDeps): Hono {
 
   // GET /operations/count/:taskId  (must be before /operations)
   app.get('/operations/count/:taskId', async (c) => {
-    const taskId = c.req.param('taskId');
-    if (deps?.operationLogger) {
-      return c.json({ count: deps.operationLogger.countForTask(taskId) });
-    }
-    if (deps?.db) {
-      const row = await deps.db.prepare('SELECT COUNT(*) as count FROM operations WHERE task_id = ?').bind(taskId).first() as { count: number } | null;
-      return c.json({ count: row?.count ?? 0 });
-    }
-    return c.json({ count: 0 });
+    if (!deps?.operationLog) return c.json({ count: 0 });
+    const count = await deps.operationLog.countForTask(c.req.param('taskId'));
+    return c.json({ count });
   });
 
-  // GET /operations
+  // GET /operations — works identically for local and cloud via IOperationLog
   app.get('/operations', async (c) => {
+    if (!deps?.operationLog) return c.json([]);
+
     const limit = parseInt(c.req.query('limit') ?? '50', 10);
     const taskFilter = c.req.query('task');
     const date = c.req.query('date');
     const tz = c.req.query('tz');
 
-    if (deps?.operationLogger) {
-      // Local mode: operationLogger.read() returns enriched data with sync storage.get() calls.
-      // Since service.get() is now async, we do the enrichment here with async lookups.
-      const operations = deps.operationLogger.read({
-        limit: date ? 1000 : limit, // Higher limit when filtering by date
-        taskId: taskFilter || undefined,
-        date: date || undefined,
-        tzOffset: tz != null ? parseInt(tz) : undefined,
-      });
+    const operations = await deps.operationLog.query({
+      limit: date ? 1000 : limit,
+      taskId: taskFilter || undefined,
+      date: date || undefined,
+      tzOffset: tz != null ? parseInt(tz) : undefined,
+    });
 
-      // Enrich operations with task titles and epic info
-      const taskCache = new Map<string, { title?: string; epicId?: string }>();
-      const epicCache = new Map<string, string | undefined>();
+    // Enrich with task/epic titles via the service (same for local and cloud)
+    const taskCache = new Map<string, { title?: string; epicId?: string }>();
+    const epicCache = new Map<string, string | undefined>();
 
-      const enriched = await Promise.all(operations.map(async (op: any) => {
-        if (op.resourceId) {
-          if (!taskCache.has(op.resourceId)) {
-            const taskData = await service.get(op.resourceId);
-            taskCache.set(op.resourceId, {
-              title: taskData?.title,
-              epicId: taskData?.parent_id ?? taskData?.epic_id,
-            });
-          }
-          const cached = taskCache.get(op.resourceId)!;
+    const enriched = await Promise.all(operations.map(async (op) => {
+      const id = op.resourceId;
+      if (!id) return op;
 
-          // Resolve epic title if task has an epic
-          let epicTitle: string | undefined;
-          if (cached.epicId) {
-            if (!epicCache.has(cached.epicId)) {
-              const epicData = await service.get(cached.epicId);
-              epicCache.set(cached.epicId, epicData?.title);
-            }
-            epicTitle = epicCache.get(cached.epicId);
-          }
+      if (!taskCache.has(id)) {
+        const entity = await service.get(id);
+        taskCache.set(id, { title: entity?.title, epicId: entity?.parent_id ?? entity?.epic_id });
+      }
+      const cached = taskCache.get(id)!;
 
-          return { ...op, resourceTitle: cached.title, epicId: cached.epicId, epicTitle };
+      let epicTitle: string | undefined;
+      if (cached.epicId) {
+        if (!epicCache.has(cached.epicId)) {
+          const epic = await service.get(cached.epicId);
+          epicCache.set(cached.epicId, epic?.title);
         }
-        return op;
-      }));
+        epicTitle = epicCache.get(cached.epicId);
+      }
 
-      return c.json(enriched);
-    }
+      return { ...op, resourceTitle: cached.title, epicId: cached.epicId, epicTitle };
+    }));
 
-    if (deps?.db) {
-      type OpRow = { id: number; ts: string; tool: string; actor: string; resource_id: string | null; task_id: string | null; params: string | null; result: string | null };
-      const { results: ops } = await deps.db.prepare('SELECT * FROM operations WHERE (task_id = ? OR ? IS NULL) ORDER BY id DESC LIMIT ?').bind(taskFilter ?? null, taskFilter ?? null, limit).all() as { results: OpRow[] };
-
-      const titleCache = new Map<string, string | undefined>();
-      const enriched = await Promise.all(ops.map(async (op: OpRow) => {
-        let resourceTitle: string | undefined;
-        let epicId: string | undefined;
-        let epicTitle: string | undefined;
-
-        if (op.task_id) {
-          if (!titleCache.has(op.task_id)) {
-            const entity = await service.get(op.task_id);
-            titleCache.set(op.task_id, entity?.title);
-            if (entity?.epic_id) {
-              if (!titleCache.has(entity.epic_id)) {
-                const epic = await service.get(entity.epic_id);
-                titleCache.set(entity.epic_id, epic?.title);
-              }
-              epicId = entity.epic_id;
-              epicTitle = titleCache.get(entity.epic_id);
-            }
-          } else {
-            resourceTitle = titleCache.get(op.task_id);
-          }
-          if (!resourceTitle) {
-            resourceTitle = titleCache.get(op.task_id);
-          }
-        }
-
-        return { ...op, params: tryParseJson(op.params), result: tryParseJson(op.result), resourceTitle, epicId, epicTitle };
-      }));
-
-      return c.json(enriched);
-    }
+    return c.json(enriched);
 
     return c.json([]);
   });

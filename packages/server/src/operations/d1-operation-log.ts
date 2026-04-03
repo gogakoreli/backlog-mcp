@@ -4,7 +4,7 @@
  * All writes use ctx.waitUntil() so they are non-blocking.
  */
 
-import type { OperationEntry, OperationFilter } from './types.js';
+import type { OperationEntry, OperationFilter, IOperationLog } from './types.js';
 
 // Minimal D1 API surface typed here to enable generic calls without
 // requiring @cloudflare/workers-types at Node.js compile time.
@@ -50,7 +50,7 @@ function rowToEntry(row: OperationRow): OperationEntry {
   };
 }
 
-export class D1OperationLog {
+export class D1OperationLog implements IOperationLog {
   constructor(
     private readonly db: D1Database,
     private readonly ctx: WorkerExecutionContext,

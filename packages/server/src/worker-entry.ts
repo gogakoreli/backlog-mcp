@@ -4,6 +4,8 @@
  */
 import { createApp } from './server/hono-app.js';
 import { D1BacklogService } from './storage/d1-backlog-service.js';
+import { D1OperationLog } from './operations/d1-operation-log.js';
+import { withOperationLogging } from './operations/middleware.js';
 
 export interface WorkerEnv {
   DB: any;            // D1Database
@@ -16,8 +18,10 @@ export interface WorkerEnv {
 }
 
 export default {
-  async fetch(request: Request, env: WorkerEnv): Promise<Response> {
+  async fetch(request: Request, env: WorkerEnv, ctx: any): Promise<Response> {
     const service = new D1BacklogService(env.DB);
+    const operationLog = new D1OperationLog(env.DB, ctx);
+
     const app = createApp(service, {
       name: 'backlog-mcp',
       version: '0.47.2',
@@ -28,6 +32,10 @@ export default {
       githubClientId: env.GITHUB_CLIENT_ID,
       githubClientSecret: env.GITHUB_CLIENT_SECRET,
       allowedGithubUsernames: env.ALLOWED_GITHUB_USERNAMES,
+      operationLog,
+      wrapMcpServer: withOperationLogging(operationLog, {
+        actor: { type: 'agent', name: 'claude' },
+      }),
     });
     return app.fetch(request);
   },

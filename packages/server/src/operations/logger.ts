@@ -5,7 +5,7 @@
 
 import { OperationStorage } from './storage.js';
 import { extractResourceId } from './resource-id.js';
-import type { Actor, OperationEntry, OperationFilter } from './types.js';
+import type { Actor, OperationEntry, OperationFilter, IOperationLog } from './types.js';
 import { WRITE_TOOLS } from './types.js';
 
 // Read actor info from environment at module load
@@ -16,43 +16,47 @@ const actor: Actor = {
   taskContext: process.env.BACKLOG_TASK_CONTEXT,
 };
 
-class OperationLogger {
+class OperationLogger implements IOperationLog {
   private storage: OperationStorage;
 
   constructor() {
     this.storage = new OperationStorage();
   }
 
+  /** IOperationLog: append a pre-built entry directly. */
+  append(entry: OperationEntry): void {
+    this.storage.append(entry);
+  }
+
   /**
-   * Log a tool operation. Only logs write operations.
+   * Convenience helper: build and append an entry from raw tool call data.
+   * Only logs write operations.
    */
   log(tool: string, params: Record<string, unknown>, result: unknown): void {
     if (!WRITE_TOOLS.includes(tool as any)) return;
-
-    const entry: OperationEntry = {
+    this.storage.append({
       ts: new Date().toISOString(),
       tool,
       params,
       result,
       resourceId: extractResourceId(tool, params, result),
       actor,
-    };
-
-    this.storage.append(entry);
+    });
   }
 
-  /**
-   * Read recent operations, optionally filtered by task ID.
-   */
+  /** IOperationLog: async query (wraps synchronous storage). */
+  async query(filter: OperationFilter = {}): Promise<OperationEntry[]> {
+    return this.storage.query(filter);
+  }
+
+  /** IOperationLog: async count (wraps synchronous storage). */
+  async countForTask(taskId: string): Promise<number> {
+    return this.storage.countForTask(taskId);
+  }
+
+  /** @deprecated Use query() — kept for backward compat with existing callers. */
   read(options: OperationFilter = {}): OperationEntry[] {
     return this.storage.query(options);
-  }
-
-  /**
-   * Count operations for a specific task (for badge display).
-   */
-  countForTask(taskId: string): number {
-    return this.storage.countForTask(taskId);
   }
 }
 

@@ -4,7 +4,11 @@ A task backlog MCP server for LLM agents. Works with any MCP client — Claude, 
 
 Agents create tasks, track progress, attach artifacts, and search across everything. Humans get a real-time web viewer to see what agents are doing.
 
+Runs locally out of the box. Can also be self-hosted on Cloudflare Workers + D1 for a free, always-on remote backlog accessible from any device or MCP client.
+
 > **Quick start**: Tell your LLM: `Add backlog-mcp to .mcp.json and use it to track tasks`
+
+> **Live demo**: [backlog-mcp-viewer.pages.dev](https://backlog-mcp-viewer.pages.dev/) — the viewer UI connected to a real hosted instance
 
 ![backlog-mcp web viewer](https://raw.githubusercontent.com/gkoreli/backlog-mcp/main/backlog-viewer-ui.png)
 
@@ -33,6 +37,57 @@ Add to your MCP config (`.mcp.json` or your MCP client config):
   }
 }
 ```
+
+## Self-Hosting on Cloudflare (Optional)
+
+Host your own always-on remote backlog for free using Cloudflare Workers + D1.
+Accessible from any device or MCP client — no local server process required.
+
+**Prerequisites**: Cloudflare account (free tier is enough), `wrangler` CLI, a GitHub OAuth App.
+
+```bash
+# 1. Clone and install
+git clone https://github.com/gkoreli/backlog-mcp.git
+cd backlog-mcp
+pnpm install
+
+# 2. Create the D1 database
+npx wrangler d1 create backlog-mcp
+# Copy the database_id into packages/server/wrangler.jsonc
+
+# 3. Apply the schema
+npx wrangler d1 execute backlog-mcp --file=packages/server/schema.sql
+
+# 4. Set secrets
+npx wrangler secret put JWT_SECRET          # any strong random string
+npx wrangler secret put API_KEY             # your personal API key (for Claude Desktop)
+npx wrangler secret put GITHUB_CLIENT_ID    # GitHub OAuth App client ID
+npx wrangler secret put GITHUB_CLIENT_SECRET
+npx wrangler secret put ALLOWED_GITHUB_USERNAMES  # comma-separated: "you,youralt"
+
+# 5. Deploy
+cd packages/server && npx wrangler deploy
+```
+
+**GitHub OAuth App setup**: go to GitHub → Settings → Developer settings → OAuth Apps → New.
+Set the callback URL to `https://<your-worker>.workers.dev/oauth/github/callback`.
+
+Once deployed, add to your MCP client config:
+
+```json
+{
+  "mcpServers": {
+    "backlog": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://<your-worker>.workers.dev/mcp"]
+    }
+  }
+}
+```
+
+Claude.ai and ChatGPT can connect directly via the remote MCP URL — no local process needed.
+
+---
 
 ## Web Viewer
 

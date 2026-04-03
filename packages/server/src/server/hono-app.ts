@@ -71,37 +71,51 @@ export function createApp(service: IBacklogService, deps?: AppDeps): Hono {
     });
   });
 
-  // OAuth 2.0 authorization endpoint — Authorization Code + PKCE
-  // If GitHub OAuth is configured: redirects to GitHub for identity verification.
-  // Otherwise: shows API key form (legacy fallback).
-  app.get('/authorize', async (c) => {
+  // OAuth 2.0 authorization endpoint — shows auth options page.
+  // Displays "Sign in with GitHub" button and/or API key form depending on config.
+  app.get('/authorize', (c) => {
     const githubClientId = deps?.githubClientId ?? process.env.GITHUB_CLIENT_ID;
     const githubClientSecret = deps?.githubClientSecret ?? process.env.GITHUB_CLIENT_SECRET;
-    const jwtSecret = deps?.jwtSecret ?? process.env.JWT_SECRET;
+    const apiKey = deps?.apiKey ?? process.env.API_KEY;
+    const githubEnabled = !!(githubClientId && githubClientSecret);
 
-    if (githubClientId && githubClientSecret && jwtSecret) {
-      // GitHub OAuth path — encode all original OAuth params into a signed state JWT
-      // so they survive the GitHub redirect without any server-side storage.
-      const q = (name: string) => c.req.query(name) ?? '';
-      const origin = new URL(c.req.url).origin;
-      const now = Math.floor(Date.now() / 1000);
-      const stateToken = await signJWT({
-        type: 'github_state',
-        redirect_uri: q('redirect_uri'),
-        code_challenge: q('code_challenge'),
-        code_challenge_method: q('code_challenge_method'),
-        client_state: q('state'),
-        client_id: q('client_id'),
-        iat: now,
-        exp: now + 600, // 10 minutes to complete GitHub auth
-      }, jwtSecret);
-      const github = new GitHub(githubClientId, githubClientSecret, `${origin}/oauth/github/callback`);
-      return c.redirect(github.createAuthorizationURL(stateToken, []).toString());
-    }
-
-    // API key form fallback (used when GitHub OAuth is not configured)
     const q = (name: string) => c.req.query(name) ?? '';
     const error = c.req.query('error');
+
+    // Preserve all OAuth params in the GitHub start link
+    const oauthParams = new URLSearchParams({
+      response_type: q('response_type'),
+      client_id: q('client_id'),
+      redirect_uri: q('redirect_uri'),
+      code_challenge: q('code_challenge'),
+      code_challenge_method: q('code_challenge_method'),
+      state: q('state'),
+      scope: q('scope'),
+    }).toString();
+
+    const githubButton = githubEnabled ? `
+    <a href="/oauth/github/start?${oauthParams}" class="github-btn">
+      <svg height="20" viewBox="0 0 16 16" width="20" fill="currentColor" style="vertical-align:middle;margin-right:8px"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      Sign in with GitHub
+    </a>` : '';
+
+    const divider = githubEnabled && apiKey ? `<div class="divider"><span>or</span></div>` : '';
+
+    const apiKeyForm = apiKey ? `
+    <form method="POST" action="/authorize">
+      <input type="hidden" name="response_type" value="${q('response_type')}">
+      <input type="hidden" name="client_id" value="${q('client_id')}">
+      <input type="hidden" name="redirect_uri" value="${q('redirect_uri')}">
+      <input type="hidden" name="code_challenge" value="${q('code_challenge')}">
+      <input type="hidden" name="code_challenge_method" value="${q('code_challenge_method')}">
+      <input type="hidden" name="state" value="${q('state')}">
+      <input type="hidden" name="scope" value="${q('scope')}">
+      <label for="password">API Key</label>
+      <input type="password" id="password" name="password" autofocus placeholder="Your API key">
+      ${error ? `<p class="error">Invalid API key. Try again.</p>` : ''}
+      <button type="submit">Authorize with API Key</button>
+    </form>` : '';
+
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -114,30 +128,53 @@ export function createApp(service: IBacklogService, deps?: AppDeps): Hono {
     p { color: #555; font-size: 0.95rem; margin-bottom: 24px; }
     label { display: block; font-size: 0.9rem; margin-bottom: 6px; font-weight: 500; }
     input[type=password] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 1rem; box-sizing: border-box; }
-    button { margin-top: 16px; width: 100%; padding: 11px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 1rem; cursor: pointer; }
+    button, .github-btn { display: flex; align-items: center; justify-content: center; margin-top: 16px; width: 100%; padding: 11px; border: none; border-radius: 6px; font-size: 1rem; cursor: pointer; text-decoration: none; box-sizing: border-box; }
+    button { background: #2563eb; color: #fff; }
     button:hover { background: #1d4ed8; }
+    .github-btn { background: #24292e; color: #fff; }
+    .github-btn:hover { background: #1a1e22; }
+    .divider { display: flex; align-items: center; gap: 12px; margin: 20px 0; color: #999; font-size: 0.85rem; }
+    .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: #e5e7eb; }
     .error { color: #dc2626; font-size: 0.9rem; margin-top: 8px; }
   </style>
 </head>
 <body>
   <h1>Authorize backlog-mcp</h1>
-  <p><strong>${q('client_id') || 'A client'}</strong> is requesting access to your backlog. Enter your API key to approve.</p>
-  <form method="POST" action="/authorize">
-    <input type="hidden" name="response_type" value="${q('response_type') || ''}">
-    <input type="hidden" name="client_id" value="${q('client_id') || ''}">
-    <input type="hidden" name="redirect_uri" value="${q('redirect_uri') || ''}">
-    <input type="hidden" name="code_challenge" value="${q('code_challenge') || ''}">
-    <input type="hidden" name="code_challenge_method" value="${q('code_challenge_method') || ''}">
-    <input type="hidden" name="state" value="${q('state') || ''}">
-    <input type="hidden" name="scope" value="${q('scope') || ''}">
-    <label for="password">API Key</label>
-    <input type="password" id="password" name="password" autofocus placeholder="Your API key">
-    ${error ? `<p class="error">Invalid API key. Try again.</p>` : ''}
-    <button type="submit">Authorize Access</button>
-  </form>
+  <p><strong>${q('client_id') || 'A client'}</strong> is requesting access to your backlog.</p>
+  ${githubButton}
+  ${divider}
+  ${apiKeyForm}
 </body>
 </html>`;
     return c.html(html);
+  });
+
+  // GitHub OAuth start — redirects to GitHub with signed state JWT carrying OAuth params.
+  // Separated from GET /authorize so the auth page is always shown first.
+  app.get('/oauth/github/start', async (c) => {
+    const githubClientId = deps?.githubClientId ?? process.env.GITHUB_CLIENT_ID;
+    const githubClientSecret = deps?.githubClientSecret ?? process.env.GITHUB_CLIENT_SECRET;
+    const jwtSecret = deps?.jwtSecret ?? process.env.JWT_SECRET;
+
+    if (!githubClientId || !githubClientSecret || !jwtSecret) {
+      return c.html(authErrorPage('GitHub OAuth is not configured on this server.'), 500);
+    }
+
+    const q = (name: string) => c.req.query(name) ?? '';
+    const origin = new URL(c.req.url).origin;
+    const now = Math.floor(Date.now() / 1000);
+    const stateToken = await signJWT({
+      type: 'github_state',
+      redirect_uri: q('redirect_uri'),
+      code_challenge: q('code_challenge'),
+      code_challenge_method: q('code_challenge_method'),
+      client_state: q('state'),
+      client_id: q('client_id'),
+      iat: now,
+      exp: now + 600, // 10 minutes to complete GitHub auth
+    }, jwtSecret);
+    const github = new GitHub(githubClientId, githubClientSecret, `${origin}/oauth/github/callback`);
+    return c.redirect(github.createAuthorizationURL(stateToken, []).toString());
   });
 
   // GitHub OAuth callback — exchanges GitHub code for identity, checks allowlist,

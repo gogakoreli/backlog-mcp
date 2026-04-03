@@ -165,86 +165,69 @@ export class D1StorageAdapter implements AsyncStorageAdapter {
   async add(task: Entity): Promise<void> {
     const body = toNull(task.description);
 
-    await this.db.batch([
-      this.db
-        .prepare(
-          `INSERT INTO tasks
-            (id, type, title, status, epic_id, parent_id,
-             blocked_reason, evidence, "references",
-             due_date, content_type, path, body, created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-        )
-        .bind(
-          task.id,
-          task.type ?? 'task',
-          task.title,
-          task.status,
-          toNull(task.epic_id),
-          toNull(task.parent_id),
-          task.blocked_reason ? JSON.stringify(task.blocked_reason) : null,
-          task.evidence ? JSON.stringify(task.evidence) : null,
-          task.references ? JSON.stringify(task.references) : null,
-          toNull(task.due_date),
-          toNull(task.content_type),
-          toNull(task.path),
-          body,
-          task.created_at,
-          task.updated_at,
-        ),
-      // Sync FTS5 index
-      this.db
-        .prepare(
-          'INSERT INTO tasks_fts(rowid, id, title, body) SELECT rowid, id, title, body FROM tasks WHERE id = ?'
-        )
-        .bind(task.id),
-    ]);
+    await this.db
+      .prepare(
+        `INSERT INTO tasks
+          (id, type, title, status, epic_id, parent_id,
+           blocked_reason, evidence, "references",
+           due_date, content_type, path, body, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      )
+      .bind(
+        task.id,
+        task.type ?? 'task',
+        task.title,
+        task.status,
+        toNull(task.epic_id),
+        toNull(task.parent_id),
+        task.blocked_reason ? JSON.stringify(task.blocked_reason) : null,
+        task.evidence ? JSON.stringify(task.evidence) : null,
+        task.references ? JSON.stringify(task.references) : null,
+        toNull(task.due_date),
+        toNull(task.content_type),
+        toNull(task.path),
+        body,
+        task.created_at,
+        task.updated_at,
+      )
+      .run();
+
+    await this.syncFts('insert', task.id);
   }
 
   async save(task: Entity): Promise<void> {
     const body = toNull(task.description);
 
-    await this.db.batch([
-      // Remove old FTS5 entry FIRST — must read old values from tasks before UPDATE overwrites them
-      this.db
-        .prepare(
-          "INSERT INTO tasks_fts(tasks_fts, rowid, id, title, body) SELECT 'delete', rowid, id, title, body FROM tasks WHERE id = ?"
-        )
-        .bind(task.id),
-      this.db
-        .prepare(
-          `UPDATE tasks SET
-            type = ?, title = ?, status = ?, epic_id = ?, parent_id = ?,
-            blocked_reason = ?, evidence = ?, "references" = ?,
-            due_date = ?, content_type = ?, path = ?, body = ?, updated_at = ?
-           WHERE id = ?`
-        )
-        .bind(
-          task.type ?? 'task',
-          task.title,
-          task.status,
-          toNull(task.epic_id),
-          toNull(task.parent_id),
-          task.blocked_reason ? JSON.stringify(task.blocked_reason) : null,
-          task.evidence ? JSON.stringify(task.evidence) : null,
-          task.references ? JSON.stringify(task.references) : null,
-          toNull(task.due_date),
-          toNull(task.content_type),
-          toNull(task.path),
-          body,
-          task.updated_at,
-          task.id,
-        ),
-      // Insert updated FTS5 entry AFTER UPDATE so new values are picked up
-      this.db
-        .prepare(
-          'INSERT INTO tasks_fts(rowid, id, title, body) SELECT rowid, id, title, body FROM tasks WHERE id = ?'
-        )
-        .bind(task.id),
-    ]);
+    await this.db
+      .prepare(
+        `UPDATE tasks SET
+          type = ?, title = ?, status = ?, epic_id = ?, parent_id = ?,
+          blocked_reason = ?, evidence = ?, "references" = ?,
+          due_date = ?, content_type = ?, path = ?, body = ?, updated_at = ?
+         WHERE id = ?`
+      )
+      .bind(
+        task.type ?? 'task',
+        task.title,
+        task.status,
+        toNull(task.epic_id),
+        toNull(task.parent_id),
+        task.blocked_reason ? JSON.stringify(task.blocked_reason) : null,
+        task.evidence ? JSON.stringify(task.evidence) : null,
+        task.references ? JSON.stringify(task.references) : null,
+        toNull(task.due_date),
+        toNull(task.content_type),
+        toNull(task.path),
+        body,
+        task.updated_at,
+        task.id,
+      )
+      .run();
+
+    await this.syncFts('update', task.id);
   }
 
   async delete(id: string): Promise<boolean> {
-    // Check existence first
     const row = await this.db
       .prepare('SELECT id FROM tasks WHERE id = ? LIMIT 1')
       .bind(id)
@@ -252,17 +235,9 @@ export class D1StorageAdapter implements AsyncStorageAdapter {
 
     if (!row) return false;
 
-    await this.db.batch([
-      // Remove FTS5 entry before deleting the row (rowid lookup requires the row)
-      this.db
-        .prepare(
-          "INSERT INTO tasks_fts(tasks_fts, rowid) VALUES('delete', (SELECT rowid FROM tasks WHERE id = ?))"
-        )
-        .bind(id),
-      this.db
-        .prepare('DELETE FROM tasks WHERE id = ?')
-        .bind(id),
-    ]);
+    // Sync FTS before deleting — rowid lookup requires the row to still exist
+    await this.syncFts('delete', id);
+    await this.db.prepare('DELETE FROM tasks WHERE id = ?').bind(id).run();
 
     return true;
   }
@@ -329,17 +304,79 @@ export class D1StorageAdapter implements AsyncStorageAdapter {
   // ── Full-text search ─────────────────────────────────────────────────────
 
   async search(query: string, limit = 20): Promise<Entity[]> {
-    const result = await this.db
-      .prepare(
-        `SELECT t.* FROM tasks t
-         JOIN tasks_fts f ON t.rowid = f.rowid
-         WHERE tasks_fts MATCH ?
-         ORDER BY bm25(tasks_fts)
-         LIMIT ?`
-      )
-      .bind(query, limit)
-      .all<TaskRow>();
+    try {
+      const result = await this.db
+        .prepare(
+          `SELECT t.* FROM tasks t
+           JOIN tasks_fts f ON t.rowid = f.rowid
+           WHERE tasks_fts MATCH ?
+           ORDER BY bm25(tasks_fts)
+           LIMIT ?`
+        )
+        .bind(query, limit)
+        .all<TaskRow>();
+      return (result.results ?? []).map(rowToEntity);
+    } catch {
+      // FTS index is corrupt or unavailable — attempt a rebuild then retry once
+      try {
+        await this.db.prepare("INSERT INTO tasks_fts(tasks_fts) VALUES('rebuild')").run();
+        const result = await this.db
+          .prepare(
+            `SELECT t.* FROM tasks t
+             JOIN tasks_fts f ON t.rowid = f.rowid
+             WHERE tasks_fts MATCH ?
+             ORDER BY bm25(tasks_fts)
+             LIMIT ?`
+          )
+          .bind(query, limit)
+          .all<TaskRow>();
+        return (result.results ?? []).map(rowToEntity);
+      } catch {
+        // Rebuild failed — fall back to LIKE search so the app stays functional
+        const like = `%${query}%`;
+        const result = await this.db
+          .prepare(
+            `SELECT * FROM tasks WHERE title LIKE ? OR body LIKE ? ORDER BY updated_at DESC LIMIT ?`
+          )
+          .bind(like, like, limit)
+          .all<TaskRow>();
+        return (result.results ?? []).map(rowToEntity);
+      }
+    }
+  }
 
-    return (result.results ?? []).map(rowToEntity);
+  // ── FTS5 sync ────────────────────────────────────────────────────────────
+
+  // Keeps the FTS index in sync after writes. Separated from the main write
+  // so FTS failures never block task operations. Attempts a full rebuild if
+  // an individual sync fails (e.g. after a crash left the index inconsistent).
+  private async syncFts(op: 'insert' | 'update' | 'delete', id: string): Promise<void> {
+    try {
+      if (op === 'insert') {
+        await this.db
+          .prepare('INSERT INTO tasks_fts(rowid, id, title, body) SELECT rowid, id, title, body FROM tasks WHERE id = ?')
+          .bind(id)
+          .run();
+      } else if (op === 'update') {
+        await this.db.batch([
+          this.db
+            .prepare("INSERT INTO tasks_fts(tasks_fts, rowid, id, title, body) SELECT 'delete', rowid, id, title, body FROM tasks WHERE id = ?")
+            .bind(id),
+          this.db
+            .prepare('INSERT INTO tasks_fts(rowid, id, title, body) SELECT rowid, id, title, body FROM tasks WHERE id = ?')
+            .bind(id),
+        ]);
+      } else {
+        await this.db
+          .prepare("INSERT INTO tasks_fts(tasks_fts, rowid, id, title, body) SELECT 'delete', rowid, id, title, body FROM tasks WHERE id = ?")
+          .bind(id)
+          .run();
+      }
+    } catch {
+      // Individual sync failed — rebuild the entire index to restore consistency
+      try {
+        await this.db.prepare("INSERT INTO tasks_fts(tasks_fts) VALUES('rebuild')").run();
+      } catch { /* ignore — search will self-heal on next query */ }
+    }
   }
 }

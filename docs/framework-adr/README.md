@@ -20,3 +20,4 @@ These are separate from the main project ADRs in `docs/adr/` because the framewo
 - [0017. Framework Package Extraction — Standalone Reactive Web Component Library](./0017-framework-package-extraction.md) - Accepted - 2026-02-24
 - [0018. Server-Side Rendering — Full SSR Pipeline for `@nisli/core`](./0018-server-side-rendering-renderToString.md) - Proposed - 2026-03-05
 - [0019. Minimal Runtime and Native Platform Alignment](./0019-minimal-runtime-and-native-platform-alignment.md) - Proposed - 2026-04-11
+- [0020. Static Rendering Template Engine](./0020-static-rendering-template-engine.md) - Accepted - 2026-04-11

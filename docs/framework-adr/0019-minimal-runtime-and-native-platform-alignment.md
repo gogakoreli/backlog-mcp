@@ -2,7 +2,7 @@
 
 **Date**: 2026-04-11
 **Status**: Proposed
-**Depends on**: [0014-compiled-positional-templates](./0014-compiled-positional-templates.md), [0017-framework-package-extraction](./0017-framework-package-extraction.md), [0018-static-rendering-template-engine](./0018-static-rendering-template-engine.md)
+**Depends on**: [0014-compiled-positional-templates](./0014-compiled-positional-templates.md), [0017-framework-package-extraction](./0017-framework-package-extraction.md)
 
 ## Context
 
@@ -155,4 +155,3 @@ for the core.
 - Add granular package subpath exports for signal, template, component, query,
   lifecycle, emitter, and ref modules.
 - Evaluate a framework build option that removes comments from published JS.
-

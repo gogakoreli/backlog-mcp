@@ -26,7 +26,7 @@ project already needed this and introduced an ad-hoc renderer at:
 
 That implementation proves the smallest useful shape:
 
-- the same `html` tagged-template call style
+- the same tagged-template authoring shape under an explicit `staticHtml` name
 - escaped interpolated values by default
 - nested template results
 - array flattening
@@ -43,7 +43,7 @@ Add **Phase 1 static rendering** to the same npm package, `@nisli/core`, but
 expose it as a separate subpath export:
 
 ```ts
-import { html, raw, renderToString } from '@nisli/core/static';
+import { staticHtml, raw, renderToString } from '@nisli/core/static';
 ```
 
 The root export remains browser/runtime focused:
@@ -98,7 +98,7 @@ Phase 1 ships a small, production-quality static template renderer:
 
 - package entry point: `@nisli/core/static`
 - source location: `packages/framework/src/static/`
-- exports: `html`, `raw`, `renderToString`, `StaticResult`, `RawHtml`
+- exports: `staticHtml`, `raw`, `renderToString`, `StaticResult`, `RawHtml`
 - no browser globals
 - no DOM parsing
 - no filesystem access
@@ -143,9 +143,9 @@ Phase 1 is complete when:
 
 - `@nisli/core/static` works from source in the workspace.
 - published package metadata includes the `./static` subpath export.
-- `html` escapes interpolated text by default.
+- `staticHtml` escapes interpolated text by default.
 - `raw` is the only built-in escape hatch.
-- `renderToString` uses the same value resolution rules as `html`.
+- `renderToString` uses the same value resolution rules as `staticHtml`.
 - nested templates and arrays render correctly.
 - booleans and nullish values render as empty strings.
 - static tests run in the framework package without jsdom.
@@ -420,9 +420,11 @@ Nisli insight:
 
 ## Rationale
 
-1. **Same package, same language.** Static rendering is not a separate framework.
-   It is another backend for Nisli's template syntax. Versioning it separately
-   would create compatibility drift between browser `html` and static `html`.
+1. **Same package, explicit target.** Static rendering is not a separate
+   framework. It is another backend for Nisli's template syntax. Versioning it
+   separately would create compatibility drift, but naming the static tag
+   `staticHtml` makes refactors safer because browser `html` and static
+   `staticHtml` are not interchangeable.
 
 2. **Subpath export keeps the browser surface clean.** Browser apps importing
    `@nisli/core` should not see static rendering APIs, and bundlers should not
@@ -454,13 +456,13 @@ normalized for this ADR:
  * static.ts - Static HTML renderer for nisli/core-style templates
  *
  * Prototype of `@nisli/core/static` - a build-time `renderToString()` for
- * nisli/core templates. Same `html` tagged template syntax as the browser
+ * nisli/core templates. Same tagged-template authoring shape as the browser
  * version, but resolves to plain HTML strings instead of DOM bindings.
  *
  * Design goal: static templates use the same tagged-template shape as browser
  * templates, but resolve to strings instead of DOM bindings.
  *
- * Current limitation: this is a standalone static `html` function, not a
+ * Current limitation: this is a standalone static tag function, not a
  * server renderer for nisli/core components.
  */
 
@@ -481,7 +483,7 @@ function escapeHtml(str: string): string {
   return str.replace(/[&<>"']/g, ch => ESCAPE_MAP[ch] ?? ch);
 }
 
-export function html(strings: TemplateStringsArray, ...values: unknown[]): StaticResult {
+export function staticHtml(strings: TemplateStringsArray, ...values: unknown[]): StaticResult {
   const result: string[] = [];
 
   for (let i = 0; i < strings.length; i++) {
@@ -545,7 +547,7 @@ export interface RawHtml {
   value: string;
 }
 
-export function html(strings: TemplateStringsArray, ...values: unknown[]): StaticResult;
+export function staticHtml(strings: TemplateStringsArray, ...values: unknown[]): StaticResult;
 export function raw(value: string): RawHtml;
 export function renderToString(value: unknown): string;
 ```
@@ -561,7 +563,7 @@ export function renderToString(value: unknown): string;
 This keeps the call-site options simple:
 
 ```ts
-const page = html`<h1>${title}</h1>`;
+const page = staticHtml`<h1>${title}</h1>`;
 
 page.toString();
 renderToString(page);
@@ -600,13 +602,13 @@ Purpose: convert Nisli-style tagged templates into HTML strings.
 Entry point:
 
 ```ts
-import { html, raw, renderToString } from '@nisli/core/static';
+import { staticHtml, raw, renderToString } from '@nisli/core/static';
 ```
 
 Example:
 
 ```ts
-const body = html`<article><h1>${post.title}</h1>${raw(post.html)}</article>`;
+const body = staticHtml`<article><h1>${post.title}</h1>${raw(post.html)}</article>`;
 const output = renderToString(body);
 ```
 
@@ -623,14 +625,14 @@ semantics.
 Potential additions:
 
 ```ts
-import { each, html, when } from '@nisli/core/static';
+import { each, staticHtml, when } from '@nisli/core/static';
 
 function PostLink(post: Post) {
-  return html`<a href="/${post.slug}">${post.title}</a>`;
+  return staticHtml`<a href="/${post.slug}">${post.title}</a>`;
 }
 
-html`
-  ${when(posts.length > 0, () => html`<h2>Posts</h2>`)}
+staticHtml`
+  ${when(posts.length > 0, () => staticHtml`<h2>Posts</h2>`)}
   <nav>${each(posts, PostLink)}</nav>
 `;
 ```
@@ -649,7 +651,7 @@ documents with custom-element islands that upgrade in the browser.
 Potential convention:
 
 ```ts
-html`
+staticHtml`
   <nisli-theme-toggle>
     <button type="button">Theme</button>
   </nisli-theme-toggle>

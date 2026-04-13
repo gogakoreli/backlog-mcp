@@ -34,6 +34,7 @@ const Counter = component('x-counter', () => {
 - **Lifecycle** — `onMount`, `onCleanup`, `useHostEvent`
 - **Refs** — Direct element access via `ref()`
 - **Control Flow** — `when()` for toggles, `each()` for keyed list rendering
+- **Static Rendering** — DOM-free HTML string rendering via `@nisli/core/static`
 
 ## API
 
@@ -80,6 +81,21 @@ class Nav extends Emitter<{ select: { id: string } }> {}
 inject(Nav).emit('select', { id })
 inject(Nav).on('select', ({ id }) => { ... })
 ```
+
+## Static Rendering
+
+Use the static entry point when you want HTML strings for build-time pages,
+feeds, emails, or other DOM-free output.
+
+```typescript
+import { staticHtml, raw, renderToString } from '@nisli/core/static';
+
+const page = staticHtml`<article>${raw(markdownHtml)}</article>`;
+const output = renderToString(page);
+```
+
+`staticHtml` is intentionally separate from browser `html`. Browser `html`
+returns mountable DOM bindings; `staticHtml` returns escaped static HTML strings.
 
 ## Size
 

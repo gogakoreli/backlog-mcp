@@ -18,13 +18,18 @@
     "dependency-injection"
   ],
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./static": "./src/static/index.ts"
   },
   "publishConfig": {
     "exports": {
       ".": {
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
+      },
+      "./static": {
+        "types": "./dist/static/index.d.ts",
+        "default": "./dist/static/index.js"
       }
     }
   },

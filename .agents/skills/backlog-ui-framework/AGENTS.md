@@ -1,9 +1,9 @@
 # Backlog UI Framework — Complete Agent Guide
 
-This document contains every rule for writing, reviewing, and migrating components using the reactive web component framework in `packages/framework/`. Each rule includes the invariant, the bug it prevents, and correct/incorrect code examples.
+This document contains every rule for writing, reviewing, and migrating components using `@nisli/core`. Each rule includes the invariant, the bug it prevents, and correct/incorrect code examples.
 
-**Framework source**: `packages/framework/src/` (signal.ts, context.ts, emitter.ts, injector.ts, component.ts, template.ts, query.ts, index.ts)
-**ADR documentation**: `docs/framework-adr/`
+**Framework source**: <https://github.com/gkoreli/nisli/tree/main/packages/core/src>
+**ADR documentation**: <https://github.com/gkoreli/nisli/tree/main/docs/adr>
 **Migrated component reference**: `viewer/components/task-filter-bar.ts`
 
 ---
@@ -332,7 +332,7 @@ html`<div class="item type-${type}" class:selected="${selected}">`;
 // Changing type.value does NOT wipe out 'selected' class
 ```
 
-See [ADR 0007](docs/framework-adr/0007-class-attribute-classList-conflict.md) for the full bug analysis.
+See [ADR 0007](https://github.com/gkoreli/nisli/blob/main/docs/adr/0007-class-attribute-classList-conflict.md) for the full bug analysis.
 
 ### `tmpl-computed-views` — Use computed() for multi-branch rendering
 

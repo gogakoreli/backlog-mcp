@@ -14,7 +14,7 @@
     "happy-dom": "^20.5.3"
   },
   "dependencies": {
-    "@nisli/core": "workspace:*",
+    "@nisli/core": "^0.46.0",
     "@backlog-mcp/shared": "workspace:*",
     "@orama/highlight": "^0.1.9",
     "diff": "^8.0.3",

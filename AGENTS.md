@@ -24,14 +24,12 @@ All tests use **memfs** for in-memory filesystem mocking. Zero real file I/O.
 
 | Package | Test location | Count |
 |---------|--------------|-------|
-| Server | `packages/server/src/__tests__/*.test.ts` | 495 |
-| Framework | `packages/framework/src/*.test.ts` | 215 |
+| Server | `packages/server/src/__tests__/*.test.ts` | 537 |
 | Viewer | `packages/viewer/**/*.test.ts` | 92 |
 
 ```bash
-pnpm test                                # All 802 tests
+pnpm test                                # All workspace tests
 pnpm --filter backlog-mcp test           # Server only
-pnpm --filter @nisli/core test           # Framework only
 pnpm --filter @backlog-mcp/viewer test   # Viewer only
 ```
 
@@ -71,23 +69,6 @@ vi.mock('../storage/backlog.js', () => ({
 }));
 ```
 
-### Framework Tests
-
-Framework tests use `jsdom` environment (no memfs needed). They test signals, templates, components, and DOM behavior directly:
-
-```typescript
-import { signal, computed, flush } from './signal.js';
-
-it('should track dependencies', () => {
-  const a = signal(1);
-  const b = computed(() => a.value * 2);
-  expect(b.value).toBe(2);
-  a.value = 5;
-  flush();
-  expect(b.value).toBe(10);
-});
-```
-
 ### Debugging Test Failures
 
 - **ENOENT** — file wasn't created in virtual fs before reading. Check `storage.add()` was called.
@@ -105,30 +86,26 @@ it('should track dependencies', () => {
 
 ### Package Structure
 
-Four workspace packages:
+Three workspace packages:
 
 | Package | npm name | Published | Purpose |
 |---------|----------|-----------|---------|
 | `packages/shared` | `@backlog-mcp/shared` | No (private) | Entity types, ID utilities |
 | `packages/server` | `backlog-mcp` | Yes | MCP server, CLI, HTTP API |
-| `packages/framework` | `@nisli/core` | Yes | Reactive web component framework |
 | `packages/viewer` | `@backlog-mcp/viewer` | No (private) | Web UI, built assets copied into server |
+
+`@nisli/core` is now maintained externally at <https://github.com/gkoreli/nisli>
+and consumed as a normal npm dependency by `packages/viewer`.
 
 ### Internal Package Pattern (Compiled Package)
 
-Shared and framework export source in dev, dist at publish time:
+Shared exports source in dev, dist at publish time:
 
 ```json
 {
-  "exports": {
-    ".": "./src/index.ts",
-    "./static": "./src/static/index.ts"
-  },
+  "exports": { ".": "./src/index.ts" },
   "publishConfig": {
-    "exports": {
-      ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
-      "./static": { "types": "./dist/static/index.d.ts", "default": "./dist/static/index.js" }
-    }
+    "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } }
   }
 }
 ```
@@ -146,7 +123,7 @@ Shared is in server's `devDependencies`, not `dependencies`:
 
 ### Publishing
 
-Two published packages, both via CI:
+The server package is published via CI:
 
 **Server** (`backlog-mcp`):
 ```yaml
@@ -154,13 +131,6 @@ cd packages/server
 cp ../../README.md README.md    # Root README for npm
 pnpm pack                       # workspace:* → real versions
 npm publish backlog-mcp-*.tgz --provenance --access public
-```
-
-**Framework** (`@nisli/core`):
-```yaml
-cd packages/framework
-pnpm pack
-npm publish nisli-core-*.tgz --provenance --access public
 ```
 
 `pnpm pack` resolves `workspace:*` to real version numbers. `npm publish` is used (not `pnpm publish`) for OIDC trusted publishing support.

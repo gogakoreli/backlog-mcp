@@ -14,14 +14,15 @@ Runs locally out of the box. Can also be self-hosted on Cloudflare Workers + D1 
 
 ## What's Inside
 
-This is a monorepo with 4 packages:
+This is a monorepo with 3 packages:
 
 | Package | npm | What it does |
 |---------|-----|-------------|
 | [`packages/server`](packages/server) | [`backlog-mcp`](https://www.npmjs.com/package/backlog-mcp) | MCP server, HTTP API, CLI |
-| [`packages/framework`](packages/framework) | [`@nisli/core`](https://www.npmjs.com/package/@nisli/core) | Reactive web component framework (zero deps) |
-| [`packages/viewer`](packages/viewer) | — | Web UI built on the framework |
+| [`packages/viewer`](packages/viewer) | — | Web UI built on [`@nisli/core`](https://github.com/gkoreli/nisli) |
 | [`packages/shared`](packages/shared) | — | Shared entity types and ID utilities |
+
+The viewer is built with [Nisli](https://github.com/gkoreli/nisli), a zero-dependency reactive Web Component framework published as [`@nisli/core`](https://www.npmjs.com/package/@nisli/core). Nisli started in this repo and now lives separately.
 
 ## Installation
 
@@ -101,6 +102,8 @@ Features:
 - Filter by status, type, epic
 - GitHub-style markdown rendering with Mermaid diagrams
 - URL state persistence
+
+The viewer UI is built with [Nisli](https://github.com/gkoreli/nisli) (`@nisli/core`).
 
 ## Entity Types
 
@@ -290,7 +293,7 @@ git clone https://github.com/gkoreli/backlog-mcp.git
 cd backlog-mcp
 pnpm install
 pnpm build          # Build all packages
-pnpm test           # Run all tests (802 across 3 packages)
+pnpm test           # Run all workspace tests
 pnpm dev            # Server + viewer with hot reload
 ```
 
@@ -299,15 +302,14 @@ pnpm dev            # Server + viewer with hot reload
 ```
 packages/
 ├── server/       # MCP server, search, context hydration, storage
-├── framework/    # @nisli/core — signals, templates, DI, lifecycle
-├── viewer/       # 18 web components built on the framework
+├── viewer/       # Web UI built with @nisli/core
 └── shared/       # Entity types, ID utilities
 docs/
-├── adr/              # 91 architecture decision records
-└── framework-adr/    # 19 framework-specific ADRs
+├── adr/              # backlog-mcp architecture decision records
+└── framework-adr/    # Pointer to Nisli ADRs
 ```
 
-110 ADRs document every significant design decision. See [docs/adr/README.md](docs/adr/README.md) for the full index.
+Backlog ADRs document significant design decisions. See [docs/adr/README.md](docs/adr/README.md) for the full index. Nisli ADRs live in the [Nisli repository](https://github.com/gkoreli/nisli/tree/main/docs/adr).
 
 ## License
 

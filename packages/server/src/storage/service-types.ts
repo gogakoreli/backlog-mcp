@@ -1,5 +1,5 @@
 import type { Entity, Status, EntityType } from '@backlog-mcp/shared';
-import type { UnifiedSearchResult, SearchableType } from '../search/types.js';
+import type { UnifiedSearchResult, SearchableType } from '@backlog-mcp/memory/search';
 import type { ResourceContent } from '../resources/manager.js';
 
 export interface ListFilter {

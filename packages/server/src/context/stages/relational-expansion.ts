@@ -25,7 +25,7 @@
  */
 
 import type { Entity } from '@backlog-mcp/shared';
-import type { Resource } from '@/search/types.js';
+import type { Resource } from '@backlog-mcp/memory/search';
 import type { ContextEntity, ContextResource } from '../types.js';
 import { taskToContextEntity } from './focal-resolution.js';
 

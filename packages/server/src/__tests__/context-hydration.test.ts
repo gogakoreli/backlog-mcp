@@ -15,7 +15,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { Entity } from '@backlog-mcp/shared';
-import type { Resource } from '../search/types.js';
+import type { Resource } from '@backlog-mcp/memory/search';
 import { resolveFocal, taskToContextEntity } from '../context/stages/focal-resolution.js';
 import { expandRelations, type RelationalExpansionDeps } from '../context/stages/relational-expansion.js';
 import { traverseCrossReferences, extractEntityIds, buildReverseReferenceIndex, lookupReverseReferences, type CrossReferenceTraversalDeps } from '../context/stages/cross-reference-traversal.js';

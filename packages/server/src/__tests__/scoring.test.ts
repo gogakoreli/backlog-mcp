@@ -6,7 +6,7 @@
  * tangled inside orama-search-service.ts.
  */
 import { describe, it, expect } from 'vitest';
-import { minmaxNormalize, linearFusion, applyCoordinationBonus, DEFAULT_WEIGHTS, type ScoredHit } from '../search/scoring.js';
+import { minmaxNormalize, linearFusion, applyCoordinationBonus, DEFAULT_WEIGHTS, type ScoredHit } from '@backlog-mcp/memory/search';
 
 describe('scoring module (ADR-0081)', () => {
   describe('minmaxNormalize', () => {

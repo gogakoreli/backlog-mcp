@@ -12,10 +12,10 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { join } from 'node:path';
-import { OramaSearchService, type SearchSnippet } from '../search/index.js';
-import { generateTaskSnippet, generateResourceSnippet } from '../search/snippets.js';
+import { OramaSearchService, type SearchSnippet } from '@backlog-mcp/memory/search';
+import { generateTaskSnippet, generateResourceSnippet } from '@backlog-mcp/memory/search';
 import type { Entity } from '@backlog-mcp/shared';
-import type { Resource } from '../search/types.js';
+import type { Resource } from '@backlog-mcp/memory/search';
 
 function makeTask(overrides: Partial<Entity> & { id: string; title: string }): Task {
   return {

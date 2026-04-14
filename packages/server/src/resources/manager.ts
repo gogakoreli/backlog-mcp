@@ -3,7 +3,7 @@ import { join, relative } from 'node:path';
 import matter from 'gray-matter';
 import { paths } from '@/utils/paths.js';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { Resource } from '@/search/types.js';
+import type { Resource } from '@backlog-mcp/memory/search';
 
 export interface ResourceContent {
   content: string;

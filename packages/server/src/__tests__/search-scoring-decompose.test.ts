@@ -8,12 +8,12 @@
 import { describe, it, beforeAll } from 'vitest';
 import { join } from 'node:path';
 import { create, insert, search, type Results } from '@orama/orama';
-import { compoundWordTokenizer } from '../search/tokenizer.js';
-import { minmaxNormalize, linearFusion, applyCoordinationBonus, type ScoredHit } from '../search/scoring.js';
+import { compoundWordTokenizer } from '@backlog-mcp/memory/search';
+import { minmaxNormalize, linearFusion, applyCoordinationBonus, type ScoredHit } from '@backlog-mcp/memory/search';
 import {
   schema, TEXT_PROPERTIES, UNSORTABLE_PROPERTIES, ENUM_FACETS,
   type OramaDoc, type OramaInstance,
-} from '../search/orama-schema.js';
+} from '@backlog-mcp/memory/search';
 import type { Entity } from '@backlog-mcp/shared';
 
 function makeTask(overrides: Partial<Entity> & { id: string; title: string }): Task {

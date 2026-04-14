@@ -1,8 +1,8 @@
 import { join } from 'node:path';
 import type { Entity, Status, EntityType } from '@backlog-mcp/shared';
 import { TaskStorage } from './task-storage.js';
-import { OramaSearchService, type UnifiedSearchResult, type SearchableType, type SearchSnippet } from '../search/index.js';
-import type { Resource } from '../search/types.js';
+import { OramaSearchService, type UnifiedSearchResult, type SearchableType, type SearchSnippet } from '@backlog-mcp/memory/search';
+import type { Resource } from '@backlog-mcp/memory/search';
 import { resourceManager } from '../resources/manager.js';
 import { paths } from '../utils/paths.js';
 import type { IBacklogService } from './service-types.js';

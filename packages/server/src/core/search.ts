@@ -1,6 +1,6 @@
 import type { Entity } from '@backlog-mcp/shared';
 import type { IBacklogService } from '../storage/service-types.js';
-import type { Resource, SearchableType } from '../search/types.js';
+import type { Resource, SearchableType } from '@backlog-mcp/memory/search';
 import { ValidationError, type SearchParams, type SearchResult, type SearchResultItem } from './types.js';
 
 function isResource(type: string): boolean {

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { join } from 'node:path';
-import { OramaSearchService } from '../search/orama-search-service.js';
+import { OramaSearchService } from '@backlog-mcp/memory/search';
 import type { Entity } from '@backlog-mcp/shared';
 
 /**

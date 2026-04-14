@@ -55,6 +55,7 @@
     "wrangler": "^4.0.0"
   },
   "dependencies": {
+    "@backlog-mcp/memory": "workspace:*",
     "@hono/node-server": "^1.14.0",
     "arctic": "^3.0.0",
     "@huggingface/transformers": "^3.8.1",

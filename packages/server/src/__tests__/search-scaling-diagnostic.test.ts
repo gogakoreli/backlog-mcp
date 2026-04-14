@@ -4,7 +4,7 @@
  */
 import { describe, it, beforeAll } from 'vitest';
 import { join } from 'node:path';
-import { OramaSearchService } from '../search/orama-search-service.js';
+import { OramaSearchService } from '@backlog-mcp/memory/search';
 import type { Entity } from '@backlog-mcp/shared';
 
 const TEST_CACHE_PATH = join(process.cwd(), 'test-data', '.cache', 'search-scale.json');

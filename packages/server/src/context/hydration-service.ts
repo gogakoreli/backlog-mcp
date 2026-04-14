@@ -22,7 +22,7 @@
  */
 
 import type { Entity } from '@backlog-mcp/shared';
-import type { Resource } from '@/search/types.js';
+import type { Resource } from '@backlog-mcp/memory/search';
 import type { ContextRequest, ContextResponse, SessionSummary } from './types.js';
 import { resolveFocal, type SearchDeps } from './stages/focal-resolution.js';
 import { expandRelations, type RelationalExpansionDeps } from './stages/relational-expansion.js';

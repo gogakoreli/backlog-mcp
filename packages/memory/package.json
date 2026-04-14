@@ -1,0 +1,39 @@
+{
+  "name": "@backlog-mcp/memory",
+  "version": "0.46.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./search": "./src/search/index.ts"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./search": {
+        "types": "./dist/search/index.d.ts",
+        "default": "./dist/search/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo"
+  },
+  "dependencies": {
+    "@backlog-mcp/shared": "workspace:*",
+    "@orama/orama": "^3.1.18",
+    "@huggingface/transformers": "^3.8.1"
+  },
+  "peerDependencies": {
+    "pythonia": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "pythonia": {
+      "optional": true
+    }
+  }
+}

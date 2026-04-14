@@ -8,7 +8,11 @@ An ADR documents an important architectural decision along with its context and 
 
 ## Active ADRs
 
+- [0092. Plugin-Based Agentic Memory Architecture](./0092-plugin-based-agentic-memory-architecture.md) - Composable memory plugin system for agent knowledge accumulation, inspired by MemPalace analysis - 2026-04-14
+- [0091. Runtime-Clean Worker Bundle — Capability Injection Pattern](./0091-runtime-clean-worker-bundle.md) - Capability injection pattern for clean worker bundles - 2026-03-26
 - [0090. CLI Tool and Core Function Extraction](./0090-cli-tool-and-core-extraction.md) - Extract business logic to standalone core functions, add Commander-based CLI with 1:1 MCP tool mapping - 2026-03-26
+- [0089. Cloudflare Workers + D1 Migration](./0089-cloudflare-workers-d1-migration.md) - Serverless edge deployment with Hono migration - 2026-03-10
+- [0088. Monorepo Structure — Eliminate Type Duplication](./0088-shared-types-package-eliminate-duplication.md) - Shared types package to eliminate cross-package duplication - 2026-02-21
 - [0087. Remove create from write_resource](./0087-clarify-write-resource-backlog-create-boundaries.md) - All creation through backlog_create, write_resource becomes edit-only - 2026-02-21
 - [0086. Broaden write_resource entity file protection](./0086-broaden-write-resource-entity-protection.md) - Path-based isTaskUri to protect all entity types from create overwrites - 2026-02-21
 - [0081. Independent Retrievers with Linear Fusion Scoring](./0081-independent-retrievers-linear-fusion.md) - Replace hybrid mode + shadow re-ranking with independent BM25/vector retrievers and linear fusion - 2026-02-16

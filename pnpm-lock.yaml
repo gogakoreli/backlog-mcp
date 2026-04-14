@@ -33,6 +33,16 @@ importers:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@22.19.7)(happy-dom@20.5.3)
 
+<<<<<<< HEAD
+||||||| parent of 3a5c8e4 (memory)
+  packages/framework: {}
+
+=======
+  packages/framework: {}
+
+  packages/memory: {}
+
+>>>>>>> 3a5c8e4 (memory)
   packages/server:
     dependencies:
       '@hono/node-server':
